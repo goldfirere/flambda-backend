@@ -315,7 +315,7 @@ type escaping_context =
   | Partial_application
 
 type value_lock =
-  | Lock of { mode : Value_mode.t; escaping_context : escaping_context option }
+  | Lock of { mode : Alloc_mode.t; escaping_context : escaping_context option }
   | Region_lock
 
 module IdTbl =
@@ -757,12 +757,12 @@ let is_ident = function
 
 let is_ext cda =
   match cda.cda_description with
-  | {cstr_tag = Cstr_extension _} -> true
+  | {cstr_tag = Extension _} -> true
   | _ -> false
 
 let is_local_ext cda =
   match cda.cda_description with
-  | {cstr_tag = Cstr_extension(p, _)} -> is_ident p
+  | {cstr_tag = Extension (p,_)} -> is_ident p
   | _ -> false
 
 let diff env1 env2 =
@@ -1201,7 +1201,7 @@ let find_type_data path env =
       | decl ->
           {
             tda_declaration = decl;
-            tda_descriptions = Type_abstract;
+            tda_descriptions = kind_abstract_any;
             tda_shape = Shape.leaf decl.type_uid;
           }
       | exception Not_found -> find_type_full p env
@@ -1219,7 +1219,7 @@ let find_type_data path env =
               List.find (fun cstr -> cstr.cstr_name = s) cstrs
             with Not_found -> assert false
           end
-        | Type_record _ | Type_abstract | Type_open -> assert false
+        | Type_record _ | Type_abstract _ | Type_open -> assert false
         end
       in
       type_of_cstr path cstr
@@ -1456,7 +1456,7 @@ let find_type_expansion path env =
   let decl = find_type path env in
   match decl.type_manifest with
   | Some body when decl.type_private = Public
-              || decl.type_kind <> Type_abstract
+              || not (decl_is_abstract decl)
               || Btype.has_constr_row body ->
       (decl.type_params, body, decl.type_expansion_scope)
   (* The manifest type of Private abstract data types without
@@ -1811,7 +1811,7 @@ let rec components_of_module_maker
                         add_to_tbl descr.lbl_name descr c.comp_labels)
                     lbls;
                   Type_record (lbls, repr)
-              | Type_abstract -> Type_abstract
+              | Type_abstract imm -> Type_abstract imm
               | Type_open -> Type_open
             in
             let shape = Shape.proj cm_shape (Shape.Item.type_ id) in
@@ -2056,7 +2056,7 @@ and store_type ~check id info shape env =
           (fun env (lbl_id, lbl) ->
             store_label ~check info id lbl_id lbl env)
           env labels
-    | Type_abstract -> Type_abstract, env
+    | Type_abstract imm -> Type_abstract imm, env
     | Type_open -> Type_open, env
   in
   let tda =
@@ -2078,7 +2078,7 @@ and store_type_infos ~tda_shape id info env =
   let tda =
     {
       tda_declaration = info;
-      tda_descriptions = Type_abstract;
+      tda_descriptions = kind_abstract_any;
       tda_shape
     }
   in
@@ -2852,7 +2852,7 @@ let lock_mode ~errors ~loc env id vmode locks =
       match lock with
       | Region_lock -> Value_mode.local_to_regional vmode
       | Lock {mode; escaping_context} ->
-          match Value_mode.submode vmode mode with
+          match Value_mode.submode vmode (Value_mode.of_alloc mode) with
           | Ok () -> vmode
           | Error _ ->
               may_lookup_error errors loc env
@@ -3193,7 +3193,7 @@ let lookup_label ~errors ~use ~loc usage lid env =
 let lookup_all_labels_from_type ~use ~loc usage ty_path env =
   match find_type_descrs ty_path env with
   | exception Not_found -> []
-  | Type_variant _ | Type_abstract | Type_open -> []
+  | Type_variant _ | Type_abstract _ | Type_open -> []
   | Type_record (lbls, _) ->
       List.map
         (fun lbl ->
@@ -3215,7 +3215,7 @@ let lookup_constructor ~errors ~use ~loc usage lid env =
 let lookup_all_constructors_from_type ~use ~loc usage ty_path env =
   match find_type_descrs ty_path env with
   | exception Not_found -> []
-  | Type_record _ | Type_abstract | Type_open -> []
+  | Type_record _ | Type_abstract _ | Type_open -> []
   | Type_variant (cstrs, _) ->
       List.map
         (fun cstr ->

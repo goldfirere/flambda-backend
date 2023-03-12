@@ -329,7 +329,7 @@ and print_out_ret mode rm ppf ty =
   | _, Oam_global -> print_out_type_2 rm ppf ty
 
 and print_out_type_local m ppf ty =
-  if Clflags.Extension.is_enabled Local then begin
+  if Language_extension.is_enabled Local then begin
     pp_print_string ppf "local_";
     pp_print_space ppf ();
     print_out_type_2 m ppf ty
@@ -441,7 +441,7 @@ and print_typargs ppf =
       pp_close_box ppf ();
       pp_print_space ppf ()
 and print_out_label ppf (name, mut_or_gbl, arg) =
-  if Clflags.Extension.is_enabled Local then
+  if Language_extension.is_enabled Local then
     let flag =
       match mut_or_gbl with
       | Ogom_mutable -> "mutable "
@@ -742,11 +742,14 @@ and print_out_type_decl kwd ppf td =
     Asttypes.Private -> fprintf ppf " private"
   | Asttypes.Public -> ()
   in
-  let print_immediate ppf =
-    match td.otype_immediate with
-    | Unknown -> ()
-    | Always -> fprintf ppf " [%@%@immediate]"
-    | Always_on_64bits -> fprintf ppf " [%@%@immediate64]"
+  let print_layout ppf =
+    match td.otype_layout with
+    | None -> ()
+    | Some Olay_any -> fprintf ppf " [%@%@any]"
+    | Some Olay_value -> fprintf ppf " [%@%@value]"
+    | Some Olay_void -> fprintf ppf " [%@%@void]"
+    | Some Olay_immediate64 -> fprintf ppf " [%@%@immediate64]"
+    | Some Olay_immediate -> fprintf ppf " [%@%@immediate]"
   in
   let print_unboxed ppf =
     if td.otype_unboxed then fprintf ppf " [%@%@unboxed]" else ()
@@ -776,11 +779,11 @@ and print_out_type_decl kwd ppf td =
     print_name_params
     print_out_tkind ty
     print_constraints
-    print_immediate
+    print_layout
     print_unboxed
 
 and print_simple_out_gf_type ppf (ty, gf) =
-  let locals_enabled = Clflags.Extension.is_enabled Local in
+  let locals_enabled = Language_extension.is_enabled Local in
   match gf with
   | Ogf_global ->
     if locals_enabled then begin
