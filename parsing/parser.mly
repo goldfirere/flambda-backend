@@ -344,9 +344,9 @@ module Generic_array = struct
 end
 
 let ppat_iarray loc elts =
-  (Extensions.Immutable_arrays.pat_of
-     ~loc:(make_loc loc)
-     (Iapat_immutable_array elts)).ppat_desc
+  Extensions.Immutable_arrays.pat_of
+    ~loc:(make_loc loc)
+    (Iapat_immutable_array elts)
 
 let expecting loc nonterm =
     raise Syntaxerr.(Error(Expecting(make_loc loc, nonterm)))
@@ -745,6 +745,14 @@ let mk_directive ~loc name arg =
       pdir_arg = arg;
       pdir_loc = make_loc loc;
     }
+
+let check_layout loc id =
+  begin
+    match id with
+    | ("any" | "value" | "void" | "immediate64" | "immediate") -> ()
+    | _ -> expecting loc "layout"
+  end;
+  Attr.mk ~loc:Location.none (mknoloc id) (PStr [])
 
 %}
 
@@ -2600,7 +2608,7 @@ comprehension_clause:
 
 %inline comprehension_expr:
   comprehension_ext_expr
-    { (Extensions.Comprehensions.expr_of ~loc:(make_loc $sloc) $1).pexp_desc }
+    { Extensions.Comprehensions.expr_of ~loc:(make_loc $sloc) $1 }
 ;
 
 %inline array_simple(ARR_OPEN, ARR_CLOSE, contents_semi_list):
@@ -2688,9 +2696,9 @@ comprehension_clause:
       { Generic_array.expression
           "[:" ":]"
           (fun elts ->
-            (Extensions.Immutable_arrays.expr_of
+             Extensions.Immutable_arrays.expr_of
                ~loc:(make_loc $sloc)
-               (Iaexp_immutable_array elts)).pexp_desc)
+               (Iaexp_immutable_array elts))
           $1 }
   | LBRACKET expr_semi_list RBRACKET
       { fst (mktailexp $loc($3) $2) }
@@ -3305,12 +3313,27 @@ type_parameters:
       { [] }
   | p = type_parameter
       { [p] }
-  | LPAREN ps = separated_nonempty_llist(COMMA, type_parameter) RPAREN
+  | LPAREN
+    ps = separated_nonempty_llist(COMMA, parenthesized_type_parameter)
+    RPAREN
       { ps }
 ;
-type_parameter:
-    type_variance type_variable        { $2, $1 }
+
+layout:
+  ident { check_layout $loc($1) $1 }
 ;
+
+parenthesized_type_parameter:
+    type_parameter { $1 }
+  | type_variance type_variable COLON layout
+      { {$2 with ptyp_attributes = [$4]}, $1 }
+;
+
+type_parameter:
+    type_variance type_variable attributes
+      { {$2 with ptyp_attributes = $3}, $1 }
+;
+
 type_variable:
   mktyp(
     QUOTE tyvar = ident

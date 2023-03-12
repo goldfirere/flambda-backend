@@ -457,7 +457,7 @@ let compile_recmodule ~scopes compile_rhs bindings cont =
   eval_rec_bindings
     (reorder_rec_bindings
        (List.map
-          (fun {mb_id=id; mb_name; mb_expr=modl; mb_loc=loc; _} ->
+          (fun {mb_id=id; mb_name; mb_expr=modl; _} ->
              let id_or_ignore_loc, shape =
                match id with
                | None ->
@@ -465,7 +465,7 @@ let compile_recmodule ~scopes compile_rhs bindings cont =
                  Ignore_loc loc, Result.Error Unnamed
                | Some id -> Id id, init_shape id modl
              in
-             (id_or_ignore_loc, modl.mod_loc, shape, compile_rhs id modl loc))
+             (id_or_ignore_loc, modl.mod_loc, shape, compile_rhs id modl))
           bindings))
     cont
 
@@ -593,7 +593,7 @@ and transl_module ~scopes cc rootpath mexp =
   | Tmod_constraint(arg, _, _, ccarg) ->
       transl_module ~scopes (compose_coercions cc ccarg) rootpath arg
   | Tmod_unpack(arg, _) ->
-      apply_coercion loc Strict cc (Translcore.transl_exp ~scopes arg)
+      apply_coercion loc Strict cc (Translcore.transl_exp ~scopes Not_void arg)
 
 and transl_struct ~scopes loc fields cc rootpath {str_final_env; str_items; _} =
   transl_structure ~scopes loc fields cc rootpath str_final_env str_items
@@ -655,15 +655,21 @@ and transl_structure ~scopes loc fields cc rootpath final_env = function
       size
   | item :: rem ->
       match item.str_desc with
-      | Tstr_eval (expr, _) ->
+      | Tstr_eval (expr, layout, _) ->
           let body, size =
             transl_structure ~scopes loc fields cc rootpath final_env rem
           in
-          Lsequence(transl_exp ~scopes expr, body), size
+          if Layout.can_make_void layout then
+            catch_void (fun void_k -> transl_exp ~scopes void_k expr)
+              body (Pvalue Pgenval),
+            size
+          else Lsequence(transl_exp ~scopes Not_void expr, body), size
       | Tstr_value(rec_flag, pat_expr_list) ->
           (* Translate bindings first *)
           let mk_lam_let =
-            transl_let ~scopes ~in_structure:true rec_flag pat_expr_list Lambda.layout_module_field in
+            transl_let ~scopes ~in_structure:true rec_flag pat_expr_list
+              Lambda.layout_module_field
+          in
           let ext_fields =
             List.rev_append (let_bound_idents pat_expr_list) fields in
           (* Then, translate remainder of struct *)
@@ -720,14 +726,6 @@ and transl_structure ~scopes loc fields cc rootpath final_env = function
                                of_location ~scopes mb.mb_name.loc), body),
               size
           | Some id ->
-              let module_body =
-                Levent (module_body, {
-                  lev_loc = of_location ~scopes mb.mb_loc;
-                  lev_kind = Lev_module_definition id;
-                  lev_repr = None;
-                  lev_env = Env.empty;
-                })
-              in
               Llet(pure_module mb.mb_expr, Lambda.layout_module, id, module_body, body), size
           end
       | Tstr_module ({mb_presence=Mp_absent}) ->
@@ -741,21 +739,13 @@ and transl_structure ~scopes loc fields cc rootpath final_env = function
             transl_structure ~scopes loc ext_fields cc rootpath final_env rem
           in
           let lam =
-            compile_recmodule ~scopes (fun id modl loc ->
+            compile_recmodule ~scopes (fun id modl ->
               match id with
               | None -> transl_module ~scopes Tcoerce_none None modl
               | Some id ->
-                  let module_body =
-                    transl_module
-                      ~scopes:(enter_module_definition ~scopes id)
-                      Tcoerce_none (field_path rootpath id) modl
-                  in
-                  Levent (module_body, {
-                    lev_loc = of_location ~scopes loc;
-                    lev_kind = Lev_module_definition id;
-                    lev_repr = None;
-                    lev_env = Env.empty;
-                  })
+                  transl_module
+                    ~scopes:(enter_module_definition ~scopes id)
+                    Tcoerce_none (field_path rootpath id) modl
             ) bindings body
           in
           lam, size
@@ -1105,10 +1095,17 @@ let transl_store_structure ~scopes glob map prims aliases str =
       Lambda.subst no_env_update subst cont
     | item :: rem ->
         match item.str_desc with
-        | Tstr_eval (expr, _attrs) ->
-            Lsequence(Lambda.subst no_env_update subst
-                        (transl_exp ~scopes expr),
-                      transl_store ~scopes rootpath subst cont rem)
+        | Tstr_eval (expr, layout,  _attrs) ->
+            let body = transl_store ~scopes rootpath subst cont rem in
+            if Layout.can_make_void layout then
+              catch_void
+                (fun void_k -> Lambda.subst no_env_update subst
+                                 (transl_exp ~scopes void_k expr))
+                body (Pvalue Pgenval)
+            else
+              Lsequence(Lambda.subst no_env_update subst
+                          (transl_exp ~scopes Not_void expr),
+                        body)
         | Tstr_value(rec_flag, pat_expr_list) ->
             let ids = let_bound_idents pat_expr_list in
             let lam =
@@ -1238,7 +1235,7 @@ let transl_store_structure ~scopes glob map prims aliases str =
         | Tstr_recmodule bindings ->
             let ids = List.filter_map (fun mb -> mb.mb_id) bindings in
             compile_recmodule ~scopes
-              (fun id modl _loc ->
+              (fun id modl ->
                  Lambda.subst no_env_update subst
                    (match id with
                     | None ->
@@ -1500,12 +1497,17 @@ let transl_store_gen ~scopes module_name ({ str_items = str }, restr) topl =
   let f str =
     let expr =
       match str with
-      | [ { str_desc = Tstr_eval (expr, _attrs) } ] when topl ->
+      | [ { str_desc = Tstr_eval (expr, layout, _attrs) } ] when topl ->
         assert (size = 0);
-        Lambda.subst (fun _ _ env -> env) !transl_store_subst
-          (transl_exp ~scopes expr)
-      | str ->
-        transl_store_structure ~scopes module_name map prims aliases str
+        if Layout.can_make_void layout then
+          catch_void (fun void_k ->
+            Lambda.subst (fun _ _ env -> env) !transl_store_subst
+              (transl_exp ~scopes void_k expr))
+            lambda_unit layout_unit
+        else
+          Lambda.subst (fun _ _ env -> env) !transl_store_subst
+            (transl_exp ~scopes Not_void expr)
+      | str -> transl_store_structure ~scopes module_name map prims aliases str
     in
     Translcore.declare_probe_handlers expr
   in
@@ -1598,14 +1600,23 @@ let close_toplevel_term (lam, ()) =
 
 let transl_toplevel_item ~scopes item =
   match item.str_desc with
-    Tstr_eval (expr, _)
+  | Tstr_eval (expr, layout, _) ->
+      (* This and the next case are special compilation for toplevel "let _ =
+         expr", so that Toploop can display the result of the expression.
+         Otherwise, the normal compilation would result in a Lsequence returning
+         unit. *)
+      if Layout.can_make_void layout then
+        catch_void (fun void_k -> transl_exp ~scopes void_k expr)
+          lambda_unit layout_unit
+      else transl_exp ~scopes Not_void expr
   | Tstr_value(Nonrecursive,
-               [{vb_pat = {pat_desc=Tpat_any};vb_expr = expr}]) ->
-      (* special compilation for toplevel "let _ = expr", so
-         that Toploop can display the result of the expression.
-         Otherwise, the normal compilation would result
-         in a Lsequence returning unit. *)
-      transl_exp ~scopes expr
+               [{vb_pat = {pat_desc=Tpat_any}; vb_sort = sort;
+                 vb_expr = expr}]) ->
+      if Layout.can_make_void (Layout.of_sort sort) then
+        catch_void (fun void_k -> transl_exp ~scopes void_k expr)
+          lambda_unit layout_unit
+      else
+        transl_exp ~scopes Not_void expr
   | Tstr_value(rec_flag, pat_expr_list) ->
       let idents = let_bound_idents pat_expr_list in
       transl_let ~scopes ~in_structure:true rec_flag pat_expr_list
@@ -1638,7 +1649,7 @@ let transl_toplevel_item ~scopes item =
   | Tstr_recmodule bindings ->
       let idents = List.filter_map (fun mb -> mb.mb_id) bindings in
       compile_recmodule ~scopes
-        (fun id modl _loc ->
+        (fun id modl ->
            match id with
            | None ->
              transl_module ~scopes Tcoerce_none None modl

@@ -371,7 +371,7 @@ module Analyser =
 
     let get_type_kind env name_comment_list type_kind =
       match type_kind with
-        Types.Type_abstract ->
+        Types.Type_abstract _ ->
           Odoc_type.Type_abstract
       | Types.Type_variant (l,_) ->
           let f {Types.cd_id=constructor_name;cd_args;cd_res=ret_type} =
@@ -416,6 +416,7 @@ module Analyser =
           { Typedtree.ld_id; ld_mutable; ld_type; ld_loc; ld_attributes } =
         get_field env comments @@
         {Types.ld_id; ld_mutable; ld_global = Unrestricted;
+         ld_layout=Layout.any (* ignored *);
          ld_type=ld_type.Typedtree.ctyp_type;
          ld_loc; ld_attributes; ld_uid=Types.Uid.internal_not_actually_unique} in
       let open Typedtree in

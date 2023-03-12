@@ -168,7 +168,7 @@ let structure_item sub item =
   let loc = sub.location sub item.str_loc in
   let desc =
     match item.str_desc with
-      Tstr_eval (exp, attrs) -> Pstr_eval (sub.expr sub exp, attrs)
+      Tstr_eval (exp, _, attrs) -> Pstr_eval (sub.expr sub exp, attrs)
     | Tstr_value (rec_flag, list) ->
         Pstr_value (rec_flag, List.map (sub.value_binding sub) list)
     | Tstr_primitive vd ->
@@ -361,10 +361,9 @@ let pattern : type k . _ -> k T.general_pattern -> _ = fun sub pat ->
         let pats = List.map (sub.pat sub) list in
         match am with
         | Mutable   -> Ppat_array pats
-        | Immutable -> (Extensions.Immutable_arrays.pat_of
-                          ~loc
-                          (Iapat_immutable_array pats)
-                       ).ppat_desc
+        | Immutable -> Extensions.Immutable_arrays.pat_of
+                         ~loc
+                         (Iapat_immutable_array pats)
       end
     | Tpat_lazy p -> Ppat_lazy (sub.pat sub p)
 
@@ -430,12 +429,9 @@ let comprehension ~loc sub comp_type comp =
     { body    = sub.expr sub comp_body
     ; clauses = List.map clause comp_clauses }
   in
-  let comprehension_expr =
-    Extensions.Comprehensions.expr_of
-      ~loc
-      (comp_type (comprehension comp))
-  in
-  comprehension_expr.pexp_desc
+  Extensions.Comprehensions.expr_of
+    ~loc
+    (comp_type (comprehension comp))
 
 let expression sub exp =
   let loc = sub.location sub exp.exp_loc in
@@ -471,7 +467,7 @@ let expression sub exp =
               | Omitted _ -> list
               | Arg exp -> (label, sub.expr sub exp) :: list
           ) list [])
-    | Texp_match (exp, cases, _) ->
+    | Texp_match (exp, _, cases, _) ->
       Pexp_match (sub.expr sub exp, List.map (sub.case sub) cases)
     | Texp_try (exp, cases) ->
         Pexp_try (sub.expr sub exp, List.map (sub.case sub) cases)
@@ -507,12 +503,9 @@ let expression sub exp =
         | Mutable ->
             Pexp_array plist
         | Immutable ->
-          let expr =
             Extensions.Immutable_arrays.expr_of
               ~loc
               (Iaexp_immutable_array plist)
-          in
-          expr.pexp_desc
       end
     | Texp_list_comprehension comp ->
         comprehension
@@ -524,7 +517,7 @@ let expression sub exp =
         Pexp_ifthenelse (sub.expr sub exp1,
           sub.expr sub exp2,
           Option.map (sub.expr sub) expo)
-    | Texp_sequence (exp1, exp2) ->
+    | Texp_sequence (exp1, _layout, exp2) ->
         Pexp_sequence (sub.expr sub exp1, sub.expr sub exp2)
     | Texp_while {wh_cond; wh_body} ->
         Pexp_while (sub.expr sub wh_cond, sub.expr sub wh_body)

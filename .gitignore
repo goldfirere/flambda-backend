@@ -291,3 +291,6 @@ _build
 
 /otherlibs/dynlink/natdynlinkops
 
+# Jane Street Merlin support
+/.local-merlin-binaries
+/.local-ocaml-lib

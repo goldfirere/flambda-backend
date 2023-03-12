@@ -23,25 +23,25 @@ configure_remote () {
     elif [ "$curr" != "$url" ]; then
         {
             echo "Error: remote $name should point to $url, not $curr"
-            echo "Try 'git remote rm $name'." 
+            echo "Try 'git remote rm $name'."
         } 1>&2
         exit 1
     fi
 }
 
-configure_remote origin 'git@github.com:ocaml-flambda/ocaml-jst'
-configure_remote flambda-backend 'git@github.com:ocaml-flambda/flambda-backend'
-configure_remote ocaml 'git@github.com:ocaml/ocaml'
+configure_remote origin 'git@github.com:ccasin/ocaml-jst.git'
+configure_remote flambda-backend 'git@github.com:ccasin/flambda-backend.git'
+configure_remote ocaml 'git@github.com:ocaml/ocaml.git'
 
 git fetch -q origin
 git fetch -q flambda-backend
 
-git checkout -q flambda-backend/main
-rev=$(git subtree split -P ocaml --annotate='flambda-backend: ' flambda-backend/main)
-git push -q origin $rev:refs/heads/flambda-patches |& sed '/^remote: /d'
+git checkout -q flambda-backend/ubt-v1-rebase-point
+rev=$(git subtree split -P ocaml --annotate='flambda-backend: ' flambda-backend/ubt-v1-rebase-point)
+git push -q origin $rev:refs/heads/flambda-ubt-v1-patches |& sed '/^remote: /d'
 git checkout -q -
 
-count=$(git rev-list HEAD..origin/flambda-patches | wc -l)
+count=$(git rev-list HEAD..origin/flambda-ubt-v1-patches | wc -l)
 echo "$count new patches:"
-git --no-pager log --oneline HEAD..origin/flambda-patches
-git merge --no-ff -m 'Merge flambda-backend changes' origin/flambda-patches
+git --no-pager log --oneline HEAD..origin/flambda-ubt-v1-patches
+git merge --no-ff -m 'Merge flambda-backend changes' origin/flambda-ubt-v1-patches
