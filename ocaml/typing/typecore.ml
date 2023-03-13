@@ -3267,6 +3267,7 @@ let rec is_an_uncurried_function e =
 let is_local_returning_function cases =
   let rec loop_cases cases =
     match cases with
+    | [] -> false
     | [{pc_lhs = _; pc_guard = None; pc_rhs = e}] ->
         loop_body e
     | cases ->
@@ -5445,7 +5446,6 @@ and type_function ?in_function loc attrs env (expected_mode : expected_mode)
       let ret_value_mode = Value_mode.of_alloc ret_mode in
       let ret_value_mode =
         if region_locked then mode_return (Value_mode.local_to_regional ret_value_mode)
-        else if caselist = [] then mode_return ret_value_mode
         else begin
           match Alloc_mode.submode Alloc_mode.local ret_mode with
           | Ok () -> mode_local
