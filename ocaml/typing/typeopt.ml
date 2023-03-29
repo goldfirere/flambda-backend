@@ -196,11 +196,6 @@ let rec value_kind env ~visited ~depth ~num_nodes_visited ty
     || depth >= 2
     || num_nodes_visited >= 30
   in
-  (* CJC XXX remove this check once all of jane builds *)
-  begin match Ctype.(check_type_layout env (correct_levels ty) Layout.void) with
-  | Ok _ -> assert false
-  | _ -> ()
-  end;
   let scty = scrape_ty env ty in
   match get_desc scty with
   | Tconstr(p, _, _) when Path.same p Predef.path_int ->
