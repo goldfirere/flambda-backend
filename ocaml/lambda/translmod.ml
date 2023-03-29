@@ -292,7 +292,7 @@ let init_shape id modl =
           match get_desc (Ctype.expand_head env ty) with
             Tarrow(_,_,_,_) ->
               const_int 0 (* camlinternalMod.Function *)
-          | Tconstr(p, _, _) when Path.same p Predef.path_lazy_t ->
+          | Tconstr(p, _, _, _) when Path.same p Predef.path_lazy_t ->
               const_int 1 (* camlinternalMod.Lazy *)
           | _ ->
               let not_a_function =

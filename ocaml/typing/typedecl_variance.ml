@@ -60,7 +60,7 @@ let compute_variance env visited vari ty =
         compute_same ty2
     | Ttuple tl ->
         List.iter compute_same tl
-    | Tconstr (path, tl, _) ->
+    | Tconstr (path, tl, _, _) ->
         let open Variance in
         if tl = [] then () else begin
           try
@@ -275,7 +275,7 @@ let compute_variance_gadt env ~check (required, loc as rloc) decl
         (for_constr tl)
   | Some ret_type ->
       match get_desc ret_type with
-      | Tconstr (_, tyl, _) ->
+      | Tconstr (_, tyl, _, _) ->
           (* let tyl = List.map (Ctype.expand_head env) tyl in *)
           let fvl = List.map (Ctype.free_variables ?env:None) tyl in
           let _ =

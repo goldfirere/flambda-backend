@@ -310,7 +310,7 @@ and type_desc =
   | Tvar of { name : string option; layout : layout }
   | Tarrow of arrow_desc * type_expr * type_expr * commutable
   | Ttuple of type_expr list
-  | Tconstr of Path.t * type_expr list * abbrev_memo ref
+  | Tconstr of Path.t * type_expr list * abbrev_memo ref * tconstr_layout_info
   | Tobject of type_expr * (Path.t * type_expr list) option ref
   | Tfield of string * field_kind * type_expr * type_expr
   | Tnil
@@ -320,6 +320,10 @@ and type_desc =
   | Tunivar of { name : string option; layout : layout }
   | Tpoly of type_expr * type_expr list
   | Tpackage of Path.t * (Longident.t * type_expr) list
+
+and tconstr_layout_info =
+  | Layout_info { layout_bound : layout; is_tight : bool }
+  | No_layout_info
 
 and arrow_desc =
   arg_label * alloc_mode * alloc_mode

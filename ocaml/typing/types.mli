@@ -248,9 +248,11 @@ and type_desc =
   | Ttuple of type_expr list
   (** [Ttuple [t1;...;tn]] ==> [(t1 * ... * tn)] *)
 
-  | Tconstr of Path.t * type_expr list * abbrev_memo ref
-  (** [Tconstr (`A.B.t', [t1;...;tn], _)] ==> [(t1,...,tn) A.B.t]
-      The last parameter keep tracks of known expansions, see [abbrev_memo]. *)
+  | Tconstr of Path.t * type_expr list * abbrev_memo ref * tconstr_layout_info
+  (** [Tconstr (`A.B.t', [t1;...;tn], _, _)] ==> [(t1,...,tn) A.B.t]
+      The third parameter keep tracks of known expansions, see [abbrev_memo].
+      The fourth parameter has a layout bound; it is cached to avoid future
+      lookups. *)
 
   | Tobject of type_expr * (Path.t * type_expr list) option ref
   (** [Tobject (`f1:t1;...;fn: tn', `None')] ==> [< f1: t1; ...; fn: tn >]
@@ -303,6 +305,13 @@ and type_desc =
 
   | Tpackage of Path.t * (Longident.t * type_expr) list
   (** Type of a first-class module (a.k.a package). *)
+
+and tconstr_layout_info =
+  | Layout_info { layout_bound : layout; is_tight : bool }
+    (* if is_tight is true, then further expansion is guaranteed to be
+       fruitless *)
+  | No_layout_info  (* used when a Tconstr is built in a context where
+                       we don't need layout info, like in the pretty-printer *)
 
 and arrow_desc =
   arg_label * alloc_mode * alloc_mode

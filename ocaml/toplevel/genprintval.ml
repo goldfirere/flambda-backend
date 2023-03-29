@@ -204,7 +204,7 @@ module Make(O : OBJ)(EVP : EVALPATH with type valu = O.t) = struct
       | Pdot(p, _s) ->
           if
             match get_desc (find (Lident (Out_name.print name)) env) with
-            | Tconstr(ty_path', _, _) -> Path.same ty_path ty_path'
+            | Tconstr(ty_path', _, _, _) -> Path.same ty_path ty_path'
             | _ -> false
             | exception Not_found -> false
           then Oide_ident name
@@ -226,7 +226,7 @@ module Make(O : OBJ)(EVP : EVALPATH with type valu = O.t) = struct
 
     let abstract_type =
       let id = Ident.create_local "abstract" in
-      let ty = Btype.newgenty (Tconstr (Pident id, [], ref Mnil)) in
+      let ty = Btype.newgenty (Tconstr (Pident id, [], ref Mnil, No_layout_info)) in
       ty
 
     (* The main printing function *)
@@ -268,7 +268,7 @@ module Make(O : OBJ)(EVP : EVALPATH with type valu = O.t) = struct
           | Ttuple(ty_list) ->
               let ty_list = List.map (fun t -> (t,false)) ty_list in
               Oval_tuple (tree_of_val_list 0 depth obj ty_list)
-          | Tconstr(path, [ty_arg], _)
+          | Tconstr(path, [ty_arg], _, _)
             when Path.same path Predef.path_list ->
               if O.is_block obj then
                 match check_depth depth obj ty with
@@ -290,23 +290,23 @@ module Make(O : OBJ)(EVP : EVALPATH with type valu = O.t) = struct
                     Oval_list (List.rev (tree_of_conses [] depth obj ty_arg))
               else
                 Oval_list []
-          | Tconstr(path, [ty_arg], _)
+          | Tconstr(path, [ty_arg], _, _)
             when Path.same path Predef.path_array ->
               tree_of_generic_array Asttypes.Mutable depth obj ty_arg
-          | Tconstr(path, [ty_arg], _)
+          | Tconstr(path, [ty_arg], _, _)
             when Path.same path Predef.path_iarray ->
               tree_of_generic_array Asttypes.Immutable depth obj ty_arg
 
-          | Tconstr(path, [], _)
+          | Tconstr(path, [], _, _)
               when Path.same path Predef.path_string ->
             Oval_string ((O.obj obj : string), !printer_steps, Ostr_string)
 
-          | Tconstr (path, [], _)
+          | Tconstr (path, [], _, _)
               when Path.same path Predef.path_bytes ->
             let s = Bytes.to_string (O.obj obj : bytes) in
             Oval_string (s, !printer_steps, Ostr_bytes)
 
-          | Tconstr (path, [ty_arg], _)
+          | Tconstr (path, [ty_arg], _, _)
             when Path.same path Predef.path_lazy_t ->
              let obj_tag = O.tag obj in
              (* Lazy values are represented in three possible ways:
@@ -363,7 +363,7 @@ module Make(O : OBJ)(EVP : EVALPATH with type valu = O.t) = struct
                  in
                  Oval_constr (Oide_ident (Out_name.create "lazy"), [v])
                end
-          | Tconstr(path, ty_list, _) -> begin
+          | Tconstr(path, ty_list, _, _) -> begin
               try
                 let decl = Env.find_type path env in
                 match decl with
@@ -407,7 +407,7 @@ module Make(O : OBJ)(EVP : EVALPATH with type valu = O.t) = struct
                       match cd_res with
                         Some t ->
                           begin match get_desc t with
-                            Tconstr (_,params,_) ->
+                            Tconstr (_,params,_,_) ->
                               params
                           | _ -> assert false end
                       | None -> decl.type_params
@@ -609,7 +609,7 @@ module Make(O : OBJ)(EVP : EVALPATH with type valu = O.t) = struct
         then raise Not_found;
         let type_params =
           match get_desc cstr.cstr_res with
-            Tconstr (_,params,_) ->
+            Tconstr (_,params,_,_) ->
              params
           | _ -> assert false
         in

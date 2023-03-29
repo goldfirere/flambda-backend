@@ -209,7 +209,7 @@ let extract_target_type ty =
 let extract_target_parameters ty =
   let ty = extract_target_type ty |> Ctype.expand_head !toplevel_env in
   match get_desc ty with
-  | Tconstr (path, (_ :: _ as args), _)
+  | Tconstr (path, (_ :: _ as args), _, _)
       when Ctype.all_distinct_vars !toplevel_env args ->
         Some (path, args)
   | _ -> None
@@ -247,7 +247,7 @@ let match_simple_printer_type desc printer_type =
 let match_generic_printer_type desc path args printer_type =
   Ctype.begin_def();
   let args = List.map (fun _ -> Ctype.newvar Layout.value) args in
-  let ty_target = Ctype.newty (Tconstr (path, args, ref Mnil)) in
+  let ty_target = Ctype.newty (Tconstr (path, args, ref Mnil, No_layout_info)) in
   let ty_args =
     List.map (fun ty_var -> Ctype.newconstr printer_type [ty_var]) args in
   let ty_expected =

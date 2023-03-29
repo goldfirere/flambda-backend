@@ -531,7 +531,7 @@ and raw_type_desc ppf = function
         (if is_commu_ok c then "Cok" else "Cunknown")
   | Ttuple tl ->
       fprintf ppf "@[<1>Ttuple@,%a@]" raw_type_list tl
-  | Tconstr (p, tl, abbrev) ->
+  | Tconstr (p, tl, abbrev, _) -> (* XXX layouts should print layout info *)
       fprintf ppf "@[<hov1>Tconstr(@,%a,@,%a,@,%a)@]" path p
         raw_type_list tl
         (raw_list path) (list_of_memo !abbrev)
@@ -663,7 +663,7 @@ let rec normalize_type_path ?(cache=false) env p =
   try
     let (params, ty, _) = Env.find_type_expansion p env in
     match get_desc ty with
-      Tconstr (p1, tyl, _) ->
+      Tconstr (p1, tyl, _, _) ->
         if List.length params = List.length tyl
         && List.for_all2 eq_type params tyl
         then normalize_type_path ~cache env p1
@@ -824,7 +824,7 @@ let nameable_row row =
    subterms that would be printed by the type printer. *)
 let printer_iter_type_expr f ty =
   match get_desc ty with
-  | Tconstr(p, tyl, _) ->
+  | Tconstr(p, tyl, _, _) ->
       let (_p', s) = best_type_path p in
       List.iter f (apply_subst s tyl)
   | Tvariant row -> begin
@@ -1042,7 +1042,7 @@ let add_printed_alias ty = add_printed_alias_proxy (proxy ty)
 let aliasable ty =
   match get_desc ty with
     Tvar _ | Tunivar _ | Tpoly _ -> false
-  | Tconstr (p, _, _) ->
+  | Tconstr (p, _, _, _) ->
       not (is_nth (snd (best_type_path p)))
   | _ -> true
 
@@ -1120,7 +1120,7 @@ let rec tree_of_typexp mode ty =
         let t1 =
           if is_optional l then
             match get_desc (tpoly_get_mono ty1) with
-            | Tconstr(path, [ty], _)
+            | Tconstr(path, [ty], _, _)
               when Path.same path Predef.path_option ->
                 tree_of_typexp mode ty
             | _ -> Otyp_stuff "<hidden>"
@@ -1143,7 +1143,7 @@ let rec tree_of_typexp mode ty =
         Otyp_arrow (lab, am, t1, rm, t2)
     | Ttuple tyl ->
         Otyp_tuple (tree_of_typlist mode tyl)
-    | Tconstr(p, tyl, _abbrev) ->
+    | Tconstr(p, tyl, _abbrev, _) ->
         let p', s = best_type_path p in
         let tyl' = apply_subst s tyl in
         if is_nth s && not (tyl'=[])
@@ -1252,7 +1252,7 @@ and tree_of_typ_gf (ty, gf) =
     | Unrestricted -> Ogf_unrestricted
   in
   (tree_of_typexp Type ty, gf)
-  
+
 and tree_of_typobject mode fi nm =
   begin match nm with
   | None ->
@@ -1749,7 +1749,7 @@ let rec tree_of_class_type mode params =
       let tr =
        if is_optional l then
          match get_desc ty with
-         | Tconstr(path, [ty], _) when Path.same path Predef.path_option ->
+         | Tconstr(path, [ty], _, _) when Path.same path Predef.path_option ->
              tree_of_typexp mode ty
          | _ -> Otyp_stuff "<hidden>"
        else tree_of_typexp mode ty in
@@ -2077,7 +2077,7 @@ let incompatibility_phrase (type variety) : variety trace_format -> string =
 let same_path t t' =
   eq_type t t' ||
   match get_desc t, get_desc t' with
-    Tconstr(p,tl,_), Tconstr(p',tl',_) ->
+    Tconstr(p,tl,_), Tconstr(p',tl',_,_) ->
       let (p1, s1) = best_type_path p and (p2, s2)  = best_type_path p' in
       begin match s1, s2 with
         Nth n1, Nth n2 when n1 = n2 -> true
@@ -2231,7 +2231,7 @@ let is_unit_arg env ty =
   if vars <> [] then false
   else begin
     match get_desc (Ctype.expand_head env ty) with
-    | Tconstr (p, _, _) -> Path.same p Predef.path_unit
+    | Tconstr (p, _, _, _) -> Path.same p Predef.path_unit
     | _ -> false
   end
 
@@ -2429,7 +2429,7 @@ let explain mis ppf =
 
 let warn_on_missing_def env ppf t =
   match get_desc t with
-  | Tconstr (p,_,_) ->
+  | Tconstr (p,_,_,_) ->
     begin
       try
         ignore(Env.find_type p env : Types.type_declaration)

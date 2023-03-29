@@ -345,7 +345,7 @@ let clean_copy ty =
 let get_constructor_type_path ty tenv =
   let ty = Ctype.expand_head tenv (clean_copy ty) in
   match get_desc ty with
-  | Tconstr (path,_,_) -> path
+  | Tconstr (path,_,_,_) -> path
   | _ -> assert false
 
 (****************************)
@@ -832,7 +832,7 @@ let pat_of_constrs ex_pat cstrs =
 let pats_of_type ?(always=false) env ty =
   let ty' = Ctype.expand_head env ty in
   match get_desc ty' with
-  | Tconstr (path, _, _) ->
+  | Tconstr (path, _, _, _) ->
       begin match Env.find_type_descrs path env with
       | exception Not_found -> [omega]
       | Type_variant (cstrs,_) when always || List.length cstrs <= 1 ||
@@ -854,7 +854,7 @@ let pats_of_type ?(always=false) env ty =
 
 let rec get_variant_constructors env ty =
   match get_desc ty with
-  | Tconstr (path,_,_) -> begin
+  | Tconstr (path,_,_,_) -> begin
       try match Env.find_type path env, Env.find_type_descrs path env with
       | _, Type_variant (cstrs,_) -> cstrs
       | {type_manifest = Some _}, _ ->
