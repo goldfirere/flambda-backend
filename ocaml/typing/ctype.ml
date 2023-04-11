@@ -2077,7 +2077,7 @@ let unification_layout_check env ty layout =
 
 let is_always_global env ty =
   let perform_check () =
-    Result.is_ok (check_type_immediate env ty Always_on_64bits)
+    Result.is_ok (check_type_layout env ty Layout.immediate64)
   in
   if !Clflags.principal || Env.has_local_constraints env then
     (* We snapshot to keep this pure; see the mode crossing test that mentions
