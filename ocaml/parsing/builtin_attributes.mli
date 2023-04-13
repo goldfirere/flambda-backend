@@ -204,4 +204,5 @@ val has_include_functor : Parsetree.attributes -> (bool,unit) result
 (* CR layouts: we should eventually be able to delete ~legacy_immediate (after we
    turn on layouts by default). *)
 val layout : legacy_immediate:bool -> Parsetree.attributes ->
-  (Asttypes.const_layout option, Location.t * Asttypes.const_layout) result
+  (Asttypes.const_layout Location.loc option,
+   Location.t * Asttypes.const_layout) result

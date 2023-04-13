@@ -464,9 +464,12 @@ let kind_abstract ~layout = Type_abstract { layout }
    the match.  I implemented a similar optimization in Subst.norm, but was
    surprised to find basically no impact on artifact sizes. *)
 
-let kind_abstract_value = kind_abstract ~layout:Layout.value
-let kind_abstract_immediate = kind_abstract ~layout:Layout.immediate
-let kind_abstract_any = kind_abstract ~layout:Layout.any
+let kind_abstract_value ~creation =
+  kind_abstract ~layout:(Layout.value ~creation)
+let kind_abstract_immediate ~creation =
+  kind_abstract ~layout:(Layout.immediate ~creation)
+let kind_abstract_any ~creation =
+  kind_abstract ~layout:(Layout.any ~creation)
 
 let decl_is_abstract decl =
   match decl.type_kind with

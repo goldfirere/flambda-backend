@@ -1999,7 +1999,9 @@ let rec constrain_type_layout ~reason ~fixed env ty layout fuel =
       let layout_bound =
         begin match Env.find_type p env with
         | { type_kind = k; _ } -> layout_bound_of_kind k
-        | exception Not_found -> Layout.any
+        | exception Not_found ->
+          Debug.print "RAE";
+          Layout.any
         end
       in
       match Layout.sub ~reason layout_bound layout with

@@ -69,42 +69,33 @@ module Layout : sig
   type t
 
   (******************************)
-  (* constants *)
-
-  (** Constant layouts are used both for user-written annotations and within
-      the type checker when we know a layout has no variables *)
-  type const = Asttypes.const_layout =
-    | Any
-    | Value
-    | Void
-    | Immediate64
-    | Immediate
-  val string_of_const : const -> string
-  val equal_const : const -> const -> bool
-
-  (** This layout is the top of the layout lattice. All types have layout [any].
-      But we cannot compile run-time manipulations of values of types with layout
-      [any]. *)
-  val any : t
-
-  (** Value of types of this layout are not retained at all at runtime *)
-  val void : t
-
-  (** This is the layout of normal ocaml values *)
-  val value : t
-
-  (** Values of types of this layout are immediate on 64-bit platforms; on other
-      platforms, we know nothing other than that it's a value. *)
-  val immediate64 : t
-
-  (** We know for sure that values of types of this layout are always immediate *)
-  val immediate : t
-
-  (******************************)
   (* errors *)
 
-  (* XXX ASZ: Rename to "xxx_layout_context"? *)
-  type fixed_layout_reason =
+  type concrete_layout_reason =
+    | Match
+    | Constructor_declaration of int
+    | Label_declaration of Ident.t
+
+  type annotation_context =
+    | Type_declaration of Path.t
+    | Type_parameter of Path.t * string
+    | With_constraint of Path.t
+    | Newtype_declaration of string
+
+  type reason =
+    | Concrete_layout of concrete_layout_reason
+    | Gadt_equation of Path.t
+    | Unified_with_tvar of string option
+        (* XXX ASZ: RAE thinks this will want to take a type, not a tvar name
+           (string option) in case that type gets further unified.  He's
+           probably right but we'll see how errors look. *)
+    | Dummy_reason_result_ignored
+        (* XXX ASZ: Is this the best approach?  Where could we insert a "last
+           resort" check to indicate that we shouldn't be seeing this? *)
+
+  type creation_reason =
+    | Missing_cmi
+    | Annotated of annotation_context * Location.t
     | Let_binding
     | Function_argument
     | Function_result
@@ -115,30 +106,6 @@ module Layout : sig
     | Instance_variable
     | Object_field (* XXX ASZ: Is this different than [Instance_variable]? *)
     | Class_field
-
-  type concrete_layout_reason =
-    | Match
-    | Constructor_declaration of int
-    | Label_declaration of Ident.t
-
-  type annotation_location =
-    | Type_declaration of Path.t
-    | Type_parameter of Path.t * string
-    | With_constraint of Location.t
-    | Newtype_declaration of string Location.loc
-
-  type reason =
-    | Fixed_layout of fixed_layout_reason
-    | Concrete_layout of concrete_layout_reason
-    | Annotated of annotation_location
-    | Gadt_equation of Path.t
-    | Unified_with_tvar of string option
-        (* XXX ASZ: RAE thinks this will want to take a type, not a tvar name
-           (string option) in case that type gets further unified.  He's
-           probably right but we'll see how errors look. *)
-    | Dummy_reason_result_ignored
-        (* XXX ASZ: Is this the best approach?  Where could we insert a "last
-           resort" check to indicate that we shouldn't be seeing this? *)
 
   module Violation : sig
     type nonrec t =
@@ -164,26 +131,58 @@ module Layout : sig
   end
 
   (******************************)
+  (* constants *)
+
+  (** Constant layouts are used both for user-written annotations and within
+      the type checker when we know a layout has no variables *)
+  type const = Asttypes.const_layout =
+    | Any
+    | Value
+    | Void
+    | Immediate64
+    | Immediate
+  val string_of_const : const -> string
+  val equal_const : const -> const -> bool
+
+  (** This layout is the top of the layout lattice. All types have layout [any].
+      But we cannot compile run-time manipulations of values of types with layout
+      [any]. *)
+  val any : creation:creation_reason -> t
+
+  (** Value of types of this layout are not retained at all at runtime *)
+  val void : creation:creation_reason -> t
+
+  (** This is the layout of normal ocaml values *)
+  val value : creation:creation_reason -> t
+
+  (** Values of types of this layout are immediate on 64-bit platforms; on other
+      platforms, we know nothing other than that it's a value. *)
+  val immediate64 : creation:creation_reason -> t
+
+  (** We know for sure that values of types of this layout are always immediate *)
+  val immediate : creation:creation_reason -> t
+
+  (******************************)
   (* construction *)
 
   (** Create a fresh sort variable, packed into a layout. *)
-  val of_new_sort_var : unit -> t
+  val of_new_sort_var : creation:creation_reason -> t
 
-  val of_sort : sort -> t
-  val of_const : const -> t
+  val of_sort : creation:creation_reason -> sort -> t
+  val of_const : creation:creation_reason -> const -> t
 
   (** Find a layout in attributes.  Returns error if a disallowed layout is
       present, but always allows immediate attributes if ~legacy_immediate is
       true.  See comment on [Builtin_attributes.layout].  *)
   val of_attributes :
-    legacy_immediate:bool -> reason:annotation_location -> Parsetree.attributes ->
+    legacy_immediate:bool -> reason:annotation_context -> Parsetree.attributes ->
     (t option, Location.t * const) result
 
   (** Find a layout in attributes, defaulting to ~default.  Returns error if a
       disallowed layout is present, but always allows immediate if
       ~legacy_immediate is true.  See comment on [Builtin_attributes.layout]. *)
   val of_attributes_default :
-    legacy_immediate:bool -> reason:annotation_location ->
+    legacy_immediate:bool -> reason:annotation_context ->
     default:t -> Parsetree.attributes ->
     (t, Location.t * const) result
 
@@ -198,8 +197,6 @@ module Layout : sig
       sort variables. Returns [Var] if the final, non-variable layout has not
       yet been determined. *)
   val get : t -> desc
-
-  val of_desc : desc -> t
 
   (** Returns the sort corresponding to the layout.  Call only on representable
       layouts - raises on Any. *)

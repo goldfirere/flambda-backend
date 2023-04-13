@@ -124,7 +124,24 @@ end
 type sort = Sort.t
 
 module Layout = struct
-  type fixed_layout_reason =
+  type concrete_layout_reason =
+    | Match
+    | Constructor_declaration of int
+    | Label_declaration of Ident.t
+
+  type annotation_context =
+    | Type_declaration of Path.t
+    | Type_parameter of Path.t * string
+    | With_constraint of Path.t
+    | Newtype_declaration of string
+
+  type reason =
+    | Concrete_layout of concrete_layout_reason
+    | Gadt_equation of Path.t
+    | Unified_with_tvar of string option
+    | Dummy_reason_result_ignored
+
+  type value_creation_reason =
     | Let_binding
     | Function_argument
     | Function_result
@@ -136,24 +153,13 @@ module Layout = struct
     | Object_field
     | Class_field
 
-  type concrete_layout_reason =
-    | Match
-    | Constructor_declaration of int
-    | Label_declaration of Ident.t
+  type any_creation_reason =
+    | Missing_cmi
 
-  type annotation_location =
-    | Type_declaration of Path.t
-    | Type_parameter of Path.t * string
-    | With_constraint of Location.t
-    | Newtype_declaration of string Location.loc
-
-  type reason =
-    | Fixed_layout of fixed_layout_reason
-    | Concrete_layout of concrete_layout_reason
-    | Annotated of annotation_location
-    | Gadt_equation of Path.t
-    | Unified_with_tvar of string option
-    | Dummy_reason_result_ignored
+  type creation_reason =
+    | Annotated of annotation_context * Location.t
+    | Value_creation of value_creation_reason
+    | Any_creation of any_creation_reason
 
   type internal =
     | Any
@@ -167,11 +173,9 @@ module Layout = struct
   type t =
     { layout : internal
     ; history : reason list (* events listed in reverse chronological order *)
-    }
-    (* XXX ASZ: Add this? *)
-    (* ; creation : creation_reason *)
+    ; creation : creation_reason }
 
-  let fresh_layout layout = { layout; history = [] }
+  let fresh_layout layout ~creation = { layout; history = []; creation }
 
   let add_reason reason t = { t with history = reason :: t.history }
 
@@ -206,25 +210,25 @@ module Layout = struct
     | Value, Value -> true
     | (Any | Immediate64 | Immediate | Void | Value), _ -> false
 
-  (******************************)
+ (******************************)
   (* construction *)
 
-  let of_new_sort_var () = fresh_layout (Sort (Sort.new_var ()))
+  let of_new_sort_var ~creation = fresh_layout (Sort (Sort.new_var ())) ~creation
 
-  let of_sort s = fresh_layout (Sort s)
+  let of_sort ~creation s = fresh_layout (Sort s) ~creation
 
-  let of_const : const -> t = function
-    | Any -> any
-    | Immediate -> immediate
-    | Immediate64 -> immediate64
-    | Value -> value
-    | Void -> void
+  let of_const ~creation : const -> t = function
+    | Any -> any ~creation
+    | Immediate -> immediate ~creation
+    | Immediate64 -> immediate64 ~creation
+    | Value -> value ~creation
+    | Void -> void ~creation
 
   let of_attributes ~legacy_immediate ~reason attrs =
-    Result.map (Option.map (add_reason (Annotated reason))) @@
     match Builtin_attributes.layout ~legacy_immediate attrs with
     | Ok None as a -> a
-    | Ok (Some l) -> Ok (Some (of_const l))
+    | Ok (Some l) -> Ok (Some (of_const ~creation:(Annotated (reason, l.loc))
+                                 l.txt))
     | Error _ as e -> e
 
   let of_attributes_default ~legacy_immediate ~reason ~default attrs =
@@ -254,10 +258,6 @@ module Layout = struct
 
   let get = repr ~default:None
 
-  let of_desc = function
-    | Const c -> of_const c
-    | Var v -> of_sort (Sort.of_var v)
-
   (* CR layouts: this function is suspect; it seems likely to reisenberg
      that refactoring could get rid of it *)
   let sort_of_layout l =
@@ -285,33 +285,6 @@ module Layout = struct
 
     let format ppf t = fprintf ppf "%s" (to_string t)
 
-    let fixed_layout_reason_layout = function
-      | Let_binding
-      | Function_argument
-      | Function_result
-      | Tuple_element
-      | Probe
-      | Package_hack
-      | Object
-      | Instance_variable
-      | Object_field
-      | Class_field
-        -> value
-
-    let format_fixed_layout_reason ppf =
-      function
-      | Let_binding -> fprintf ppf "let-bound"
-      | Function_argument -> fprintf ppf "a function argument"
-      | Function_result -> fprintf ppf "a function result"
-      | Tuple_element -> fprintf ppf "a tuple element"
-      | Probe -> fprintf ppf "a probe"
-      | Package_hack -> fprintf ppf "involved in the package hack"
-      (* CR layouts: figure out what "package hack" means *)
-      | Object -> fprintf ppf "an object"
-      | Instance_variable -> fprintf ppf "an instance variable"
-      | Object_field -> fprintf ppf "an object field"
-      | Class_field -> fprintf ppf "an class field"
-
     let format_concrete_layout_reason ppf : concrete_layout_reason -> unit =
       function
       | Match ->
@@ -322,7 +295,7 @@ module Layout = struct
         fprintf ppf "used in the declaration of the record field \"%a\""
           Ident.print lbl
 
-    let format_annotation_location ppf : annotation_location -> unit = function
+    let format_annotation_context ppf : annotation_context -> unit = function
       | Type_declaration p ->
           fprintf ppf "the declaration of the type %a"
             Path.print p
@@ -330,24 +303,17 @@ module Layout = struct
           fprintf ppf "%s@ in the declaration of the type %a"
             var
             Path.print p
-      | With_constraint loc ->
-          fprintf ppf "the `with` constraint at %a"
-            Location.print_loc loc
-      | Newtype_declaration {loc; txt} ->
-          fprintf ppf "the abstract type declaration for %s at %a"
-            txt Location.print_loc loc
+      | With_constraint p ->
+          fprintf ppf "the `with` constraint for %a"
+            Path.print p
+      | Newtype_declaration name ->
+          fprintf ppf "the abstract type declaration for %s"
+            name
 
     let format_reason ppf : reason -> unit = function
-      | Fixed_layout flr ->
-          fprintf ppf "to@ %a because it was@ %a"
-            format (fixed_layout_reason_layout flr)
-            format_fixed_layout_reason flr
       | Concrete_layout clr ->
           fprintf ppf "to be concrete@ because it was %a"
             format_concrete_layout_reason clr
-      | Annotated aloc ->
-          fprintf ppf "by the annotation@ on %a"
-            format_annotation_location aloc
       | Gadt_equation p ->
           fprintf ppf "by a GADT match@ on the constructor %a"
             Path.print p
@@ -361,6 +327,31 @@ module Layout = struct
           Misc.fatal_errorf
             "Found [Dummy_reason_result_ignored] in a [layout] when printing!"
 
+    let format_any_creation_reason ppf = function
+      | Missing_cmi ->
+          fprintf ppf "XXX layouts"
+
+    let format_value_creation_reason ppf = function
+      | Let_binding -> fprintf ppf "let-bound"
+      | Function_argument -> fprintf ppf "a function argument"
+      | Function_result -> fprintf ppf "a function result"
+      | Tuple_element -> fprintf ppf "a tuple element"
+      | Probe -> fprintf ppf "a probe"
+      | Package_hack -> fprintf ppf "involved in the package hack"
+      (* XXX layouts: figure out what "package hack" means *)
+      | Object -> fprintf ppf "an object"
+      | Instance_variable -> fprintf ppf "an instance variable"
+      | Object_field -> fprintf ppf "an object field"
+      | Class_field -> fprintf ppf "an class field"
+
+    let format_creation_reason ppf : creation_reason -> unit = function
+      | Annotated (ctx, _) ->
+          fprintf ppf "annotation %a" format_annotation_context ctx
+      | Any_creation any ->
+          format_any_creation_reason ppf any
+      | Value_creation value ->
+          format_value_creation_reason ppf value
+
     let format_history ~pp_name ~name ppf t =
       (* XXX ASZ: Restore printing *)
       if false then begin
@@ -373,7 +364,8 @@ module Layout = struct
            fprintf ppf "@,@[<hov 2>%a %a@]"
              message i
              format_reason r)
-        t.history
+        t.history;
+      format_creation_reason ppf t.creation
       end
   end
 
@@ -401,7 +393,13 @@ module Layout = struct
         problem
         format l2
         (format_history ~pp_name:pp_former ~name:former) l1
-        (format_history ~pp_name:pp_print_string ~name:"The latter") l2
+        (format_history ~pp_name:pp_print_string ~name:"The latter") l2;
+      match l1.creation with
+      | Any_creation Missing_cmi ->
+        fprintf ppf
+          "@[The reason the layout is `any` is because of a missing cmi file.@ \
+           You may want to add another dependency to your build settings.@]"
+      | _ -> ()
 
     let pp_t ppf x = fprintf ppf "%t" x
 
@@ -413,7 +411,7 @@ module Layout = struct
 
     let report_with_name ~name =
       report_general "" pp_print_string name
-end
+  end
 
   (******************************)
   (* relations *)
@@ -444,29 +442,57 @@ end
     let equality_check is_eq l = if is_eq then Ok l else err in
     (* it's OK not to cache the result of [get], because [get] does path
        compression *)
+    let intersection_const c1 c2 = match c1, c2 with
+      | c, Any | Any, c -> Ok c
+      | c1, c2 when equal_const c1 c2 -> Ok c1
+      | Immediate, (Immediate64 | Value)
+      | (Immediate64 | Value), Immediate -> Ok Immediate
+      | Immediate64, Value | Value, Immediate64 -> Ok Immediate64
+      | (Value | Void | Immediate64 | Immediate), _ -> err
+    in
+    let internal_of_const : const -> internal = function
+      | Any -> Any
+      | Value -> Sort Sort.value
+      | Void -> Sort Sort.void
+      | Immediate -> Immediate
+      | Immediate64 -> Immediate64
+    in
     Result.map (add_reason reason) @@ match get l1, get l2 with
-    | Const Any, _ -> Ok { layout = l2.layout; history = l1.history }
-    | _, Const Any -> Ok l1
-    | Const c1, Const c2 when equal_const c1 c2 -> Ok l1
-    | Const (Immediate64 | Immediate), Const (Immediate64 | Immediate) ->
-         Ok immediate
-    | Const ((Immediate64 | Immediate) as imm), l
-    | l, Const ((Immediate64 | Immediate) as imm) ->
-        equality_check (equate (of_desc l) value)
-          (of_const imm)
+    | Const c1, Const c2 ->
+      Result.map (fun c -> { l1 with layout = internal_of_const c })
+                 (intersection_const c1 c2)
+    | Var _, Const Any -> Ok l1
+    | Const Any, Var _ -> Ok { l1 with layout = l2.layout }
+    | Var v, Const ((Immediate64 | Immediate) as imm)
+    | Const ((Immediate64 | Immediate) as imm), Var v ->
+        equality_check (Sort.equate (Sort.of_var v) Sort.value)
+          { l1 with layout = internal_of_const imm }
     | _, _ -> equality_check (equate l1 l2) l1
 
   let sub ~reason sub super =
     let ok = Ok sub in
     let err = Error (Violation.Not_a_sublayout (sub,super)) in
-    let equality_check is_eq = if is_eq then ok else err in
+    let check good = if good then ok else err in
+    let sub_const c1 c2 = match c1, c2 with
+      | _, Any -> true
+      | c1, c2 when equal_const c1 c2 -> true
+      | (Immediate | Immediate64), Value -> true
+      | Immediate, Immediate64 -> true
+      | (Any | Void | Value | Immediate64 | Immediate), _ -> false
+    in
     Result.map (add_reason reason) @@ match get sub, get super with
-    | _, Const Any -> ok
-    | Const c1, Const c2 when equal_const c1 c2 -> ok
-    | Const Immediate, Const Immediate64 -> ok
-    | Const (Immediate64 | Immediate), _ ->
-      equality_check (equate super value)
-    | _, _ -> equality_check (equate sub super)
+    | Const c1, Const c2 -> check (sub_const c1 c2)
+    | Var v1, Var v2 ->
+      check (Sort.equate (Sort.of_var v1) (Sort.of_var v2))
+    | Var _, Const Any -> ok
+    | Var v, Const Value
+    | Const (Immediate64 | Immediate | Value), Var v ->
+      check (Sort.equate (Sort.of_var v) Sort.value)
+    | Var v, Const Void
+    | Const Void, Var v ->
+      check (Sort.equate (Sort.of_var v) Sort.void)
+    | Const Any, Var _ -> err
+    | Var _, Const (Immediate | Immediate64) -> err
 
   (*********************************)
   (* defaulting *)
@@ -493,7 +519,41 @@ end
       | Immediate64 -> fprintf ppf "Immediate64"
       | Immediate   -> fprintf ppf "Immediate"
 
-    let fixed_layout_reason ppf : fixed_layout_reason -> unit = function
+    let concrete_layout_reason ppf : concrete_layout_reason -> unit = function
+      | Match ->
+          fprintf ppf "Match"
+      | Constructor_declaration idx ->
+          fprintf ppf "Constructor_declaration %d" idx
+      | Label_declaration lbl ->
+          fprintf ppf "Label_declaration %a" Ident.print lbl
+
+    let annotation_context ppf : annotation_context -> unit = function
+      | Type_declaration p ->
+          fprintf ppf "Type_declaration %a" Path.print p
+      | Type_parameter (p, var) ->
+          fprintf ppf "Type_parameter (%a, %S)" Path.print p var
+      | With_constraint p ->
+          fprintf ppf "With_constraint %a" Path.print p
+      | Newtype_declaration name ->
+          fprintf ppf "Newtype_declaration %s" name
+
+    let reason ppf : reason -> unit = function
+      | Concrete_layout clr ->
+          fprintf ppf "Concrete_layout %a" concrete_layout_reason clr
+      | Gadt_equation p ->
+          fprintf ppf "Gadt_equation %a" Path.print p
+      | Unified_with_tvar tv ->
+          fprintf ppf "Unified_with_tvar %a"
+            (Misc.Stdlib.Option.print pp_print_string) tv
+      | Dummy_reason_result_ignored ->
+          fprintf ppf "Dummy_reason_result_ignored"
+
+    let creation_reason ppf : creation_reason -> unit = function
+      | Missing_cmi -> fprintf ppf "Missing_cmi"
+      | Annotated (ctx, loc) ->
+        fprintf ppf "Annotated (%a,%a)"
+          annotation_context ctx
+          Location.print_loc loc
       | Let_binding -> fprintf ppf "Let_binding"
       | Function_argument -> fprintf ppf "Function_argument"
       | Function_result -> fprintf ppf "Function_result"
@@ -505,47 +565,15 @@ end
       | Object_field -> fprintf ppf "Object_field"
       | Class_field -> fprintf ppf "Class_field"
 
-    let concrete_layout_reason ppf : concrete_layout_reason -> unit = function
-      | Match ->
-          fprintf ppf "Match"
-      | Constructor_declaration idx ->
-          fprintf ppf "Constructor_declaration %d" idx
-      | Label_declaration lbl ->
-          fprintf ppf "Label_declaration %a" Ident.print lbl
-
-    let annotation_location ppf : annotation_location -> unit = function
-      | Type_declaration p ->
-          fprintf ppf "Type_declaration %a" Path.print p
-      | Type_parameter (p, var) ->
-          fprintf ppf "Type_parameter (%a, %S)" Path.print p var
-      | With_constraint loc ->
-          fprintf ppf "With_constraint %a" Location.print_loc loc
-      | Newtype_declaration {loc; txt} ->
-          fprintf ppf "Newtype_declaration %s@@%a" txt Location.print_loc loc
-
-    let reason ppf : reason -> unit = function
-      | Fixed_layout flr ->
-          fprintf ppf "Fixed_layout %a" fixed_layout_reason flr
-      | Concrete_layout clr ->
-          fprintf ppf "Concrete_layout %a" concrete_layout_reason clr
-      | Annotated aloc ->
-          fprintf ppf "Annotated %a" annotation_location aloc
-      | Gadt_equation p ->
-          fprintf ppf "Gadt_equation %a" Path.print p
-      | Unified_with_tvar tv ->
-          fprintf ppf "Unified_with_tvar %a"
-            (Misc.Stdlib.Option.print pp_print_string) tv
-      | Dummy_reason_result_ignored ->
-          fprintf ppf "Dummy_reason_result_ignored"
-
     let reasons ppf (rs : reason list) : unit =
       fprintf ppf "@[<hov 2>[ %a@]@,]"
         (pp_print_list ~pp_sep:(fun ppf () -> fprintf ppf "@,; ") reason) rs
 
-    let t ppf ({ layout; history } : t) : unit =
-      fprintf ppf "@[<v 2>{ layout = %a@,; history = %a }@]"
+    let t ppf ({ layout; history; creation } : t) : unit =
+      fprintf ppf "@[<v 2>{ layout = %a@,; history = %a@,; creation = %a }@]"
         internal layout
         reasons  history
+        creation_reason creation
   end
 end
 

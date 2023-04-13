@@ -409,7 +409,8 @@ let explicit_arity attrs =
 let layout ~legacy_immediate attrs =
   let layout =
     List.find_map
-      (fun a -> match a.attr_name.txt with
+      (fun a ->
+         match a.attr_name.txt with
          | "ocaml.void"|"void" -> Some (a, Void)
          | "ocaml.value"|"value" -> Some (a, Value)
          | "ocaml.any"|"any" -> Some (a, Any)
@@ -418,22 +419,23 @@ let layout ~legacy_immediate attrs =
          | _ -> None
         ) attrs
   in
+  let locate a lay = Location.mkloc lay a.attr_loc in
   match layout with
   | None -> Ok None
   | Some (a, Value) ->
     mark_used a.attr_name;
-    Ok (Some Value)
+    Ok (Some (locate a Value))
   | Some (a, (Immediate | Immediate64 as l)) ->
     mark_used a.attr_name;
     if   legacy_immediate
       || Language_extension.(   is_enabled Layouts_beta
                              || is_enabled Layouts_alpha)
-    then Ok (Some l)
+    then Ok (Some (locate a l))
     else Error (a.attr_loc, l)
   | Some (a, (Any | Void as l)) ->
     mark_used a.attr_name;
     if Language_extension.is_enabled Layouts_alpha
-    then Ok (Some l)
+    then Ok (Some (locate a l))
     else Error (a.attr_loc, l)
 
 (* The "ocaml.boxed (default)" and "ocaml.unboxed (default)"
