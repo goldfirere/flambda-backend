@@ -569,10 +569,10 @@ and constructor_arguments =
   | Cstr_record of label_declaration list
 
 val kind_abstract : layout:layout -> ('a,'b) type_kind
-val kind_abstract_value : creation:Layout.creation_reason -> ('a,'b) type_kind
+val kind_abstract_value : creation:Layout.value_creation_reason -> ('a,'b) type_kind
 val kind_abstract_immediate :
-  creation:Layout.creation_reason -> ('a,'b) type_kind
-val kind_abstract_any : creation:Layout.creation_reason -> ('a,'b) type_kind
+  creation:Layout.immediate_creation_reason -> ('a,'b) type_kind
+val kind_abstract_any : creation:Layout.any_creation_reason -> ('a,'b) type_kind
 val decl_is_abstract : type_declaration -> bool
 
 (** Type kinds provide an upper bound on layouts of a type (which is precise if

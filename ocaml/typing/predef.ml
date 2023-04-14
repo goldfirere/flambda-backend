@@ -140,7 +140,7 @@ and ident_none = ident_create "None"
 and ident_some = ident_create "Some"
 
 let mk_add_type add_type
-      ?manifest ?(kind=Types.kind_abstract_value)
+      ?manifest ?(kind=Types.kind_abstract_value ~creation:Primitive)
       type_ident env =
   let decl =
     {type_params = [];
@@ -164,9 +164,9 @@ let mk_add_type add_type
    to work with non-values, and as we relax the mixed block restriction. *)
 let common_initial_env add_type add_extension empty_env =
   let add_type = mk_add_type add_type
-  and add_type1 ?(kind=fun _ -> Types.kind_abstract_value) type_ident
+  and add_type1 ?(kind=fun _ -> Types.kind_abstract_value ~creation:Primitive) type_ident
       ~variance ~separability env =
-    let param = newgenvar Layout.value in
+    let param = newgenvar (Layout.value ~creation:Type_argument) in
     let decl =
       {type_params = [param];
        type_arity = 1;
@@ -213,12 +213,12 @@ let common_initial_env add_type add_extension empty_env =
   |> add_type ident_bool
        ~kind:(variant [cstr ident_false []; cstr ident_true []]
                 [| [| |]; [| |] |])
-  |> add_type ident_char ~kind:Types.kind_abstract_immediate
+  |> add_type ident_char ~kind:(Types.kind_abstract_immediate ~creation:Primitive)
   |> add_type ident_exn ~kind:Type_open
   |> add_type ident_extension_constructor
   |> add_type ident_float
   |> add_type ident_floatarray
-  |> add_type ident_int ~kind:Types.kind_abstract_immediate
+  |> add_type ident_int ~kind:(Types.kind_abstract_immediate ~creation:Primitive)
   |> add_type ident_int32
   |> add_type ident_int64
   |> add_type1 ident_lazy_t
@@ -231,36 +231,37 @@ let common_initial_env add_type add_extension empty_env =
          variant [cstr ident_nil [];
                   cstr ident_cons [tvar, Unrestricted;
                                    type_list tvar, Unrestricted]]
-           [| [| |]; [| Layout.value; Layout.value |] |] )
+           [| [| |]; [| Layout.value ~creation:Type_argument;
+                        Layout.value ~creation:Boxed_variant |] |] )
   |> add_type ident_nativeint
   |> add_type1 ident_option
        ~variance:Variance.covariant
        ~separability:Separability.Ind
        ~kind:(fun tvar ->
          variant [cstr ident_none []; cstr ident_some [tvar, Unrestricted]]
-           [| [| |]; [| Layout.value |] |])
+           [| [| |]; [| Layout.value ~creation:Type_argument |] |])
   |> add_type ident_string
   |> add_type ident_unit
        ~kind:(variant [cstr ident_void []] [| [| |] |])
   (* Predefined exceptions - alphabetical order *)
   |> add_extension ident_assert_failure
        [newgenty (Ttuple[type_string; type_int; type_int])]
-       [| Layout.value |]
+       [| Layout.value ~creation:Tuple |]
   |> add_extension ident_division_by_zero [] [||]
   |> add_extension ident_end_of_file [] [||]
-  |> add_extension ident_failure [type_string] [| Layout.value |]
-  |> add_extension ident_invalid_argument [type_string] [| Layout.value |]
+  |> add_extension ident_failure [type_string] [| Layout.value ~creation:Primitive |]
+  |> add_extension ident_invalid_argument [type_string] [| Layout.value ~creation:Primitive |]
   |> add_extension ident_match_failure
        [newgenty (Ttuple[type_string; type_int; type_int])]
-       [| Layout.value |]
+       [| Layout.value ~creation:Tuple |]
   |> add_extension ident_not_found [] [||]
   |> add_extension ident_out_of_memory [] [||]
   |> add_extension ident_stack_overflow [] [||]
   |> add_extension ident_sys_blocked_io [] [||]
-  |> add_extension ident_sys_error [type_string] [| Layout.value |]
+  |> add_extension ident_sys_error [type_string] [| Layout.value ~creation:Primitive |]
   |> add_extension ident_undefined_recursive_module
        [newgenty (Ttuple[type_string; type_int; type_int])]
-       [| Layout.value |]
+       [| Layout.value ~creation:Tuple |]
 
 let build_initial_env add_type add_exception empty_env =
   let common = common_initial_env add_type add_exception empty_env in

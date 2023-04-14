@@ -1207,7 +1207,9 @@ let find_type_data path env =
       | decl ->
           {
             tda_declaration = decl;
-            tda_descriptions = kind_abstract_any;
+            tda_descriptions = kind_abstract_any ~creation:Dummy_layout;
+            (* This is not actually overwritten, but the information doesn't flow
+               anywhere. *)
             tda_shape = Shape.leaf decl.type_uid;
           }
       | exception Not_found -> find_type_full p env
@@ -2084,7 +2086,7 @@ and store_type_infos ~tda_shape id info env =
   let tda =
     {
       tda_declaration = info;
-      tda_descriptions = kind_abstract_any;
+      tda_descriptions = kind_abstract_any ~creation:Dummy_layout;
       tda_shape
     }
   in
