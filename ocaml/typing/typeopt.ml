@@ -72,11 +72,10 @@ let is_always_gc_ignorable env ty =
        immediate64 types as gc_ignorable, because bytecode is intended to be
        platform independent. *)
     if !Clflags.native_code && Sys.word_size = 64
-    then Layout.immediate64
-    else Layout.immediate
+    then Layout.immediate64 ~creation:Gc_ignorable_check
+    else Layout.immediate ~creation:Gc_ignorable_check
   in
-  Result.is_ok
-    (Ctype.check_type_layout ~reason:Dummy_reason_result_ignored env ty layout)
+  Result.is_ok (Ctype.check_type_layout env ty layout)
 
 let maybe_pointer_type env ty =
   let ty = scrape_ty env ty in
@@ -203,8 +202,8 @@ let rec value_kind env ~visited ~depth ~num_nodes_visited ty
   in
   (* XXX layouts: remove this check once all of jane builds *)
   begin match
-    Ctype.(check_type_layout ~reason:Dummy_reason_result_ignored
-             env (correct_levels ty) Layout.void)
+    Ctype.(check_type_layout env (correct_levels ty)
+             (Layout.void ~creation:Sanity_check))
   with
   | Ok _ -> assert false
   | _ -> ()
@@ -275,8 +274,8 @@ let rec value_kind env ~visited ~depth ~num_nodes_visited ty
     (* XXX layouts: this was missing - only caught in 4.14 merge.  Am I missing
        other cases. *)
     num_nodes_visited,
-    if Result.is_ok (Ctype.check_type_layout ~reason:Dummy_reason_result_ignored
-                       env scty Layout.immediate)
+    if Result.is_ok (Ctype.check_type_layout env scty
+                       (Layout.immediate ~creation:Value_kind))
     then Pintval else Pgenval
   | _ ->
     num_nodes_visited, Pgenval
@@ -303,7 +302,7 @@ and value_kind_variant env ~visited ~depth ~num_nodes_visited
           List.fold_left
             (fun (num_nodes_visited, idx, kinds) (ty,_) ->
                let num_nodes_visited = num_nodes_visited + 1 in
-               if Layout.equal layouts.(idx) Layout.void then
+               if Layout.is_void layouts.(idx) then
                  (num_nodes_visited, idx+1, kinds)
                else
                  let num_nodes_visited, kind =
@@ -320,7 +319,7 @@ and value_kind_variant env ~visited ~depth ~num_nodes_visited
               (label:Types.label_declaration) ->
               let num_nodes_visited = num_nodes_visited + 1 in
               let num_nodes_visited, kinds, field_mutable =
-                if Layout.(equal void label.ld_layout)
+                if Layout.is_void label.ld_layout
                 then (num_nodes_visited, kinds, Asttypes.Immutable)
                 else
                   let (num_nodes_visited, kind) =
@@ -389,7 +388,7 @@ and value_kind_record env ~visited ~depth ~num_nodes_visited
             (label:Types.label_declaration) ->
             let num_nodes_visited = num_nodes_visited + 1 in
             let num_nodes_visited, kinds, field_mutable =
-              if Layout.(equal void label.ld_layout) then
+              if Layout.is_void label.ld_layout then
                 (num_nodes_visited, kinds, Asttypes.Immutable)
               else
                 let (num_nodes_visited, kind) =

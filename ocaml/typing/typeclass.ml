@@ -307,8 +307,8 @@ let rec class_type_field env sign self_scope ctf =
           let cty = transl_simple_type env ~closed:false Global sty in
           let ty = cty.ctyp_type in
           begin match
-            Ctype.constrain_type_layout ~reason:(Fixed_layout Instance_variable)
-              env ty Layout.value
+            Ctype.constrain_type_layout
+              env ty (Layout.value ~creation:Instance_variable)
           with
           | Ok _ -> ()
           | Error err -> raise (Error(loc, env, Non_value_binding(lab, err)))
@@ -322,7 +322,9 @@ let rec class_type_field env sign self_scope ctf =
            let sty = Ast_helper.Typ.force_poly sty in
            match sty.ptyp_desc, priv with
            | Ptyp_poly ([],sty'), Public ->
-               let expected_ty = Ctype.newvar Layout.value in
+               let expected_ty =
+                 Ctype.newvar (Layout.value ~creation:Object_field)
+               in
                add_method loc env lab priv virt expected_ty sign;
                let returned_cty = ctyp Ttyp_any (Ctype.newty Tnil) env loc in
                delayed_meth_specs :=
@@ -669,8 +671,8 @@ let rec class_field_first_pass self_loc cl_num sign self_scope acc cf =
            end;
            begin
              match
-               Ctype.constrain_type_layout ~reason:(Fixed_layout Class_field)
-                 val_env ty Layout.value
+               Ctype.constrain_type_layout
+                 val_env ty (Layout.value ~creation:Class_field)
              with
              | Ok _ -> ()
              | Error err -> raise (Error(label.loc, val_env,
@@ -718,8 +720,9 @@ let rec class_field_first_pass self_loc cl_num sign self_scope acc cf =
            end;
            begin
              match
-               Ctype.constrain_type_layout ~reason:(Fixed_layout Class_field)
-                 val_env definition.exp_type Layout.value
+               Ctype.constrain_type_layout
+                 val_env definition.exp_type
+                 (Layout.value ~creation:Class_field)
              with
              | Ok _ -> ()
              | Error err -> raise (Error(label.loc, val_env,
@@ -789,7 +792,7 @@ let rec class_field_first_pass self_loc cl_num sign self_scope acc cf =
            in
            let ty =
              match sty with
-             | None -> Ctype.newvar Layout.value
+             | None -> Ctype.newvar (Layout.value ~creation:Object_field)
              | Some sty ->
                  let sty = Ast_helper.Typ.force_poly sty in
                  let cty' =
@@ -802,7 +805,9 @@ let rec class_field_first_pass self_loc cl_num sign self_scope acc cf =
              try
                match get_desc ty with
                | Tvar _ ->
-                   let ty' = Ctype.newvar Layout.value in
+                   let ty' =
+                     Ctype.newvar (Layout.value ~creation:Object_field)
+                   in
                    Ctype.unify val_env (Ctype.newmono ty') ty;
                    type_approx val_env sbody ty'
                | Tpoly (ty1, tl) ->
@@ -1360,8 +1365,9 @@ and class_expr_aux cl_num val_env met_env virt self_scope scl =
                (fun (loc, mode, sort) ->
                   Typecore.escape ~loc ~env:val_env ~reason:Other mode;
                   match
-                    Layout.sub ~reason:(Fixed_layout Let_binding)
-                      (Layout.of_sort sort) Layout.value
+                    Layout.sub
+                      (Layout.of_sort ~creation:Let_binding sort)
+                      (Layout.value ~creation:Class_let_binding)
                   with
                   | Ok _ -> ()
                   | Error err ->
@@ -1464,14 +1470,15 @@ and class_expr_aux cl_num val_env met_env virt self_scope scl =
 (* Approximate the type of the constructor to allow recursive use *)
 (* of optional parameters                                         *)
 
-let var_option = Predef.type_option (Btype.newgenvar Layout.value)
+let var_option =
+  Predef.type_option (Btype.newgenvar (Layout.value ~creation:Type_argument))
 
 let rec approx_declaration cl =
   match cl.pcl_desc with
     Pcl_fun (l, _, _, cl) ->
       let arg =
         if Btype.is_optional l then Ctype.instance var_option
-        else Ctype.newvar Layout.value
+        else Ctype.newvar (Layout.value ~creation:Function_argument)
         (* CR layouts: use of value here may be relaxed in v2 *)
       in
       let arg = Ctype.newmono arg in
@@ -1482,35 +1489,35 @@ let rec approx_declaration cl =
       approx_declaration cl
   | Pcl_constraint (cl, _) ->
       approx_declaration cl
-  | _ -> Ctype.newvar Layout.value
+  | _ -> Ctype.newvar (Layout.value ~creation:Object)
 
 let rec approx_description ct =
   match ct.pcty_desc with
     Pcty_arrow (l, _, ct) ->
       let arg =
         if Btype.is_optional l then Ctype.instance var_option
-        else Ctype.newvar Layout.value
+        else Ctype.newvar (Layout.value ~creation:Function_argument)
         (* CR layouts: use of value here may be relaxed in v2 *)
       in
       let arg = Ctype.newmono arg in
       let arrow_desc = l, Alloc_mode.global, Alloc_mode.global in
       Ctype.newty
         (Tarrow (arrow_desc, arg, approx_description ct, commu_ok))
-  | _ -> Ctype.newvar Layout.value
+  | _ -> Ctype.newvar (Layout.value ~creation:Object)
 
 (*******************************)
 
 let temp_abbrev loc env id arity uid =
   let params = ref [] in
   for _i = 1 to arity do
-    params := Ctype.newvar Layout.value :: !params
+    params := Ctype.newvar (Layout.value ~creation:Type_argument) :: !params
   done;
-  let ty = Ctype.newobj (Ctype.newvar Layout.value) in
+  let ty = Ctype.newobj (Ctype.newvar (Layout.value ~creation:Object)) in
   let env =
     Env.add_type ~check:true id
       {type_params = !params;
        type_arity = arity;
-       type_kind = Types.kind_abstract_value;
+       type_kind = Types.kind_abstract_value ~creation:Object;
        type_private = Public;
        type_manifest = Some ty;
        type_variance = Variance.unknown_signature ~injective:false ~arity;
@@ -1593,7 +1600,7 @@ let class_infos define_class kind
   let ci_params =
     let make_param (sty, v) =
       try
-          (transl_type_param env sty Layout.value, v)
+          (transl_type_param env sty (Layout.value ~creation:Class_argument), v)
       with Already_bound ->
         raise(Error(sty.ptyp_loc, env, Repeated_parameter))
     in
@@ -1744,7 +1751,7 @@ let class_infos define_class kind
     {
      type_params = obj_params;
      type_arity = arity;
-     type_kind = Types.kind_abstract_value;
+     type_kind = Types.kind_abstract_value ~creation:Object;
      type_private = Public;
      type_manifest = Some obj_ty;
      type_variance = Variance.unknown_signature ~injective:false ~arity;
@@ -1766,7 +1773,7 @@ let class_infos define_class kind
     {
      type_params = cl_params;
      type_arity = arity;
-     type_kind = Types.kind_abstract_value;
+     type_kind = Types.kind_abstract_value ~creation:Object;
      type_private = Public;
      type_manifest = Some cl_ty;
      type_variance = Variance.unknown_signature ~injective:false ~arity;

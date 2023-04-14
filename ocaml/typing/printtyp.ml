@@ -1471,7 +1471,7 @@ let rec tree_of_type_decl id decl =
     match Builtin_attributes.layout ~legacy_immediate:true decl.type_attributes
     with
     | Ok l -> l
-    | Error (_, l) -> Some l
+    | Error (loc, l) -> Some (Location.mkloc l loc)
   in
   let ty, priv, unboxed =
     match decl.type_kind with
@@ -1503,7 +1503,7 @@ let rec tree_of_type_decl id decl =
       otype_params = args;
       otype_type = ty;
       otype_private = priv;
-      otype_layout = lay;
+      otype_layout = Option.map Location.get_txt lay;
       otype_unboxed = unboxed;
       otype_cstrs = constraints }
 
@@ -1856,7 +1856,7 @@ let dummy =
   {
     type_params = [];
     type_arity = 0;
-    type_kind = Types.kind_abstract_value;
+    type_kind = Types.kind_abstract_any ~creation:Dummy_layout;
     type_private = Public;
     type_manifest = None;
     type_variance = [];
@@ -2220,7 +2220,8 @@ let hide_variant_name t =
       newty2 ~level:(get_level t)
         (Tvariant
            (create_row ~fields ~fixed ~closed ~name:None
-              ~more:(newvar2 (get_level more) Layout.value)))
+              ~more:(newvar2 (get_level more)
+                       (Layout.value ~creation:Row_variable))))
   | _ -> t
 
 let prepare_expansion Errortrace.{ty; expanded} =

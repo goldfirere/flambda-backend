@@ -1613,7 +1613,7 @@ let transl_toplevel_item ~scopes item =
   | Tstr_value(Nonrecursive,
                [{vb_pat = {pat_desc=Tpat_any}; vb_sort = sort;
                  vb_expr = expr}]) ->
-      if Layout.can_make_void (Layout.of_sort sort) then
+      if Sort.can_make_void sort then
         catch_void (fun void_k -> transl_exp ~scopes void_k expr)
           lambda_unit layout_unit
       else

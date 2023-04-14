@@ -43,6 +43,13 @@ module Sort : sig
 
   val format : Format.formatter -> t -> unit
 
+  (** Defaults this sort to void if possible; returns true if this succeeded
+      (or if the sort was already void) *)
+  val can_make_void : t -> bool
+
+  (** Defaults any variables to value; leaves other sorts alone *)
+  val default_to_value : t -> unit
+
   module Debug_printers : sig
     val t : Format.formatter -> t -> unit
     val var : Format.formatter -> var -> unit
@@ -77,26 +84,20 @@ module Layout : sig
     | Match
     | Constructor_declaration of int
     | Label_declaration of Ident.t
+    | Unannotated_type_parameter
+    | Record_projection
+    | Record_assignment
+    | Let_binding
+    | Structure_element
 
   type annotation_context =
     | Type_declaration of Path.t
     | Type_parameter of Path.t * string
-    | With_constraint of Path.t
+    | With_constraint of string
     | Newtype_declaration of string
 
-  type reason =
-    | Concrete_layout of concrete_layout_reason
-    | Gadt_equation of Path.t
-    | Unified_with_tvar of string option
-        (* XXX ASZ: RAE thinks this will want to take a type, not a tvar name
-           (string option) in case that type gets further unified.  He's
-           probably right but we'll see how errors look. *)
-    | Dummy_reason_result_ignored
-        (* XXX ASZ: Is this the best approach?  Where could we insert a "last
-           resort" check to indicate that we shouldn't be seeing this? *)
-
-  type value_creation_reason =
-    | Let_binding
+   type value_creation_reason =
+    | Class_let_binding
     | Function_argument
     | Function_result
     | Tuple_element
@@ -118,18 +119,39 @@ module Layout : sig
     | Tfield
     | Tnil
     | First_class_module
+    | Separability_check
+    | Univar
+    | Polymorphic_variant_field
+    | Default_type_layout
+    | Float_record_field
+    | Existential_type_variable
+    | Array_element
+    | Lazy_expression
+    | Class_argument
+    | Structure_element
+    | Unknown of string  (* CR layouts: get rid of these *)
 
   type immediate_creation_reason =
     | Empty_record
     | Empty_variant
     | Primitive
     | Immediate_polymorphic_variant
+    | Gc_ignorable_check
+    | Value_kind
 
   type immediate64_creation_reason =
     | Local_mode_cross_check
+    | Gc_ignorable_check
+    | Separability_check
+
+  type void_creation_reason =
+    | Sanity_check
 
   type any_creation_reason =
     | Missing_cmi
+    | Wildcard
+    | Unification_var
+    | Initial_typedecl_env
     | Dummy_layout
 
   type creation_reason =
@@ -137,8 +159,13 @@ module Layout : sig
     | Value_creation of value_creation_reason
     | Immediate_creation of immediate_creation_reason
     | Immediate64_creation of immediate64_creation_reason
+    | Void_creation of void_creation_reason
     | Any_creation of any_creation_reason
     | Concrete_creation of concrete_layout_reason
+
+  type intersection_reason =
+    | Gadt_equation of Path.t
+    | Tyvar_refinement (* CR layouts: this needs to carry a type_expr, but that's loopy *)
 
   module Violation : sig
     type nonrec t =
@@ -183,7 +210,7 @@ module Layout : sig
   val any : creation:any_creation_reason -> t
 
   (** Value of types of this layout are not retained at all at runtime *)
-  val void : creation:creation_reason -> t
+  val void : creation:void_creation_reason -> t
 
   (** This is the layout of normal ocaml values *)
   val value : creation:value_creation_reason -> t
@@ -199,9 +226,9 @@ module Layout : sig
   (* construction *)
 
   (** Create a fresh sort variable, packed into a layout. *)
-  val of_new_sort_var : creation:creation_reason -> t
+  val of_new_sort_var : creation:concrete_layout_reason -> t
 
-  val of_sort : creation:creation_reason -> sort -> t
+  val of_sort : creation:concrete_layout_reason -> sort -> t
   val of_const : creation:creation_reason -> const -> t
 
   (** Find a layout in attributes.  Returns error if a disallowed layout is
@@ -256,7 +283,7 @@ module Layout : sig
       when there is no need for unification; e.g. [equal] on a var and [value]
       will crash.
 
-      XXX ASZ: At the moment, this is actually the same as [equate]! *)
+      CR layouts (v1.5): At the moment, this is actually the same as [equate]! *)
   val equal : t -> t -> bool
 
   (** Finds the intersection of two layouts, constraining sort variables to
@@ -266,7 +293,8 @@ module Layout : sig
       layout argument.  That is, due to histories, this function is asymmetric;
       it should be thought of as modifying the first layout to be the
       intersection of the two, not something that modifies the second layout. *)
-  val intersection : reason:reason -> t -> t -> (t, Violation.t) Result.t
+  val intersection :
+    reason:intersection_reason -> t -> t -> (t, Violation.t) Result.t
 
   (** [sub t1 t2] returns [Ok t1] iff [t1] is a sublayout of
     of [t2].  The current hierarchy is:
@@ -277,7 +305,11 @@ module Layout : sig
     Return [Error _] if the coercion is not possible. We return a layout in the
     success case because it sometimes saves time / is convenient to have the
     same return type as intersection. *)
-  val sub : reason:reason -> t -> t -> (t, Violation.t) result
+  val sub : t -> t -> (t, Violation.t) result
+
+  (** Checks to see whether a layout is void. Call only after type-checking
+      is complete (no sort variables allowed here!). *)
+  val is_void : t -> bool
 
   (*********************************)
   (* defaulting *)

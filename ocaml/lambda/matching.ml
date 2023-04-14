@@ -3793,7 +3793,7 @@ let for_let ~scopes loc param_void_k param param_sort pat body_kind body =
         let ids_with_kinds =
           List.filter_map
             (fun (id, _, typ, sort) ->
-               if Layout.can_make_void (Layout.of_sort sort)
+               if Sort.can_make_void sort
                then None
                else Some (id, Typeopt.layout pat.pat_env typ))
             catch_ids

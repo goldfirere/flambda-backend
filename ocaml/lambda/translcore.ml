@@ -57,7 +57,7 @@ let declare_probe_handlers lam =
     !probe_handlers
 
 (* Layout checking may default everything once we reach translcore *)
-let is_void_sort s = Layout.can_make_void (Layout.of_sort s)
+let is_void_sort = Sort.can_make_void
 let is_void_layout = Layout.can_make_void
 
 (* Compile an exception/extension definition *)
@@ -1039,8 +1039,9 @@ and transl_exp0 ~in_new_scope ~scopes void_k e =
         match Env.find_value path e.exp_env with
         | {val_type; _} -> begin
             match
-              Ctype.check_type_layout ~reason:(Fixed_layout Probe)
-                e.exp_env (Ctype.correct_levels val_type) Layout.value
+              Ctype.check_type_layout
+                e.exp_env (Ctype.correct_levels val_type)
+                (Layout.value ~creation:Probe)
             with
             | Ok _ -> ()
             | Error _ -> raise (Error (e.exp_loc, Bad_probe_layout id))
@@ -1721,7 +1722,7 @@ and transl_match ~scopes e arg sort pat_expr_list partial void_k =
         let ids_full = Typedtree.pat_bound_idents_full sort pv in
         let ids_kinds =
           List.filter_map (fun (id, _, ty, sort) ->
-            if Layout.can_make_void (Layout.of_sort sort)
+            if Sort.can_make_void sort
             then None
             else Some (id, Typeopt.layout pv.pat_env ty))
             ids_full

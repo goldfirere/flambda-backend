@@ -490,17 +490,11 @@ val type_sort :
 (* CR layouts: When we improve errors, it may be convenient to change these to
    raise on error, like unify. *)
 val check_decl_layout :
-  reason:Layouts.Layout.reason
-  -> Env.t -> type_declaration -> layout
-  -> (layout, Layout.Violation.t) result
+  Env.t -> type_declaration -> layout -> (layout, Layout.Violation.t) result
 val check_type_layout :
-  reason:Layouts.Layout.reason
-  -> Env.t -> type_expr -> layout
-  -> (layout, Layout.Violation.t) result
+  Env.t -> type_expr -> layout -> (layout, Layout.Violation.t) result
 val constrain_type_layout :
-  reason:Layouts.Layout.reason
-  -> Env.t -> type_expr -> layout
-  -> (layout, Layout.Violation.t) result
+  Env.t -> type_expr -> layout -> (layout, Layout.Violation.t) result
 
 (* True if a type is always global (i.e., it mode crosses for local).  This is
    true for all immediate and immediate64 types.  To make it sound for

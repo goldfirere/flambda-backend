@@ -110,6 +110,19 @@ module Sort = struct
     | Const Void -> "void"
   let format ppf t = Format.fprintf ppf "%s" (to_string t)
 
+  (*** defaulting ***)
+
+  let get_defaulting ~default t =
+    match repr ~default:(Some default) t with
+    | Const result -> result
+    | Var _ -> assert false
+
+  let constrain_default_void = get_defaulting ~default:Void
+  let can_make_void t = Void = constrain_default_void t
+
+  let default_to_value t =
+    ignore (get_defaulting ~default:Value t)
+
   module Debug_printers = struct
     open Format
 
@@ -134,25 +147,25 @@ module Layout = struct
     | Match
     | Constructor_declaration of int
     | Label_declaration of Ident.t
+    | Unannotated_type_parameter
+    | Record_projection
+    | Record_assignment
+    | Let_binding
+    | Structure_element
 
   type annotation_context =
     | Type_declaration of Path.t
     | Type_parameter of Path.t * string
-    | With_constraint of Path.t
+    | With_constraint of string
     | Newtype_declaration of string
-
-  type reason =
-    | Concrete_layout of concrete_layout_reason
-    | Gadt_equation of Path.t
-    | Unified_with_tvar of string option
-    | Dummy_reason_result_ignored
 
   type intersection_reason =
     | Gadt_equation of Path.t
-    | Tyvar_refinement (* CR layouts: this needs to carry a type_expr, but that's loopy *)
+    | Tyvar_refinement
+    (* CR layouts: this needs to carry a type_expr, but that's loopy *)
 
   type value_creation_reason =
-    | Let_binding
+    | Class_let_binding
     | Function_argument
     | Function_result
     | Tuple_element
@@ -174,18 +187,39 @@ module Layout = struct
     | Tfield
     | Tnil
     | First_class_module
+    | Separability_check
+    | Univar
+    | Polymorphic_variant_field
+    | Default_type_layout
+    | Float_record_field
+    | Existential_type_variable
+    | Array_element
+    | Lazy_expression
+    | Class_argument
+    | Structure_element
+    | Unknown of string
 
   type immediate_creation_reason =
     | Empty_record
     | Empty_variant
     | Primitive
     | Immediate_polymorphic_variant
+    | Gc_ignorable_check
+    | Value_kind
 
   type immediate64_creation_reason =
     | Local_mode_cross_check
+    | Gc_ignorable_check
+    | Separability_check
+
+  type void_creation_reason =
+    | Sanity_check
 
   type any_creation_reason =
     | Missing_cmi
+    | Wildcard
+    | Unification_var
+    | Initial_typedecl_env
     | Dummy_layout
 
   type creation_reason =
@@ -193,6 +227,7 @@ module Layout = struct
     | Value_creation of value_creation_reason
     | Immediate_creation of immediate_creation_reason
     | Immediate64_creation of immediate64_creation_reason
+    | Void_creation of void_creation_reason
     | Any_creation of any_creation_reason
     | Concrete_creation of concrete_layout_reason
 
@@ -214,15 +249,14 @@ module Layout = struct
     { layout : internal
     ; history : history }
 
-  let fresh_layout layout ~creation = { layout; history = []; creation }
-
-  let add_reason reason t = { t with history = reason :: t.history }
+  let fresh_layout layout ~creation = { layout; history = Creation creation }
 
   (******************************)
   (* constants *)
 
   let any ~creation = fresh_layout Any ~creation:(Any_creation creation)
-  let void ~creation = fresh_layout (Sort Sort.void) ~creation
+  let void ~creation =
+    fresh_layout (Sort Sort.void) ~creation:(Void_creation creation)
   let value ~creation =
     fresh_layout (Sort Sort.value) ~creation:(Value_creation creation)
   let immediate64 ~creation =
@@ -255,16 +289,18 @@ module Layout = struct
  (******************************)
   (* construction *)
 
-  let of_new_sort_var ~creation = fresh_layout (Sort (Sort.new_var ())) ~creation
+  let of_new_sort_var ~creation =
+    fresh_layout (Sort (Sort.new_var ())) ~creation:(Concrete_creation creation)
 
-  let of_sort ~creation s = fresh_layout (Sort s) ~creation
+  let of_sort ~creation s =
+    fresh_layout (Sort s) ~creation:(Concrete_creation creation)
 
   let of_const ~creation : const -> t = function
     | Any -> fresh_layout Any ~creation
     | Immediate -> fresh_layout Immediate ~creation
     | Immediate64 -> fresh_layout Immediate64 ~creation
     | Value -> fresh_layout (Sort Sort.value) ~creation
-    | Void -> void ~creation
+    | Void -> fresh_layout (Sort Sort.void) ~creation
 
   let of_attributes ~legacy_immediate ~reason attrs =
     match Builtin_attributes.layout ~legacy_immediate attrs with
@@ -336,6 +372,16 @@ module Layout = struct
       | Label_declaration lbl ->
         fprintf ppf "used in the declaration of the record field \"%a\""
           Ident.print lbl
+      | Unannotated_type_parameter ->
+        fprintf ppf "appears as an unannotated type parameter"
+      | Record_projection ->
+        fprintf ppf "used as the record in a projection"
+      | Record_assignment ->
+        fprintf ppf "used as the record in an assignment"
+      | Let_binding ->
+        fprintf ppf "bound by a `let`"
+      | Structure_element ->
+        fprintf ppf "stored in a module structure"
 
     let format_annotation_context ppf : annotation_context -> unit = function
       | Type_declaration p ->
@@ -345,39 +391,29 @@ module Layout = struct
           fprintf ppf "%s@ in the declaration of the type %a"
             var
             Path.print p
-      | With_constraint p ->
-          fprintf ppf "the `with` constraint for %a"
-            Path.print p
+      | With_constraint s ->
+          fprintf ppf "the `with` constraint for %s" s
       | Newtype_declaration name ->
           fprintf ppf "the abstract type declaration for %s"
             name
 
-    let format_reason ppf : reason -> unit = function
-      | Concrete_layout clr ->
-          fprintf ppf "to be concrete@ because it was %a"
-            format_concrete_layout_reason clr
-      | Gadt_equation p ->
-          fprintf ppf "by a GADT match@ on the constructor %a"
-            Path.print p
-      | Unified_with_tvar tv -> begin
-          fprintf ppf "during unification@ with ";
-          match tv with
-          | None -> fprintf ppf "a type variable"
-          | Some tv -> fprintf ppf "'%s" tv
-        end
-      | Dummy_reason_result_ignored ->
-          Misc.fatal_errorf
-            "Found [Dummy_reason_result_ignored] in a [layout] when printing!"
-
     let format_any_creation_reason ppf = function
       | Missing_cmi ->
          fprintf ppf "XXX layouts"
+      | Wildcard ->
+         fprintf ppf "a _ in a type"
+      | Unification_var ->
+         fprintf ppf "a fresh unification variable"
+      | Initial_typedecl_env ->
+         fprintf ppf "a dummy layout used in checking mutually recursive datatypes"
+           (* XXX layouts: fix that output *)
       | Dummy_layout ->
          fprintf ppf "@[a dummy layout that should have been overwritten;@ \
                       Please notify the Jane Street compilers group if you see this output."
     (* CR layouts: Improve output or remove this constructor *)
 
-    let format_immediate_creation_reason ppf = function
+    let format_immediate_creation_reason ppf : immediate_creation_reason -> _ =
+      function
       | Empty_record ->
          fprintf ppf "a record containing all void elements"
       | Empty_variant ->
@@ -386,13 +422,22 @@ module Layout = struct
          fprintf ppf "a primitive immediate type"
       | Immediate_polymorphic_variant ->
          fprintf ppf "an immediate polymorphic variant"
+      | Gc_ignorable_check ->
+         fprintf ppf "the check to see whether a value can be ignored by GC"
+      | Value_kind ->
+         fprintf ppf
+           "the check to see whether a polymorphic variant is immediate"
 
     let format_immediate64_creation_reason ppf = function
       | Local_mode_cross_check ->
          fprintf ppf "the check for whether a local value can safely escape"
+      | Gc_ignorable_check ->
+         fprintf ppf "the check to see whether a value can be ignored by GC"
+      | Separability_check ->
+         fprintf ppf "the check that a type is definitely not `float`"
 
     let format_value_creation_reason ppf : value_creation_reason -> _ = function
-      | Let_binding -> fprintf ppf "let-bound"
+      | Class_let_binding -> fprintf ppf "let-bound in a class expression"
       | Function_argument -> fprintf ppf "a function argument"
       | Function_result -> fprintf ppf "a function result"
       | Tuple_element -> fprintf ppf "a tuple element"
@@ -415,6 +460,31 @@ module Layout = struct
       | Tfield -> fprintf ppf "an internal Tfield type (you shouldn't see this)"
       | Tnil -> fprintf ppf "an internal Tnil type (you shouldn't see this)"
       | First_class_module -> fprintf ppf "a first-class module type"
+      | Separability_check ->
+        fprintf ppf "the check that a type is definitely not `float`"
+      | Univar -> fprintf ppf "an unannotated universal variable"
+      | Polymorphic_variant_field -> fprintf ppf "a field of a polymorphic variant"
+      | Default_type_layout ->
+        fprintf ppf "the default layout for an abstract type"
+      | Float_record_field ->
+        fprintf ppf "a field of a float record"
+      | Existential_type_variable ->
+        fprintf ppf "an unannotated existential type variable"
+      | Array_element ->
+        fprintf ppf "an array element"
+      | Lazy_expression ->
+        fprintf ppf "a lazy expression"
+      | Class_argument ->
+        fprintf ppf "a term-level argument to a class constructor"
+      | Structure_element ->
+        fprintf ppf "stored in a module structure"
+      | Unknown s -> fprintf ppf "unknown @[(please alert the Jane Street@;\
+                       compilers team with this message: %s)@]" s
+
+
+    let format_void_creation_reason ppf : void_creation_reason -> _ = function
+      | Sanity_check -> fprintf ppf "check to make sure there are no voids"
+        (* CR layouts: remove this when we remove its uses *)
 
     let format_creation_reason ppf : creation_reason -> unit = function
       | Annotated (ctx, _) ->
@@ -425,26 +495,48 @@ module Layout = struct
          format_immediate_creation_reason ppf immediate
       | Immediate64_creation immediate64 ->
          format_immediate64_creation_reason ppf immediate64
+      | Void_creation void ->
+        format_void_creation_reason ppf void
       | Value_creation value ->
          format_value_creation_reason ppf value
       | Concrete_creation concrete ->
          format_concrete_layout_reason ppf concrete
 
+    let format_intersection_reason ppf = function
+      | Gadt_equation name ->
+        fprintf ppf "a GADT match on the constructor %a" Path.print name
+      | Tyvar_refinement ->
+        fprintf ppf "updating a type variable"
+
     let format_history ~pp_name ~name ppf t =
-      (* XXX ASZ: Restore printing *)
+      (* CR layouts: Restore printing *)
       if false then begin
-      let message ppf = function
-        | 0 -> fprintf ppf "%a's layout was constrained" pp_name name
-        | _ -> fprintf ppf "and"
+        (* CR layouts: Improve this output *)
+        let rec in_order ppf = function
+          | Intersection (reason, h1, h2) ->
+            fprintf ppf "@[<v 2>%a@]@;intersection (%a)@;@[<v 2>%a@]"
+              in_order h1
+              format_intersection_reason reason
+              in_order h2
+          | Sublayout (h1, h2) ->
+            fprintf ppf "@[<v 2>%a@]@;sublayout@;@[<v 2>%a@]"
+              in_order h1
+              in_order h2
+          | Creation c ->
+            format_creation_reason ppf c
+        in
+        fprintf ppf "%a has this layout history:@;@[<v 2>%a@]"
+          pp_name name
+          in_order t.history
+      end;
+      let rec check_missing_cmi = function
+        | Intersection (_, h1, h2) | Sublayout (h1, h2) ->
+          check_missing_cmi h1 || check_missing_cmi h2
+        | Creation (Any_creation Missing_cmi) -> true
+        | _ -> false
       in
-      List.iteri
-        (fun i r ->
-           fprintf ppf "@,@[<hov 2>%a %a@]"
-             message i
-             format_reason r)
-        t.history;
-      format_creation_reason ppf t.creation
-      end
+      if check_missing_cmi t.history then
+        fprintf ppf "missing cmi"
   end
 
   include Formatting
@@ -471,13 +563,7 @@ module Layout = struct
         problem
         format l2
         (format_history ~pp_name:pp_former ~name:former) l1
-        (format_history ~pp_name:pp_print_string ~name:"The latter") l2;
-      match l1.creation with
-      | Any_creation Missing_cmi ->
-        fprintf ppf
-          "@[The reason the layout is `any` is because of a missing cmi file.@ \
-           You may want to add another dependency to your build settings.@]"
-      | _ -> ()
+        (format_history ~pp_name:pp_print_string ~name:"The latter") l2
 
     let pp_t ppf x = fprintf ppf "%t" x
 
@@ -535,7 +621,10 @@ module Layout = struct
       | Immediate -> Immediate
       | Immediate64 -> Immediate64
     in
-    Result.map (add_reason reason) @@ match get l1, get l2 with
+    let combine_histories l =
+      { l with history = Intersection (reason, l1.history, l2.history) }
+    in
+    Result.map combine_histories @@ match get l1, get l2 with
     | Const c1, Const c2 ->
       Result.map (fun c -> { l1 with layout = internal_of_const c })
                  (intersection_const c1 c2)
@@ -547,7 +636,7 @@ module Layout = struct
           { l1 with layout = internal_of_const imm }
     | _, _ -> equality_check (equate l1 l2) l1
 
-  let sub ~reason sub super =
+  let sub sub super =
     let ok = Ok sub in
     let err = Error (Violation.Not_a_sublayout (sub,super)) in
     let check good = if good then ok else err in
@@ -558,7 +647,10 @@ module Layout = struct
       | Immediate, Immediate64 -> true
       | (Any | Void | Value | Immediate64 | Immediate), _ -> false
     in
-    Result.map (add_reason reason) @@ match get sub, get super with
+    let combine_histories l =
+      { l with history = Sublayout (sub.history, super.history) }
+    in
+    Result.map combine_histories @@ match get sub, get super with
     | Const c1, Const c2 -> check (sub_const c1 c2)
     | Var v1, Var v2 ->
       check (Sort.equate (Sort.of_var v1) (Sort.of_var v2))
@@ -571,6 +663,11 @@ module Layout = struct
       check (Sort.equate (Sort.of_var v) Sort.void)
     | Const Any, Var _ -> err
     | Var _, Const (Immediate | Immediate64) -> err
+
+  let is_void = function
+    | { layout = Sort (Const Void) } -> true
+    | { layout = Sort (Var _) } -> assert false
+    | _ -> false
 
   (*********************************)
   (* defaulting *)
@@ -604,43 +701,51 @@ module Layout = struct
           fprintf ppf "Constructor_declaration %d" idx
       | Label_declaration lbl ->
           fprintf ppf "Label_declaration %a" Ident.print lbl
+      | Unannotated_type_parameter ->
+          fprintf ppf "Unannotated_type_parameter"
+      | Record_projection ->
+          fprintf ppf "Record_projection"
+      | Record_assignment ->
+          fprintf ppf "Record_assignment"
+      | Let_binding ->
+          fprintf ppf "Let_binding"
+      | Structure_element ->
+          fprintf ppf "Structure_element"
 
     let annotation_context ppf : annotation_context -> unit = function
       | Type_declaration p ->
           fprintf ppf "Type_declaration %a" Path.print p
       | Type_parameter (p, var) ->
           fprintf ppf "Type_parameter (%a, %S)" Path.print p var
-      | With_constraint p ->
-          fprintf ppf "With_constraint %a" Path.print p
+      | With_constraint s ->
+          fprintf ppf "With_constraint %s" s
       | Newtype_declaration name ->
           fprintf ppf "Newtype_declaration %s" name
 
-    let reason ppf : reason -> unit = function
-      | Concrete_layout clr ->
-          fprintf ppf "Concrete_layout %a" concrete_layout_reason clr
-      | Gadt_equation p ->
-          fprintf ppf "Gadt_equation %a" Path.print p
-      | Unified_with_tvar tv ->
-          fprintf ppf "Unified_with_tvar %a"
-            (Misc.Stdlib.Option.print pp_print_string) tv
-      | Dummy_reason_result_ignored ->
-          fprintf ppf "Dummy_reason_result_ignored"
-
     let any_creation_reason ppf = function
       | Missing_cmi -> fprintf ppf "Missing_cmi"
+      | Wildcard -> fprintf ppf "Wildcard"
+      | Unification_var -> fprintf ppf "Unification_var"
+      | Initial_typedecl_env -> fprintf ppf "Initial_typedecl_env"
       | Dummy_layout -> fprintf ppf "Dummy_layout"
 
-    let immediate_creation_reason ppf = function
+    let immediate_creation_reason ppf : immediate_creation_reason -> _ =
+      function
       | Empty_record -> fprintf ppf "Empty_record"
       | Empty_variant -> fprintf ppf "Empty_variant"
       | Primitive -> fprintf ppf "Primitive"
-      | Immediate_polymorphic_variant -> fprintf ppf "Immediate_polymorphic_variant"
+      | Immediate_polymorphic_variant ->
+        fprintf ppf "Immediate_polymorphic_variant"
+      | Gc_ignorable_check -> fprintf ppf "Gc_ignorable_check"
+      | Value_kind -> fprintf ppf "Value_kind"
 
     let immediate64_creation_reason ppf = function
       | Local_mode_cross_check -> fprintf ppf "Local_mode_cross_check"
+      | Gc_ignorable_check -> fprintf ppf "Gc_ignorable_check"
+      | Separability_check -> fprintf ppf "Separability_check"
 
     let value_creation_reason ppf : value_creation_reason -> _ = function
-      | Let_binding -> fprintf ppf "Let_binding"
+      | Class_let_binding -> fprintf ppf "Class_let_binding"
       | Function_argument -> fprintf ppf "Function_argument"
       | Function_result -> fprintf ppf "Function_result"
       | Tuple_element -> fprintf ppf "Tuple_element"
@@ -662,6 +767,20 @@ module Layout = struct
       | Tfield -> fprintf ppf "Tfield"
       | Tnil -> fprintf ppf "Tnil"
       | First_class_module -> fprintf ppf "First_class_module"
+      | Separability_check -> fprintf ppf "Separability_check"
+      | Univar -> fprintf ppf "Univar"
+      | Polymorphic_variant_field -> fprintf ppf "Polymorphic_variant_field"
+      | Default_type_layout -> fprintf ppf "Default_type_layout"
+      | Float_record_field -> fprintf ppf "Float_record_field"
+      | Existential_type_variable -> fprintf ppf "Existential_type_variable"
+      | Array_element -> fprintf ppf "Array_element"
+      | Lazy_expression -> fprintf ppf "Lazy_expression"
+      | Class_argument -> fprintf ppf "Class_argument"
+      | Structure_element -> fprintf ppf "Structure_element"
+      | Unknown s -> fprintf ppf "Unknown %s" s
+
+    let void_creation_reason ppf : void_creation_reason -> _ = function
+      | Sanity_check -> fprintf ppf "Sanity_check"
 
     let creation_reason ppf : creation_reason -> unit = function
       | Annotated (ctx, loc) ->
@@ -676,18 +795,36 @@ module Layout = struct
          fprintf ppf "Immediate64_creation %a" immediate64_creation_reason immediate64
       | Value_creation value ->
          fprintf ppf "Value_creation %a" value_creation_reason value
+      | Void_creation void ->
+         fprintf ppf "Void_creation %a" void_creation_reason void
       | Concrete_creation concrete ->
          fprintf ppf "Concrete_creation %a" concrete_layout_reason concrete
 
-    let reasons ppf (rs : reason list) : unit =
-      fprintf ppf "@[<hov 2>[ %a@]@,]"
-        (pp_print_list ~pp_sep:(fun ppf () -> fprintf ppf "@,; ") reason) rs
+    let intersection_reason ppf = function
+      | Gadt_equation p ->
+        fprintf ppf "Gadt_equation %a"
+          Path.print p
+      | Tyvar_refinement ->
+        fprintf ppf "Tyvar_refinement"
 
-    let t ppf ({ layout; history; creation } : t) : unit =
-      fprintf ppf "@[<v 2>{ layout = %a@,; history = %a@,; creation = %a }@]"
+    let rec history ppf = function
+      | Intersection (r, h1, h2) ->
+        fprintf ppf "Intersection @[(%a,@ %a,@ %a)@]"
+          intersection_reason r
+          history h1
+          history h2
+      | Sublayout (h1, h2) ->
+        fprintf ppf "Sublayout @[(%a,@ %a)@]"
+          history h1
+          history h2
+      | Creation c ->
+        fprintf ppf "Creation (%a)"
+          creation_reason c
+
+    let t ppf ({ layout; history=h } : t) : unit =
+      fprintf ppf "@[<v 2>{ layout = %a@,; history = %a }@]"
         internal layout
-        reasons  history
-        creation_reason creation
+        history h
   end
 end
 
