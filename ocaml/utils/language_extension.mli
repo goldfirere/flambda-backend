@@ -2,25 +2,27 @@
 
 type maturity = Stable | Beta | Alpha
 
-(** The type of language extensions *)
-type t =
-  | Comprehensions
-  | Local
-  | Include_functor
-  | Polymorphic_parameters
-  | Immutable_arrays
-  | Module_strengthening
-  | Layouts of maturity
+(** The type of language extensions. An ['a t] is an extension that can either
+    be off or be set to have any value in ['a], so a [unit t] can be either on
+    or off, while a [maturity t] can have different maturity settings. *)
+type _ t =
+  | Comprehensions : unit t
+  | Local : unit t
+  | Include_functor : unit t
+  | Polymorphic_parameters : unit t
+  | Immutable_arrays : unit t
+  | Module_strengthening : unit t
+  | Layouts : maturity t
 
 (** Equality on language extensions *)
-val equal : t -> t -> bool
+val equal : 'a t -> 'b t -> bool
 
-(** A list of all possible language extensions *)
-val all : t list
+(** Disable all extensions *)
+val disable_all : unit -> unit
 
-(** A maximal list of compatible language extensions (of the layouts extensions,
-    "layouts_alpha" is selected). *)
-val max_compatible : t list
+(** Maximally enable all extensions (that is, set to [Alpha] for [maturity]
+    extensions. *)
+val enable_maximal : unit -> unit
 
 (** Check if a language extension is "erasable", i.e. whether it can be
     harmlessly translated to attributes and compiled with the upstream
