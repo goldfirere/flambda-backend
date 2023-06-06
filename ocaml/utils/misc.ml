@@ -1275,3 +1275,35 @@ module Magic_number = struct
            | Error err -> Error (Unexpected_error err)
            | Ok () -> Ok info
 end
+
+(*********************************************)
+(* Fancy types *)
+
+module type OrderedType = Map.OrderedType
+
+module OrderedTypeOps (X : OrderedType) = struct
+  let min t1 t2 = if X.compare t1 t2 <= 0 then t1 else t2
+  let max t1 t2 = if X.compare t1 t2 >= 0 then t1 else t2
+end
+
+type (_, _) eq = Refl : ('a, 'a) eq
+
+module T1 = struct
+  module type S = sig
+    type 'a t
+  end
+
+  module Id = struct
+    type 'a t = 'a
+  end
+end
+
+module Exist (X : T1.S) = struct
+  type t =
+    | Pack : 'a X.t -> t
+end
+
+module Pair1 (X : T1.S) (Y : T1.S) = struct
+  type t =
+    | Pair : 'a X.t * 'a Y.t -> t
+end

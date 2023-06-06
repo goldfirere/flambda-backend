@@ -89,23 +89,23 @@ module Feature : sig
 
   val of_component : string -> (t, error) result
 end = struct
-  type t = Language_extension of Language_extension.t
+  type t = Language_extension of Language_extension.Exist.t
          | Builtin
 
   type error =
-    | Disabled_extension of Language_extension.t
+    | Disabled_extension of Language_extension.Exist.t
     | Unknown_extension of string
 
   let builtin_component = "_builtin"
 
   let describe_uppercase = function
     | Language_extension ext ->
-        "The extension \"" ^ Language_extension.to_string ext ^ "\""
+        "The extension \"" ^ Language_extension.Exist.to_string ext ^ "\""
     | Builtin ->
         "Built-in syntax"
 
   let extension_component = function
-    | Language_extension ext -> Language_extension.to_string ext
+    | Language_extension ext -> Language_extension.Exist.to_string ext
     | Builtin -> builtin_component
 
   let of_component str =
@@ -113,7 +113,7 @@ end = struct
       Ok Builtin
     else
       match Language_extension.of_string str with
-      | Some ext when Language_extension.is_enabled ext ->
+      | Some (Pack ext) when Language_extension.is_enabled ext ->
           Ok (Language_extension ext)
       | Some ext ->
           Error (Disabled_extension ext)

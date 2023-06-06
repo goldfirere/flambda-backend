@@ -1,6 +1,9 @@
 (** Language extensions provided by ocaml-jst *)
 
-type maturity = Stable | Beta | Alpha
+(** A setting for extensions that track multiple maturity levels *)
+module Maturity : sig
+  type t = Stable | Beta | Alpha
+end
 
 (** The type of language extensions. An ['a t] is an extension that can either
     be off or be set to have any value in ['a], so a [unit t] can be either on
@@ -12,7 +15,14 @@ type _ t =
   | Polymorphic_parameters : unit t
   | Immutable_arrays : unit t
   | Module_strengthening : unit t
-  | Layouts : maturity t
+  | Layouts : Maturity.t t
+
+(** Existentially packed language extension *)
+module Exist : sig
+  include module type of Misc.Exist(struct type nonrec 'a t = 'a t end)
+
+  val to_string : t -> string
+end
 
 (** Equality on language extensions *)
 val equal : 'a t -> 'b t -> bool
@@ -27,29 +37,32 @@ val enable_maximal : unit -> unit
 (** Check if a language extension is "erasable", i.e. whether it can be
     harmlessly translated to attributes and compiled with the upstream
     compiler. *)
-val is_erasable : t -> bool
+val is_erasable : 'a t -> bool
 
 (** Print and parse language extensions; parsing is case-insensitive *)
-val to_string : t -> string
-val of_string : string -> t option
-val of_string_exn : string -> t
+val to_string : 'a t -> string
+val of_string : string -> Exist.t option
+val of_string_exn : string -> Exist.t
 
 (** Enable and disable language extensions; these operations are idempotent *)
-val set : t -> enabled:bool -> unit
-val enable : t -> unit
-val disable : t -> unit
+val set : 'a t -> 'a option -> unit
+val enable : 'a t -> 'a -> unit
+val disable : 'a t -> unit
 
 (** Check if a language extension is currently enabled *)
-val is_enabled : t -> bool
+val is_enabled : unit t -> bool
+
+(** Check if a language extension is enabled at least at the given level *)
+val is_at_least : 'a t -> 'a -> bool
 
 (** Tooling support: Temporarily enable and disable language extensions; these
     operations are idempotent.  Calls to [set], [enable], [disable], and
     [disallow_extensions] inside the body of the function argument will also
     be rolled back when the function finishes, but this behavior may change;
     nest multiple [with_*] functions instead.  *)
-val with_set : t -> enabled:bool -> (unit -> unit) -> unit
-val with_enabled : t -> (unit -> unit) -> unit
-val with_disabled : t -> (unit -> unit) -> unit
+val with_set : 'a t -> 'a option -> (unit -> unit) -> unit
+val with_enabled : 'a t -> 'a -> (unit -> unit) -> unit
+val with_disabled : 'a t -> (unit -> unit) -> unit
 
 (** Permanently restrict the allowable extensions to those that are
     "erasable", i.e. those that can be harmlessly translated to attributes and

@@ -707,3 +707,38 @@ module Magic_number : sig
 
   val all_kinds : kind list
 end
+
+(** A type with an ordering *)
+module type OrderedType = Map.OrderedType
+
+(** Operations on ordered types *)
+module OrderedTypeOps (X : OrderedType) : sig
+  val min : X.t -> X.t -> X.t
+  val max : X.t -> X.t -> X.t
+end
+
+(** Propositional equality *)
+type (_, _) eq = Refl : ('a, 'a) eq
+
+(** A type indexed by one parameter *)
+module T1 : sig
+  module type S = sig
+    type 'a t
+  end
+
+  (** Identity type [type 'a t = 'a] *)
+  module Id : S with type 'a t = 'a
+end
+
+(** Support for existentials *)
+module Exist (X : T1.S) : sig
+  type t =
+    | Pack : 'a X.t -> t
+end
+
+(** A pair of values indexed by the same existentially
+    bound type *)
+module Pair1 (X : T1.S) (Y : T1.S) : sig
+  type t =
+    | Pair : 'a X.t * 'a Y.t -> t
+end

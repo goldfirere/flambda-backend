@@ -94,7 +94,7 @@
     built-in features. *)
 module Feature : sig
   type t =
-    | Language_extension of Language_extension.t
+    | Language_extension of Language_extension.Exist.t
     | Builtin
 end
 
@@ -219,7 +219,7 @@ end
     extensions to be enabled at once (e.g., immutable array comprehensions such
     as [[:x for x = 1 to 10:]], which require both [Comprehensions] and
     [Immutable_arrays]). *)
-val assert_extension_enabled : loc:Location.t -> Language_extension.t -> unit
+val assert_extension_enabled : loc:Location.t -> Language_extension.Exist.t -> unit
 
 (* CR-someday nroberts: An earlier version of this revealed less of its
    implementation in its name: it was called [match_jane_syntax], and
