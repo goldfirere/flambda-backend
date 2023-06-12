@@ -89,6 +89,10 @@ let to_string : type a. a t -> string = function
   | Module_strengthening -> "module_strengthening"
   | Layouts -> "layouts"
 
+let to_command_line_string : type a. a t -> a -> string = fun extn level ->
+  let (module Ops) = get_level_ops extn in
+  to_string extn ^ Ops.to_command_line_suffix level
+
 (* converts full extension names, like "layouts_alpha" to a pair of
    an extension and its setting *)
 let pair_of_string extn_name : extn_pair option =
@@ -338,6 +342,16 @@ let is_enabled extn =
   in
   check !extensions
 
+let get_command_line_string_if_enabled extn =
+  let rec find = function
+    | [] -> None
+    | (Pair (e, v) :: _) when equal e extn -> Some (to_command_line_string e v)
+    | (_ :: es) -> find es
+  in
+  find !extensions
+
+(********************************************)
+(* existentially packed extension *)
 
 module Exist = struct
   type 'a extn = 'a t
@@ -346,9 +360,7 @@ module Exist = struct
 
   let to_command_line_strings (Pack extn) =
     let (module Ops) = get_level_ops extn in
-    List.map
-      (fun level -> to_string extn ^ Ops.to_command_line_suffix level)
-      Ops.all
+    List.map (to_command_line_string extn) Ops.all
 
   let to_string : t -> string = function
     | Pack extn -> to_string extn
