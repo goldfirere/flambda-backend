@@ -137,6 +137,13 @@ module Embedded_name : sig
   val pp_quoted_name : Format.formatter -> t -> unit
 end
 
+(** A bit of syntax having been decoded from jane-syntax. This is either a
+    [Replacement] for existing syntax or [Extra] information about a piece
+    of syntax. *)
+type ('a, 'b) decoded =
+  | Replacement of 'a
+  | Extra of 'b
+
 (** Each syntactic category that contains novel syntactic features has a
     corresponding module of this module type.  We're adding these lazily as we
     need them. When you add another one, make sure also to add special handling
@@ -180,7 +187,7 @@ module type AST = sig
       embedding is malformed.
   *)
   val make_of_ast
-    :  of_ast_internal:(Feature.t -> ast -> 'a option)
+    :  of_ast_internal:(Feature.t -> ast -> ('a, 'b) decoded)
     (** A function to convert [Parsetree]'s AST to our novel extended one.  The
         choice of feature and the piece of syntax will both be extracted from
         the embedding by the first argument.
@@ -191,7 +198,10 @@ module type AST = sig
         extended pattern AST, this function will return [None] if it spots an
         embedding that claims to be from [Language_extension Comprehensions].)
     *)
-    -> (ast -> 'a option)
+    -> no_extra:(ast -> 'b)
+    (** A value of type ['b] that means there is no extra information to return
+    *)
+    -> (ast -> ('a, 'b) decoded)
 end
 
 module Expression :
@@ -250,6 +260,10 @@ val find_and_remove_jane_syntax_attribute :
   Parsetree.attributes ->
   (Embedded_name.t * Location.t *
    Parsetree.payload * Parsetree.attributes) option
+
+(** Creates an attribute used for encoding syntax from the given [Feature.t] *)
+val make_jane_syntax_attribute :
+  Feature.t -> string list -> Parsetree.payload -> Parsetree.attribute
 
 (** Errors around the representation of our extended ASTs.  These should mostly
     just be fatal, but they're needed for one test case

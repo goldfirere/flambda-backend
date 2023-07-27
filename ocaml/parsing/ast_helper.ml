@@ -61,7 +61,7 @@ module Typ = struct
   let attr d a = {d with ptyp_attributes = d.ptyp_attributes @ [a]}
 
   let any ?loc ?attrs () = mk ?loc ?attrs Ptyp_any
-  let var ?loc ?attrs a b = mk ?loc ?attrs (Ptyp_var (a, b))
+  let var ?loc ?attrs a = mk ?loc ?attrs (Ptyp_var a)
   let arrow ?loc ?attrs a b c = mk ?loc ?attrs (Ptyp_arrow (a, b, c))
   let tuple ?loc ?attrs a = mk ?loc ?attrs (Ptyp_tuple a)
   let constr ?loc ?attrs a b = mk ?loc ?attrs (Ptyp_constr (a, b))
@@ -82,7 +82,7 @@ module Typ = struct
     let check_variable vl loc v =
       if List.mem v vl then
         raise Syntaxerr.(Error(Variable_in_scope(loc,v))) in
-    let var_names = List.map (fun v -> v.txt) var_names in
+    let var_names = List.map Location.get_txt var_names in
     let rec loop t =
       let desc =
         (* This *ought* to match on [Jane_syntax.Core_type.ast_of] first, but
@@ -93,15 +93,15 @@ module Typ = struct
            resolve this knot. *)
         match t.ptyp_desc with
         | Ptyp_any -> Ptyp_any
-        | Ptyp_var (x, layout) ->
+        | Ptyp_var x ->
             check_variable var_names t.ptyp_loc x;
-            Ptyp_var (x, layout)
+            Ptyp_var x
         | Ptyp_arrow (label,core_type,core_type') ->
             Ptyp_arrow(label, loop core_type, loop core_type')
         | Ptyp_tuple lst -> Ptyp_tuple (List.map loop lst)
         | Ptyp_constr( { txt = Longident.Lident s }, [])
           when List.mem s var_names ->
-            Ptyp_var (s, None)
+            Ptyp_var s
         | Ptyp_constr(longident, lst) ->
             Ptyp_constr(longident, List.map loop lst)
         | Ptyp_object (lst, o) ->

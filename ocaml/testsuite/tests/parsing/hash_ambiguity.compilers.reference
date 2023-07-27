@@ -8,7 +8,6 @@
           [
             core_type (hash_ambiguity.ml[8,140+7]..[8,140+9])
               Ptyp_var a
-              None
           ]
         pci_name = "list" (hash_ambiguity.ml[8,140+11]..[8,140+15])
         pci_expr =
@@ -27,7 +26,6 @@
           [
             core_type (hash_ambiguity.ml[9,169+5]..[9,169+7])
               Ptyp_var a
-              None
           ]
         ptype_cstrs =
           []
@@ -54,7 +52,6 @@
           [
             core_type (hash_ambiguity.ml[15,425+5]..[15,425+7])
               Ptyp_var a
-              None
           ]
         ptype_cstrs =
           []
@@ -86,7 +83,6 @@
           [
             core_type (hash_ambiguity.ml[17,453+5]..[17,453+7])
               Ptyp_var a
-              None
           ]
         ptype_cstrs =
           []

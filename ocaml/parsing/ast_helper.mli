@@ -69,8 +69,7 @@ module Typ :
     val attr: core_type -> attribute -> core_type
 
     val any: ?loc:loc -> ?attrs:attrs -> unit -> core_type
-    val var: ?loc:loc -> ?attrs:attrs -> string -> layout_annotation option
-             -> core_type
+    val var: ?loc:loc -> ?attrs:attrs -> string -> core_type
     val arrow: ?loc:loc -> ?attrs:attrs -> arg_label -> core_type -> core_type
                -> core_type
     val tuple: ?loc:loc -> ?attrs:attrs -> core_type list -> core_type
@@ -94,7 +93,8 @@ module Typ :
         any of nullary type constructor [tc] is replaced by type variable of
         the same name, if [tc]'s name appears in [newtypes].
         Raise [Syntaxerr.Variable_in_scope] if any type variable inside [te]
-        appears in [newtypes].
+        appears in [newtypes]. Used to translate [type a. a -> a] to
+        ['a. 'a -> 'a] during parsing.
         @since 4.05
      *)
   end

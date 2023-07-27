@@ -90,8 +90,6 @@ module Feature : sig
     | Disabled_extension : _ Language_extension.t -> error
     | Unknown_extension of string
 
-  val describe_uppercase : t -> string
-
   val extension_component : t -> string
 
   val of_component : string -> (t, error) result
@@ -106,12 +104,6 @@ end = struct
     | Unknown_extension of string
 
   let builtin_component = "_builtin"
-
-  let describe_uppercase = function
-    | Language_extension ext ->
-        "The extension \"" ^ Language_extension.to_string ext ^ "\""
-    | Builtin ->
-        "Built-in syntax"
 
   let extension_component = function
     | Language_extension ext -> Language_extension.to_string ext
@@ -163,6 +155,10 @@ module Embedding_syntax = struct
     in
     Format.fprintf ppf "[%s%s]" sigil name
 end
+
+type ('a, 'b) decoded =
+  | Replacement of 'a
+  | Extra of 'b
 
 (******************************************************************************)
 
@@ -334,7 +330,6 @@ module Error = struct
         { ext : _ Language_extension.t
         ; maturity : Language_extension.maturity option
         } -> error
-    | Wrong_syntactic_category of Feature.t * string
     | Misnamed_embedding of
         Misnamed_embedding_error.t * string * Embedding_syntax.t
     | Bad_introduction of Embedding_syntax.t * Embedded_name.t
@@ -393,12 +388,6 @@ let report_error ~loc = function
             (Language_extension.maturity_to_string maturity)
             (Language_extension.to_string ext)
     end
-  | Wrong_syntactic_category(feat, cat) ->
-      Location.errorf
-        ~loc
-        "%s cannot appear in %s"
-        (Feature.describe_uppercase feat)
-        cat
   | Misnamed_embedding (err, name, what) ->
       Location.errorf
         ~loc
@@ -501,6 +490,15 @@ let find_and_remove_jane_syntax_attribute =
   fun attributes -> loop attributes ~rev_prefix:[]
 ;;
 
+let make_jane_syntax_attribute name payload =
+  { attr_name =
+      { txt = Embedded_name.to_string name
+      ; loc = !Ast_helper.default_loc
+      }
+  ; attr_loc = !Ast_helper.default_loc
+  ; attr_payload = payload
+  }
+
 (** For a syntactic category, produce translations into and out of
     our novel syntax, using parsetree attributes as the encoding.
 *)
@@ -516,16 +514,8 @@ module Make_with_attribute
 
     let embedding_syntax = Embedding_syntax.Attribute
 
-    let make_jane_syntax name ?payload ast =
-      let attr =
-        { attr_name =
-            { txt = Embedded_name.to_string name
-            ; loc = !Ast_helper.default_loc
-            }
-        ; attr_loc = !Ast_helper.default_loc
-        ; attr_payload = Option.value payload ~default:(PStr [])
-        }
-      in
+    let make_jane_syntax name ?(payload = PStr []) ast =
+      let attr = make_jane_syntax_attribute name payload in
       with_attributes ast (attr :: attributes ast)
 
     let match_jane_syntax ast =
@@ -748,7 +738,9 @@ module type AST = sig
   val make_entire_jane_syntax :
     loc:Location.t -> Feature.t -> (unit -> ast) -> ast
   val make_of_ast :
-    of_ast_internal:(Feature.t -> ast -> 'a option) -> (ast -> 'a option)
+    of_ast_internal:(Feature.t -> ast -> ('a, 'b) decoded) ->
+    no_extra:(ast -> 'b) ->
+    (ast -> ('a, 'b) decoded)
 end
 
 module Make_ast (AST : AST_internal) : AST with type ast = AST.ast = struct
@@ -767,7 +759,7 @@ module Make_ast (AST : AST_internal) : AST with type ast = AST.ast = struct
       loc
 
   (** Generically lift our custom ASTs for our novel syntax from OCaml ASTs. *)
-  let make_of_ast ~of_ast_internal =
+  let make_of_ast ~of_ast_internal ~no_extra =
     let of_ast ast =
       let loc = AST.location ast in
       let raise_error loc err = raise (Error (loc, err)) in
@@ -780,12 +772,7 @@ module Make_ast (AST : AST_internal) : AST with type ast = AST.ast = struct
                       (AST.embedding_syntax, embedded_name, payload))
           end;
           match Feature.of_component name with
-          | Ok feat -> begin
-              match of_ast_internal feat ast with
-              | Some ext_ast -> Some ext_ast
-              | None ->
-                  raise_error loc (Wrong_syntactic_category(feat, AST.plural))
-            end
+          | Ok feat -> of_ast_internal feat ast
           | Error err -> raise_error loc begin match err with
             | Disabled_extension ext ->
                 Disabled_extension { ext; maturity = None }
@@ -795,10 +782,15 @@ module Make_ast (AST : AST_internal) : AST with type ast = AST.ast = struct
         end
       | Some ({ components = _ :: _ :: _; _ } as name, _, _, _) ->
           raise_error loc (Bad_introduction(AST.embedding_syntax, name))
-      | None -> None
+      | None -> Extra (no_extra ast)
     in
     of_ast
 end
+
+let make_jane_syntax_attribute feature trailing_components payload =
+  make_jane_syntax_attribute
+    (Embedded_name.of_feature feature trailing_components)
+    payload
 
 module Expression = Make_ast(Expression0)
 module Pattern = Make_ast(Pattern0)

@@ -21,6 +21,13 @@
     details), see [Jane_syntax_parsing]. *)
 
 (*********************************************)
+(* Exported utility *)
+
+type ('a, 'b) decoded = ('a, 'b) Jane_syntax_parsing.decoded =
+  | Replacement of 'a
+  | Extra of 'b
+
+(*********************************************)
 (* Individual features *)
 
 (** The ASTs for list and array comprehensions *)
@@ -135,9 +142,20 @@ module Layouts : sig
                     ; name : string option
                     ; layout : Asttypes.layout_annotation }
 
+  type core_type_extra = { var : Asttypes.layout_annotation option }
+
+  (** This encodes a type that is not encoded using an existing constructor *)
   val type_of :
     loc:Location.t -> attrs:Parsetree.attributes ->
     core_type -> Parsetree.core_type
+
+  (** These functions echo functions in [Ast_helper.Typ] to create types
+      that are like existing constructors but with extra information *)
+  module Typ : sig
+    val var :
+      loc:Location.t -> attrs:Parsetree.attributes -> string ->
+      Asttypes.layout_annotation -> Parsetree.core_type
+  end
 end
 
 (******************************************)
@@ -147,7 +165,7 @@ end
     for each syntactic category.  We tend to call the pattern-matching functions
     here with unusual indentation, not indenting the [None] branch further so as
     to avoid merge conflicts with upstream. *)
-module type AST = sig
+module type AST := sig (* use [:=] because we don't need to export [AST] *)
   (** The AST for all our Jane Street syntax; one constructor per feature that
       extends the given syntactic category.  Some extensions are handled
       separately and thus are not listed here.
@@ -160,18 +178,22 @@ module type AST = sig
   *)
   type t
 
+  (** A record of bits of extra information that should be used when processing
+      specific constructors of this syntactic category. *)
+  type extra
+
   (** The corresponding OCaml AST *)
   type ast
 
   (** Given an OCaml AST node, check to see if it corresponds to an embedded
       term from our novel syntax.  If it does, as long as the feature isn't a
       disabled language extension, then return it; if it's not a piece of novel
-      syntax, return [None]; if it's an embedded term from a disabled language
-      extension, raise an error.
+      syntax, return an [Extra] that includes no extra information; if it's an
+      embedded term from a disabled language extension, raise an error.
 
       AN IMPORTANT NOTE: The design of this function is careful to make merge
       conflicts with upstream less likely: we want no edits at all -- not even
-      indentation -- to surrounding code. This is why we return a [t option],
+      indentation -- to surrounding code. This is why we return a [t],
       not some structure that could include the [ast_desc] if there is no
       extension.
 
@@ -180,7 +202,7 @@ module type AST = sig
 
       {[
         match Jane_syntax.Expression.of_ast sexp with
-        | Some jexp ->
+        | Replacement jexp ->
             type_expect_jane_syntax
               ~loc
               ~env
@@ -189,12 +211,14 @@ module type AST = sig
               ~explanation
               ~attributes:sexp.pexp_attributes
               jexp
-        | None      -> match sexp.pexp_desc with
+        | Extra { unboxed = { constant } } ->
+        match sexp.pexp_desc with
         | Pexp_ident lid ->
             let path, mode, desc, kind = type_ident env ~recarg lid in
             (* ... *)
         | Pexp_constant(Pconst_string (str, _, _) as cst) ->
             register_allocation expected_mode;
+            if constant then (* unboxed constant *) else (* boxed constant *)
             (* ... *)
         | (* ... *)
         | Pexp_unreachable ->
@@ -209,8 +233,13 @@ module type AST = sig
       Note that we match on the result of this function, forward to
       [type_expect_jane_syntax] if we get something, and otherwise do the real
       match on [sexp.pexp_desc] *without going up an indentation level*.  This
-      is important to reduce the number of merge conflicts. *)
-  val of_ast : ast -> t option
+      is important to reduce the number of merge conflicts.
+
+      Additionally, the [Extra] piece returns a record of information, each
+      piece of which should be used somewhere. By matching against the whole
+      record, we can be sure that each piece is taken into account.
+  *)
+  val of_ast : ast -> (t, extra) decoded
 end
 
 (******************************************)
@@ -221,8 +250,11 @@ module Core_type : sig
   type t =
     | Jtyp_layout of Layouts.core_type
 
+  type extra = { layouts : Layouts.core_type_extra }
+
   include AST
     with type t := t * Parsetree.attributes
+     and type extra := extra * Parsetree.attributes
      and type ast := Parsetree.core_type
 end
 
@@ -233,6 +265,7 @@ module Constructor_argument : sig
 
   include AST
     with type t := t * Parsetree.attributes
+     and type extra := unit
      and type ast := Parsetree.core_type
 end
 
@@ -245,6 +278,7 @@ module Expression : sig
 
   include AST
     with type t := t * Parsetree.attributes
+     and type extra := unit
      and type ast := Parsetree.expression
 
   val expr_of :
@@ -259,6 +293,7 @@ module Pattern : sig
 
   include AST
     with type t := t * Parsetree.attributes
+     and type extra := unit
      and type ast := Parsetree.pattern
 
   val pat_of :
@@ -272,6 +307,7 @@ module Module_type : sig
 
   include AST
     with type t := t * Parsetree.attributes
+     and type extra := unit
      and type ast := Parsetree.module_type
 end
 
@@ -280,7 +316,10 @@ module Signature_item : sig
   type t =
     | Jsig_include_functor of Include_functor.signature_item
 
-  include AST with type t := t and type ast := Parsetree.signature_item
+  include AST
+    with type t := t
+     and type extra := unit
+     and type ast := Parsetree.signature_item
 end
 
 (** Novel syntax in structure items *)
@@ -288,7 +327,10 @@ module Structure_item : sig
   type t =
     | Jstr_include_functor of Include_functor.structure_item
 
-  include AST with type t := t and type ast := Parsetree.structure_item
+  include AST
+    with type t := t
+     and type extra := unit
+     and type ast := Parsetree.structure_item
 end
 
 (** Novel syntax in extension constructors *)
@@ -296,6 +338,7 @@ module Extension_constructor : sig
   type t = |
 
   include AST with type t := t * Parsetree.attributes
+               and type extra := unit
                and type ast := Parsetree.extension_constructor
 end
 

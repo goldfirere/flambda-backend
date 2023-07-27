@@ -123,24 +123,30 @@ module T = struct
   let type_vars_layouts sub (tvls : type_vars_layouts) =
     List.iter (iter_opt (iter_loc2 sub sub.layout_annotation)) tvls
 
-  let iter_jst sub : Jane_syntax.Core_type.t -> _ = function
-    | Jtyp_layout (Ltyp_alias { aliased_type; name = _; layout }) ->
+  let iter_jst_layout sub : Jane_syntax.Layouts.core_type -> _ = function
+    | Ltyp_alias { aliased_type; name = _; layout } ->
       sub.typ sub aliased_type;
       iter_loc2 sub sub.layout_annotation layout
 
-  let iter sub ({ptyp_desc = desc; ptyp_loc = loc; ptyp_attributes = attrs}
+  let iter_jst sub : Jane_syntax.Core_type.t -> _ = function
+    | Jtyp_layout typ -> iter_jst_layout sub typ
+
+  let iter sub ({ptyp_desc = desc; ptyp_loc = loc}
                   as typ) =
     sub.location sub loc;
     match Jane_syntax.Core_type.of_ast typ with
-    | Some (jtyp, attrs) ->
+    | Replacement (jtyp, attrs) ->
         sub.attributes sub attrs;
         sub.typ_jane_syntax sub jtyp
-    | None ->
+    | Extra (({ layouts = { var = var_layout_opt }}, attrs)[@warning "+9"]) ->
     sub.attributes sub attrs;
     match desc with
     | Ptyp_any -> ()
-    | Ptyp_var (_, lay) ->
-        iter_opt (iter_loc2 sub sub.layout_annotation) lay
+    | Ptyp_var _ ->
+      begin match var_layout_opt with
+      | Some layout -> iter_loc2 sub sub.layout_annotation layout
+      | None -> ()
+      end
     | Ptyp_arrow (_lab, t1, t2) ->
         sub.typ sub t1; sub.typ sub t2
     | Ptyp_tuple tyl -> List.iter (sub.typ sub) tyl
@@ -229,10 +235,10 @@ module T = struct
     iter_loc sub pext_name;
     sub.location sub pext_loc;
     match Jane_syntax.Extension_constructor.of_ast ext with
-    | Some (jext, attrs) ->
+    | Replacement (jext, attrs) ->
       sub.attributes sub attrs;
       iter_extension_constructor_jst sub jext
-    | None ->
+    | Extra () ->
     iter_extension_constructor_kind sub pext_kind;
     sub.attributes sub pext_attributes
 
@@ -285,10 +291,10 @@ module MT = struct
         ({pmty_desc = desc; pmty_loc = loc; pmty_attributes = attrs} as mty) =
     sub.location sub loc;
     match Jane_syntax.Module_type.of_ast mty with
-    | Some (jmty, attrs) ->
+    | Replacement (jmty, attrs) ->
         sub.attributes sub attrs;
         sub.module_type_jane_syntax sub jmty
-    | None ->
+    | Extra () ->
     sub.attributes sub attrs;
     match desc with
     | Pmty_ident s -> iter_loc sub s
@@ -328,8 +334,8 @@ module MT = struct
   let iter_signature_item sub ({psig_desc = desc; psig_loc = loc} as sigi) =
     sub.location sub loc;
     match Jane_syntax.Signature_item.of_ast sigi with
-    | Some jsigi -> sub.signature_item_jane_syntax sub jsigi
-    | None ->
+    | Replacement jsigi -> sub.signature_item_jane_syntax sub jsigi
+    | Extra () ->
     match desc with
     | Psig_value vd -> sub.value_description sub vd
     | Psig_type (_, l)
@@ -389,8 +395,8 @@ module M = struct
   let iter_structure_item sub ({pstr_loc = loc; pstr_desc = desc} as stri) =
     sub.location sub loc;
     match Jane_syntax.Structure_item.of_ast stri with
-    | Some jstri -> sub.structure_item_jane_syntax sub jstri
-    | None ->
+    | Replacement jstri -> sub.structure_item_jane_syntax sub jstri
+    | Extra () ->
     match desc with
     | Pstr_eval (x, attrs) ->
         sub.attributes sub attrs; sub.expr sub x
@@ -461,10 +467,10 @@ module E = struct
         ({pexp_loc = loc; pexp_desc = desc; pexp_attributes = attrs} as expr)=
     sub.location sub loc;
     match Jane_syntax.Expression.of_ast expr with
-    | Some (jexp, attrs) ->
+    | Replacement (jexp, attrs) ->
         sub.attributes sub attrs;
         sub.expr_jane_syntax sub jexp
-    | None ->
+    | Extra () ->
     sub.attributes sub attrs;
     match desc with
     | Pexp_ident x -> iter_loc sub x
@@ -566,10 +572,10 @@ module P = struct
         ({ppat_desc = desc; ppat_loc = loc; ppat_attributes = attrs} as pat) =
     sub.location sub loc;
     match Jane_syntax.Pattern.of_ast pat with
-    | Some (jpat, attrs) ->
+    | Replacement (jpat, attrs) ->
         sub.attributes sub attrs;
         sub.pat_jane_syntax sub jpat
-    | None ->
+    | Extra () ->
     sub.attributes sub attrs;
     match desc with
     | Ppat_any -> ()

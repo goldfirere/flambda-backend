@@ -1209,12 +1209,12 @@ Error: This pattern matches values of type (M.t_void, M.t_void) eq
 (*****************************************************)
 (* Test 24: Polymorphic parameter with exotic layout *)
 
-type 'a t2_void [@@void]
+type 'a t2_void : void
 
 let f (x : 'a. 'a t2_void) = x
 
 [%%expect{|
-type 'a t2_void [@@void]
+type 'a t2_void : void
 Line 3, characters 6-30:
 3 | let f (x : 'a. 'a t2_void) = x
           ^^^^^^^^^^^^^^^^^^^^^^^^

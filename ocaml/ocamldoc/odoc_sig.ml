@@ -489,9 +489,9 @@ module Analyser =
       else List.fold_right (fun sig_item acc ->
         let take_item psig_desc = { sig_item with Parsetree.psig_desc } :: acc in
         match Jane_syntax.Signature_item.of_ast sig_item with
-        | Some jsig_item ->
+        | Replacement jsig_item ->
             filter_out_erased_item_from_signature_jst erased acc jsig_item
-        | None ->
+        | Extra () ->
         match sig_item.Parsetree.psig_desc with
         | Parsetree.Psig_attribute _
         | Parsetree.Psig_extension _
@@ -1541,12 +1541,12 @@ module Analyser =
     and analyse_signature_item env _signat table current_module_name
         sig_item_loc pos_start_ele pos_end_ele pos_limit comment_opt sig_item =
         match Jane_syntax.Signature_item.of_ast sig_item with
-        | Some jsig_item ->
+        | Replacement jsig_item ->
             analyse_signature_item_desc_jst
               env _signat table current_module_name
               sig_item_loc pos_start_ele pos_end_ele pos_limit comment_opt
               jsig_item
-        | None ->
+        | Extra () ->
             analyse_signature_item_desc
               env _signat table current_module_name
               sig_item_loc pos_start_ele pos_end_ele pos_limit comment_opt
@@ -1556,9 +1556,9 @@ module Analyser =
     and analyse_module_type_kind
       ?(erased = Name.Map.empty) env current_module_name module_type sig_module_type =
       match Jane_syntax.Module_type.of_ast module_type with
-      | Some (Jmty_strengthen _, _attrs) ->
+      | Replacement (Jmty_strengthen _, _attrs) ->
           failwith "strengthen not implemented yet"
-      | None ->
+      | Extra () ->
       match module_type.Parsetree.pmty_desc with
         Parsetree.Pmty_ident longident ->
           let name =
@@ -1658,9 +1658,9 @@ module Analyser =
     and analyse_module_kind
         ?(erased = Name.Map.empty) env current_module_name module_type sig_module_type =
       match Jane_syntax.Module_type.of_ast module_type with
-      | Some (Jmty_strengthen _, _attrs) ->
+      | Replacement (Jmty_strengthen _, _attrs) ->
           failwith "strengthen not implemented yet"
-      | None ->
+      | Extra () ->
       match module_type.Parsetree.pmty_desc with
       | Parsetree.Pmty_ident _longident ->
           let k = analyse_module_type_kind env current_module_name module_type sig_module_type in

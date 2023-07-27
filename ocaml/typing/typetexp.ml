@@ -415,19 +415,30 @@ let valid_tyvar_name name =
 let make_typed_univars vars layouts : (string * Layout.const option) list =
   List.map2 (fun v l -> v.txt, Option.map Location.get_txt l) vars layouts
 
+let transl_type_param_jst
+      _env _loc (etyp : Jane_syntax.Core_type.t) _attrs _layout =
+  match etyp with
+  | Jtyp_layout (Ltyp_alias _) -> assert false
+
 (* Here we take a layout argument and ignore any layout annotations in the styp.
    The expectation is most callers will get the layout from the annotation, but
    in some cases (objects) we don't want to support those annotations, so it
    makes sense for the caller to do this. *)
+(* XXX layouts: remove the above treatment *)
 let transl_type_param env styp layout =
   let loc = styp.ptyp_loc in
+  match Jane_syntax.Core_type.of_ast styp with
+  | Replacement (etyp, attrs) -> transl_type_param_jst env loc etyp attrs layout
+  | Extra (({ layouts = { var = var_layout_opt }}, attrs)[@warning "+9"]) ->
+  let styp = {styp with ptyp_attributes = attrs} in
   match styp.ptyp_desc with
     Ptyp_any ->
       let ty = new_global_var ~name:"_" layout in
         { ctyp_desc = Ttyp_any; ctyp_type = ty; ctyp_env = env;
           ctyp_loc = loc; ctyp_attributes = styp.ptyp_attributes; }
-  | Ptyp_var (name, layout_annot) ->
-      assert (Option.is_none layout_annot);  (* XXX layouts: use uniform representation *)
+  | Ptyp_var name ->
+      (* XXX layouts: use uniform representation *)
+      assert (Option.is_none var_layout_opt);
       let ty =
           if not (valid_tyvar_name name) then
             raise (Error (loc, Env.empty, Invalid_variable_name ("'" ^ name)));
@@ -488,10 +499,11 @@ and transl_type_aux env policy mode styp =
       ctyp_loc = loc; ctyp_attributes = styp.ptyp_attributes }
   in
   match Jane_syntax.Core_type.of_ast styp with
-  | Some (etyp, attrs) ->
+  | Replacement (etyp, attrs) ->
     let desc, typ = transl_type_aux_jst env policy mode attrs loc etyp in
     ctyp desc typ
-  | None ->
+  | Extra (({ layouts = { var = var_layout_opt }}, attrs)[@warning "+9"]) ->
+  let styp = {styp with ptyp_attributes = attrs} in
   match styp.ptyp_desc with
     Ptyp_any ->
       let ty =
@@ -499,32 +511,33 @@ and transl_type_aux env policy mode styp =
           (Layout.any ~why:Wildcard) policy
       in
       ctyp Ttyp_any ty
-  | Ptyp_var (name, layout_annot_opt) ->
-      if not (valid_tyvar_name name) then
-        raise (Error (styp.ptyp_loc, env, Invalid_variable_name ("'" ^ name)));
-      begin try
+  | Ptyp_var name ->
+    let print_name = "'" ^ name in
+    if not (valid_tyvar_name name) then
+      raise (Error (loc, env, Invalid_variable_name print_name));
+    let of_annot = Layout.of_annotation ~context:(Type_variable print_name) in
+    let ty = try
         let ty = TyVarEnv.lookup_local name in
-        match layout_annot_opt with
-        | None -> ctyp (Ttyp_var (name, None)) ty
+        begin match var_layout_opt with
+        | None -> ()
         | Some layout_annot ->
-          let layout =
-            Layout.of_annotation ~context:(Type_variable name) layout_annot
-          in
-          match constrain_type_layout env ty layout with
-          | Ok () -> ctyp (Ttyp_var (name, Some layout_annot.txt)) ty
-          | Error err ->
-            raise (Error(layout_annot.loc, env, Bad_layout_annot (ty, err)))
+           let layout = of_annot layout_annot in
+           match constrain_type_layout env ty layout with
+           | Ok () -> ()
+           | Error err ->
+              raise (Error(layout_annot.loc, env, Bad_layout_annot (ty, err)))
+        end;
+        ty
       with Not_found ->
-        let layout, layout_annot = match layout_annot_opt with
-          | None -> Layout.any ~why:Unification_var, None
-          | Some layout_annot ->
-            Layout.of_annotation ~context:(Type_variable name) layout_annot,
-            Some layout_annot.txt
+        let layout = match var_layout_opt with
+          | None -> Layout.any ~why:Unification_var
+          | Some layout_annot -> of_annot layout_annot
         in
         let v = TyVarEnv.new_var ~name layout policy in
-        TyVarEnv.remember_used name v styp.ptyp_loc;
-        ctyp (Ttyp_var (name, layout_annot)) v
-      end
+        TyVarEnv.remember_used name v loc;
+        v
+    in
+    ctyp (Ttyp_var (name, Option.map Location.get_txt var_layout_opt)) ty
   | Ptyp_arrow _ ->
       let args, ret, ret_mode = extract_params styp in
       let rec loop acc_mode args =
@@ -701,7 +714,7 @@ and transl_type_aux env policy mode styp =
       in
       ctyp (Ttyp_class (path, lid, args)) ty
   | Ptyp_alias(st, alias) ->
-    let desc, typ = transl_alias env policy mode loc st (Some alias) None in
+    let desc, typ = transl_type_alias env policy mode loc st (Some alias) None in
     ctyp desc typ
   | Ptyp_variant(fields, closed, present) ->
       let name = ref None in
@@ -870,12 +883,16 @@ and transl_type_aux env policy mode styp =
   | Ptyp_extension ext ->
       raise (Error_forward (Builtin_attributes.error_of_extension ext))
 
-and transl_type_aux_jst env policy mode _attrs loc
-      : Jane_syntax.Core_type.t -> _ = function
-  | Jtyp_layout (Ltyp_alias { aliased_type; name; layout }) ->
-    transl_alias env policy mode loc aliased_type name (Some layout)
+and transl_type_aux_jst env policy mode _attrs loc :
+      Jane_syntax.Core_type.t -> _ = function
+  | Jtyp_layout typ -> transl_type_aux_jst_layout env policy mode loc typ
 
-and transl_alias env policy mode alias_loc styp name_opt layout_annot_opt =
+and transl_type_aux_jst_layout env policy mode loc :
+      Jane_syntax.Layouts.core_type -> _ = function
+  | Ltyp_alias { aliased_type; name; layout } ->
+    transl_type_alias env policy mode loc aliased_type name (Some layout)
+
+and transl_type_alias env policy mode alias_loc styp name_opt layout_annot_opt =
   let cty = match name_opt with
     | Some alias ->
       begin try

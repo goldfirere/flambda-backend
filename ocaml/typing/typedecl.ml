@@ -108,7 +108,7 @@ let get_unboxed_from_attributes sdecl =
    constraints *)
 let parameter_name sty = match sty.ptyp_desc with
   | Ptyp_any -> "_"
-  | Ptyp_var (name, _) -> "'" ^ name
+  | Ptyp_var name -> "'" ^ name
   | _ -> Misc.fatal_error
            "Type parameter was neither [Ptyp_any] nor [Ptyp_var _]"
 
@@ -1563,10 +1563,10 @@ let transl_extension_constructor ~scope env type_path type_params
   let id = Ident.create_scoped ~scope sext.pext_name.txt in
   let args, arg_layouts, constant, ret_type, kind =
     match Jane_syntax.Extension_constructor.of_ast sext with
-    | Some (jext, attrs) ->
+    | Replacement (jext, attrs) ->
       transl_extension_constructor_jst
         ~scope env type_path type_params typext_params priv id attrs jext
-    | None ->
+    | Extra () ->
     match sext.pext_kind with
       Pext_decl(svars, sargs, sret_type, slays) ->
         let targs, tret_type, args, ret_type =

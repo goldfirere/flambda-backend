@@ -93,8 +93,8 @@ let iterator =
     end;
     let loc = exp.pexp_loc in
     match Jane_syntax.Expression.of_ast exp with
-    | Some (jexp, _attrs) -> jexpr self exp.pexp_loc jexp
-    | None ->
+    | Replacement (jexp, _attrs) -> jexpr self exp.pexp_loc jexp
+    | Extra () ->
     match exp.pexp_desc with
     | Pexp_tuple ([] | [_]) -> invalid_tuple loc
     | Pexp_record ([], _) -> empty_record loc

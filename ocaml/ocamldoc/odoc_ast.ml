@@ -1680,12 +1680,12 @@ module Analyser =
    and analyse_structure_item_nondesc env current_module_name loc pos_limit comment_opt parsetree_item typedtree
         table table_values =
      match Jane_syntax.Structure_item.of_ast parsetree_item with
-     | Some jparsetree_item ->
+     | Replacement jparsetree_item ->
          analyse_structure_item_jst
            env current_module_name loc pos_limit comment_opt
            jparsetree_item
            typedtree table table_values
-     | None ->
+     | Extra () ->
          analyse_structure_item
            env current_module_name loc pos_limit comment_opt
            parsetree_item.Parsetree.pstr_desc

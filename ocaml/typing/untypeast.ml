@@ -909,8 +909,10 @@ let core_type sub ct =
   in
   let desc = match ct.ctyp_desc with
       Ttyp_any -> Ptyp_any
-    | Ttyp_var (s, layout) ->
-        Ptyp_var (s, Option.map (fun l -> mkloc l loc) layout)
+    | Ttyp_var (s, None) -> Ptyp_var s
+    | Ttyp_var (name, Some layout) ->
+        Jane_syntax.Layouts.Typ.var ~loc ~attrs:[] name (mkloc layout loc) |>
+        add_jane_syntax_attributes
     | Ttyp_arrow (label, ct1, ct2) ->
         Ptyp_arrow (label, sub.typ sub ct1, sub.typ sub ct2)
     | Ttyp_tuple list -> Ptyp_tuple (List.map (sub.typ sub) list)

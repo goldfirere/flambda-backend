@@ -259,10 +259,8 @@ Ptop_def
                 Nolabel
                 core_type (//toplevel//[2,1+16]..[2,1+17])
                   Ptyp_var a
-                  None
                 core_type (//toplevel//[2,1+21]..[2,1+22])
                   Ptyp_var a
-                  None
           expression (//toplevel//[2,1+4]..[2,1+35])
             Pexp_newtype  "a"
             expression (//toplevel//[2,1+4]..[2,1+35])
@@ -337,10 +335,8 @@ Ptop_def
                             Nolabel
                             core_type (//toplevel//[3,16+21]..[3,16+22])
                               Ptyp_var a
-                              None
                             core_type (//toplevel//[3,16+26]..[3,16+27])
                               Ptyp_var a
-                              None
               ]
       ]
   ]

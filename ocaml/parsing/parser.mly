@@ -3506,7 +3506,7 @@ type_parameter:
 type_variable:
   mktyp(
     QUOTE tyvar = ident
-      { Ptyp_var (tyvar, None) }
+      { Ptyp_var tyvar }
   | UNDERSCORE
       { Ptyp_any }
   ) { $1 }
@@ -3911,7 +3911,7 @@ atomic_type:
       { wrap_typ_attrs ~loc:$sloc (reloc_typ ~loc:$sloc $4) $3 }
   | mktyp( /* begin mktyp group */
       QUOTE ident
-        { Ptyp_var ($2, None) }
+        { Ptyp_var $2 }
     | UNDERSCORE
         { Ptyp_any }
     | tys = actual_type_parameters
@@ -3953,10 +3953,11 @@ atomic_type:
         { Ptyp_variant($3, Closed, Some $5) }
     | extension
         { Ptyp_extension $1 }
-    | LPAREN QUOTE ident COLON layout_annotation RPAREN
-        { Ptyp_var ($3, Some $5) }
   )
   { $1 } /* end mktyp group */
+  | LPAREN QUOTE name=ident COLON layout=layout_annotation RPAREN
+    { Jane_syntax.Layouts.Typ.var ~loc:(make_loc $sloc) ~attrs:[] name layout }
+
 
 (* This is the syntax of the actual type parameters in an application of
    a type constructor, such as int, int list, or (int, bool) Hashtbl.t.

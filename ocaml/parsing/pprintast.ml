@@ -323,9 +323,9 @@ and type_with_label ctxt f (label, c) =
 
 and core_type ctxt f x =
   match Jane_syntax.Core_type.of_ast x with
-  | Some (jtyp, attrs) -> core_type_jane_syntax ctxt attrs f jtyp
-  | None ->
-  let filtered_attrs = filter_curry_attrs x.ptyp_attributes in
+  | Replacement (jtyp, attrs) -> core_type_jane_syntax ctxt attrs f jtyp
+  | Extra (({ layouts = { var = _ }}, attrs)[@warning "+9"]) ->
+  let filtered_attrs = filter_curry_attrs attrs in
   if filtered_attrs <> [] then begin
     pp f "((%a)%a)" (core_type ctxt) {x with ptyp_attributes=[]}
       (attributes ctxt) filtered_attrs
@@ -351,15 +351,19 @@ and core_type ctxt f x =
 
 and core_type1 ctxt f x =
   match Jane_syntax.Core_type.of_ast x with
-  | Some (jtyp, attrs) -> core_type1_jane_syntax ctxt attrs f jtyp
-  | None ->
-  if has_non_curry_attr x.ptyp_attributes then core_type ctxt f x
+  | Replacement (jtyp, attrs) -> core_type1_jane_syntax ctxt attrs f jtyp
+  | Extra (({ layouts = { var = var_layout_opt }}, attrs)[@warning "+9"]) ->
+  (* don't overwrite x.ptyp_attributes with the new ones, because x gets
+     passed to core_type in the fall-through case, and the attributes should
+     remain intact *)
+  if has_non_curry_attr attrs then core_type ctxt f x
   else
     match x.ptyp_desc with
     | Ptyp_any -> pp f "_";
-    | Ptyp_var (s, None) -> tyvar f  s;
-    | Ptyp_var (s, Some layout) ->
-        pp f "(%a@;:@;%a)" tyvar s layout_annotation layout
+    | Ptyp_var s -> begin match var_layout_opt with
+        | Some layout -> pp f "(%a@;:@;%a)" tyvar s layout_annotation layout
+        | None -> tyvar f  s
+    end
     | Ptyp_tuple l ->  pp f "(%a)" (list (core_type1 ctxt) ~sep:"@;*@;") l
     | Ptyp_constr (li, l) ->
         pp f (* "%a%a@;" *) "%a%a"
@@ -446,16 +450,18 @@ and core_type_jane_syntax ctxt attrs f (x : Jane_syntax.Core_type.t) =
       (fun ppf ->
          match name with None -> fprintf ppf "_" | Some s -> tyvar ppf s)
       layout_annotation layout
-  (* Uncomment next line when we add jane-syntax types that should be
-     handled in core_type1:
-     | _ -> pp f "@[<2>%a@]" (core_type1_jane_syntax ctxt attrs) x
-  *)
+(* XXX layouts: remove or uncomment
+   | _ -> pp f "@[<2>%a@]" (core_type1_jane_syntax ctxt attrs) x
+*)
 
-and core_type1_jane_syntax ctxt attrs f x =
+and core_type1_jane_syntax ctxt attrs f (x : Jane_syntax.Core_type.t) =
   if has_non_curry_attr attrs then core_type_jane_syntax ctxt attrs f x
   else
+(* XXX layouts: remove or uncomment
     match x with
-    | _ -> paren true (core_type_jane_syntax ctxt attrs) f x
+    | _ ->
+*)
+    paren true (core_type_jane_syntax ctxt attrs) f x
 
 and return_type ctxt f x =
   if x.ptyp_attributes <> [] then maybe_local_type core_type1 ctxt f x
@@ -465,8 +471,8 @@ and return_type ctxt f x =
 (* be cautious when use [pattern], [pattern1] is preferred *)
 and pattern ctxt f x =
   match Jane_syntax.Pattern.of_ast x with
-  | Some (jpat, attrs) -> pattern_jane_syntax ctxt attrs f jpat
-  | None ->
+  | Replacement (jpat, attrs) -> pattern_jane_syntax ctxt attrs f jpat
+  | Extra () ->
   if x.ppat_attributes <> [] then begin
     pp f "((%a)%a)" (pattern ctxt) {x with ppat_attributes=[]}
       (attributes ctxt) x.ppat_attributes
@@ -496,7 +502,7 @@ and pattern1 ctxt (f:Format.formatter) (x:pattern) : unit =
             Some ([], inner_pat));
        ppat_attributes = []} ->
       begin match Jane_syntax.Pattern.of_ast inner_pat, inner_pat.ppat_desc with
-      | None, Ppat_tuple([pat1; pat2]) ->
+      | Extra (), Ppat_tuple([pat1; pat2]) ->
         pp f "%a::%a" (simple_pattern ctxt) pat1 pattern_list_helper pat2 (*RA*)
       | _ -> pattern1 ctxt f p
       end
@@ -526,8 +532,8 @@ and pattern1 ctxt (f:Format.formatter) (x:pattern) : unit =
 and simple_pattern ctxt (f:Format.formatter) (x:pattern) : unit =
   if x.ppat_attributes <> [] then pattern ctxt f x
   else match Jane_syntax.Pattern.of_ast x with
-    | Some (jpat, attrs) -> pattern_jane_syntax ctxt attrs f jpat
-    | None ->
+    | Replacement (jpat, attrs) -> pattern_jane_syntax ctxt attrs f jpat
+    | Extra () ->
     match x.ppat_desc with
     | Ppat_construct (({txt=Lident ("()"|"[]" as x);_}), None) ->
         pp f  "%s" x
@@ -573,11 +579,11 @@ and simple_pattern ctxt (f:Format.formatter) (x:pattern) : unit =
     | Ppat_open (lid, p) ->
         let with_paren =
         match Jane_syntax.Pattern.of_ast p with
-        | Some (jpat, _attrs) -> begin match jpat with
+        | Replacement (jpat, _attrs) -> begin match jpat with
         | Jpat_immutable_array (Iapat_immutable_array _) -> false
         | Jpat_unboxed_constant _ -> false
         end
-        | None -> match p.ppat_desc with
+        | Extra () -> match p.ppat_desc with
         | Ppat_array _ | Ppat_record _
         | Ppat_construct (({txt=Lident ("()"|"[]");_}), None) -> false
         | _ -> true in
@@ -711,8 +717,8 @@ and sugar_expr ctxt f e =
 
 and expression ctxt f x =
   match Jane_syntax.Expression.of_ast x with
-  | Some (jexpr, attrs) -> jane_syntax_expr ctxt attrs f jexpr
-  | None ->
+  | Replacement (jexpr, attrs) -> jane_syntax_expr ctxt attrs f jexpr
+  | Extra () ->
   if x.pexp_attributes <> [] then
     pp f "((%a)@,%a)" (expression ctxt) {x with pexp_attributes=[]}
       (attributes ctxt) x.pexp_attributes
@@ -1168,8 +1174,8 @@ and module_type ctxt f x =
       (attributes ctxt) x.pmty_attributes
   end else
     match Jane_syntax.Module_type.of_ast x with
-    | Some (jmty, attrs) -> module_type_jane_syntax ctxt attrs f jmty
-    | None ->
+    | Replacement (jmty, attrs) -> module_type_jane_syntax ctxt attrs f jmty
+    | Extra () ->
     match x.pmty_desc with
     | Pmty_functor (Unit, mt2) ->
         pp f "@[<hov2>functor () ->@ %a@]" (module_type ctxt) mt2
@@ -1225,8 +1231,8 @@ and with_constraint ctxt f = function
 
 and module_type1 ctxt f x =
   match Jane_syntax.Module_type.of_ast x with
-  | Some (jmty, attrs) -> module_type_jane_syntax1 ctxt attrs f jmty
-  | None ->
+  | Replacement (jmty, attrs) -> module_type_jane_syntax1 ctxt attrs f jmty
+  | Extra () ->
   if x.pmty_attributes <> [] then module_type ctxt f x
   else match x.pmty_desc with
     | Pmty_ident li ->
@@ -1259,8 +1265,8 @@ and signature_item_jane_syntax ctxt f : Jane_syntax.Signature_item.t -> _ =
 
 and signature_item ctxt f x : unit =
   match Jane_syntax.Signature_item.of_ast x with
-  | Some jsigi -> signature_item_jane_syntax ctxt f jsigi
-  | None ->
+  | Replacement jsigi -> signature_item_jane_syntax ctxt f jsigi
+  | Extra () ->
   match x.psig_desc with
   | Psig_type (rf, l) ->
       type_def_list ctxt f (rf, true, l)
@@ -1531,8 +1537,8 @@ and structure_item_jane_syntax ctxt f : Jane_syntax.Structure_item.t -> _ =
 
 and structure_item ctxt f x =
   match Jane_syntax.Structure_item.of_ast x with
-  | Some jstri -> structure_item_jane_syntax ctxt f jstri
-  | None ->
+  | Replacement jstri -> structure_item_jane_syntax ctxt f jstri
+  | Extra () ->
   match x.pstr_desc with
   | Pstr_eval (e, attrs) ->
       pp f "@[<hov2>;;%a@]%a"
@@ -1822,8 +1828,8 @@ and constructor_declaration ctxt f (name, vars, layouts, args, res, attrs) =
 and extension_constructor ctxt f x =
   (* Cf: #7200 *)
   match Jane_syntax.Extension_constructor.of_ast x with
-  | Some (jext, attrs) -> extension_constructor_jst ctxt f attrs jext
-  | None ->
+  | Replacement (jext, attrs) -> extension_constructor_jst ctxt f attrs jext
+  | Extra () ->
   match x.pext_kind with
   | Pext_decl(v, l, r, layouts) ->
       constructor_declaration ctxt f

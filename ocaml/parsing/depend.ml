@@ -101,11 +101,11 @@ let add_layout _bv (_layout : Asttypes.layout_annotation) = ()
 
 let rec add_type bv ty =
   match Jane_syntax.Core_type.of_ast ty with
-  | Some (jty, _attrs) -> add_type_jst bv jty
-  | None ->
+  | Replacement (jty, _attrs) -> add_type_jst bv jty
+  | Extra (({ layouts = { var = var_layout_opt }}, _attrs)[@warning "+9"]) ->
   match ty.ptyp_desc with
     Ptyp_any -> ()
-  | Ptyp_var _ -> ()
+  | Ptyp_var _ -> Option.iter (add_layout bv) var_layout_opt
   | Ptyp_arrow(_, t1, t2) -> add_type bv t1; add_type bv t2
   | Ptyp_tuple tl -> List.iter (add_type bv) tl
   | Ptyp_constr(c, tl) -> add bv c; List.iter (add_type bv) tl
@@ -127,9 +127,13 @@ let rec add_type bv ty =
   | Ptyp_extension e -> handle_extension e
 
 and add_type_jst bv : Jane_syntax.Core_type.t -> _ = function
-  | Jtyp_layout (Ltyp_alias { aliased_type; name = _; layout }) ->
+  | Jtyp_layout typ -> add_type_jst_layouts bv typ
+
+and add_type_jst_layouts bv : Jane_syntax.Layouts.core_type -> _ = function
+  | Ltyp_alias { aliased_type; name = _; layout } ->
     add_type bv aliased_type;
     add_layout bv layout
+
 
 and add_package_type bv (lid, l) =
   add bv lid;
@@ -167,8 +171,8 @@ let add_extension_constructor_jst _bv _attrs :
 
 let add_extension_constructor bv ext =
   match Jane_syntax.Extension_constructor.of_ast ext with
-  | Some (jext, attrs) -> add_extension_constructor_jst bv attrs jext
-  | None ->
+  | Replacement (jext, attrs) -> add_extension_constructor_jst bv attrs jext
+  | Extra () ->
   match ext.pext_kind with
     Pext_decl(_, args, rty, _) ->
       add_constructor_arguments bv args;
@@ -190,8 +194,8 @@ let add_constant = ()
 
 let rec add_pattern bv pat =
   match Jane_syntax.Pattern.of_ast pat with
-  | Some (jpat, _attrs) -> add_pattern_jane_syntax bv jpat
-  | None      ->
+  | Replacement (jpat, _attrs) -> add_pattern_jane_syntax bv jpat
+  | Extra () ->
   match pat.ppat_desc with
     Ppat_any -> ()
   | Ppat_var _ -> ()
@@ -230,8 +234,8 @@ let add_pattern bv pat =
 
 let rec add_expr bv exp =
   match Jane_syntax.Expression.of_ast exp with
-  | Some (jexp, _attrs) -> add_expr_jane_syntax bv jexp
-  | None ->
+  | Replacement (jexp, _attrs) -> add_expr_jane_syntax bv jexp
+  | Extra () ->
   match exp.pexp_desc with
     Pexp_ident l -> add bv l
   | Pexp_constant _ -> add_constant
@@ -366,8 +370,8 @@ and add_binding_op bv bv' pbop =
 
 and add_modtype bv mty =
   match Jane_syntax.Module_type.of_ast mty with
-  | Some (jmty, _attrs) -> add_modtype_jane_syntax bv jmty
-  | None ->
+  | Replacement (jmty, _attrs) -> add_modtype_jane_syntax bv jmty
+  | Extra () ->
   match mty.pmty_desc with
     Pmty_ident l -> add bv l
   | Pmty_alias l -> add_module_path bv l
@@ -416,8 +420,8 @@ and add_module_alias bv l =
 
 and add_modtype_binding bv mty =
   match Jane_syntax.Module_type.of_ast mty with
-  | Some (jmty, _attrs) -> add_modtype_jane_syntax_binding bv jmty
-  | None ->
+  | Replacement (jmty, _attrs) -> add_modtype_jane_syntax_binding bv jmty
+  | Extra () ->
   match mty.pmty_desc with
     Pmty_alias l ->
       add_module_alias bv l
@@ -457,8 +461,8 @@ and add_sig_item_jst bvm : Jane_syntax.Signature_item.t -> _ = function
 
 and add_sig_item (bv, m) item =
   match Jane_syntax.Signature_item.of_ast item with
-  | Some jitem -> add_sig_item_jst (bv, m) jitem
-  | None ->
+  | Replacement jitem -> add_sig_item_jst (bv, m) jitem
+  | Extra () ->
   match item.psig_desc with
     Psig_value vd ->
       add_type bv vd.pval_type; (bv, m)
@@ -608,8 +612,8 @@ and add_struct_item_jst bvm : Jane_syntax.Structure_item.t -> _ = function
 
 and add_struct_item (bv, m) item : _ String.Map.t * _ String.Map.t =
   match Jane_syntax.Structure_item.of_ast item with
-  | Some jitem -> add_struct_item_jst (bv, m) jitem
-  | None ->
+  | Replacement jitem -> add_struct_item_jst (bv, m) jitem
+  | Extra () ->
   match item.pstr_desc with
     Pstr_eval (e, _attrs) ->
       add_expr bv e; (bv, m)

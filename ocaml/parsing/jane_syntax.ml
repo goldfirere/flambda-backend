@@ -2,6 +2,13 @@ open Asttypes
 open Parsetree
 open Jane_syntax_parsing
 
+(****************************************************)
+(* utility *)
+
+type ('a, 'b) decoded = ('a, 'b) Jane_syntax_parsing.decoded =
+  | Replacement of 'a
+  | Extra of 'b
+
 (*****************************************************)
 (* Printers, to avoid interdependency with Pprintast *)
 
@@ -182,15 +189,13 @@ module Comprehensions = struct
      v}
   *)
 
-  let comprehension_expr names x = Ast_of.wrap_jane_syntax names x
-
   (** First, we define how to go from the nice AST to the OCaml AST; this is
       the [expr_of_...] family of expressions, culminating in
       [expr_of_comprehension_expr]. *)
 
   let expr_of_iterator = function
     | Range { start; stop; direction } ->
-        comprehension_expr
+        Ast_of.wrap_jane_syntax
           [ "for"
           ; "range"
           ; match direction with
@@ -198,20 +203,20 @@ module Comprehensions = struct
             | Downto -> "downto" ]
           (Ast_helper.Exp.tuple [start; stop])
     | In seq ->
-        comprehension_expr ["for"; "in"] seq
+        Ast_of.wrap_jane_syntax ["for"; "in"] seq
 
   let expr_of_clause_binding { pattern; iterator; attributes } =
     Ast_helper.Vb.mk ~attrs:attributes pattern (expr_of_iterator iterator)
 
   let expr_of_clause clause rest = match clause with
     | For iterators ->
-        comprehension_expr
+        Ast_of.wrap_jane_syntax
           ["for"]
           (Ast_helper.Exp.let_
              Nonrecursive (List.map expr_of_clause_binding iterators)
              rest)
     | When cond ->
-        comprehension_expr ["when"] (Ast_helper.Exp.sequence cond rest)
+        Ast_of.wrap_jane_syntax ["when"] (Ast_helper.Exp.sequence cond rest)
 
   let expr_of_comprehension ~type_ { body; clauses } =
     (* We elect to wrap the body in a new AST node (here, [Pexp_lazy])
@@ -221,13 +226,13 @@ module Comprehensions = struct
        part of its contract is threading through the user-written attributes
        on the outermost node.
     *)
-    comprehension_expr
+    Ast_of.wrap_jane_syntax
       type_
       (Ast_helper.Exp.lazy_
         (List.fold_right
           expr_of_clause
           clauses
-          (comprehension_expr ["body"] body)))
+          (Ast_of.wrap_jane_syntax ["body"] body)))
 
   let expr_of ~loc ~attrs cexpr =
     (* See Note [Wrapping with make_entire_jane_syntax] *)
@@ -509,6 +514,10 @@ module Layouts = struct
                     ; name : string option
                     ; layout : Asttypes.layout_annotation }
 
+  type core_type_extra =
+    { var : Asttypes.layout_annotation option }
+  let no_extra = { var = None }
+
   (*******************************************************)
   (* Errors *)
 
@@ -588,13 +597,21 @@ module Layouts = struct
       | Ltyp_alias { aliased_type; name; layout } ->
         let payload = encode_layout_as_payload layout in
         let has_name, inner_typ = match name with
-          | None -> "anon",
-                    { aliased_type with
-                      ptyp_attributes = aliased_type.ptyp_attributes @ attrs }
+          | None -> "anon", { aliased_type with
+                              ptyp_attributes =
+                                aliased_type.ptyp_attributes @ attrs }
           | Some name -> "named", Ast_helper.Typ.alias ~attrs aliased_type name
         in
         Ast_of.wrap_jane_syntax ["alias"; has_name] ~payload inner_typ
     end
+
+  (* analogous to Ast_helper.Typ *)
+  module Typ = struct
+    let var ~loc ~attrs name layout =
+      let payload = encode_layout_as_payload layout in
+      let attr = make_jane_syntax_attribute Ext.feature ["var"] payload in
+      Ast_helper.Typ.var ~loc ~attrs:(attr :: attrs) name
+  end
 
   (*******************************************************)
   (* Desugaring *)
@@ -606,19 +623,23 @@ module Layouts = struct
     in
     let layout = decode_layout_from_payload ~loc payload in
     let lty = match names with
+      | [ "var" ] ->
+        Extra { var = Some layout }
       | [ "alias"; "anon" ] ->
-        Ltyp_alias { aliased_type = { typ with ptyp_attributes = attributes }
+        Replacement (
+          Ltyp_alias { aliased_type = { typ with ptyp_attributes = attributes }
                    ; name = None
-                   ; layout }
+                   ; layout })
 
       | [ "alias"; "named" ] ->
         begin match typ.ptyp_desc with
         | Ptyp_alias (inner_typ, name) ->
-          Ltyp_alias { aliased_type = inner_typ
+          Replacement (
+            Ltyp_alias { aliased_type = inner_typ
                      ; name = Some name
-                     ; layout }
+                     ; layout })
 
-      | _ -> Desugaring_error.raise ~loc (Unexpected_wrapped_type typ)
+        | _ -> Desugaring_error.raise ~loc (Unexpected_wrapped_type typ)
         end
       | _ ->
         Desugaring_error.raise ~loc (Unexpected_attribute names)
@@ -629,33 +650,40 @@ end
 (******************************************************************************)
 (** The interface to our novel syntax, which we export *)
 
-module type AST = sig
-  type t
-  type ast
-
-  val of_ast : ast -> t option
-end
+(* convenient default for [no_extra] in [make_of_ast] *)
+let no_extra _ = ()
 
 module Core_type = struct
   type t =
     | Jtyp_layout of Layouts.core_type
 
+  type extra =
+    { layouts : Layouts.core_type_extra }
+  let no_extra =
+    { layouts = Layouts.no_extra }
+
   let of_ast_internal (feat : Feature.t) typ = match feat with
     | Language_extension Layouts ->
-      let typ, attrs = Layouts.of_type typ in
-      Some (Jtyp_layout typ, attrs)
-    | _ -> None
+      begin match Layouts.of_type typ with
+      | Replacement typ, attrs -> Replacement (Jtyp_layout typ, attrs)
+      | Extra typ, attrs -> Extra ({ layouts = typ }, attrs)
+      end
+    | _ ->
+      Extra (no_extra, typ.ptyp_attributes)
 
-  let of_ast = Core_type.make_of_ast ~of_ast_internal
+  let of_ast =
+    Core_type.make_of_ast ~of_ast_internal
+      ~no_extra:(fun typ -> no_extra, typ.ptyp_attributes)
 end
 
 module Constructor_argument = struct
   type t = |
 
   let of_ast_internal (feat : Feature.t) _carg = match feat with
-    | _ -> None
+    | _ -> Extra ()
 
-  let of_ast = Constructor_argument.make_of_ast ~of_ast_internal
+  let of_ast =
+    Constructor_argument.make_of_ast ~of_ast_internal ~no_extra:(fun _ -> ())
 end
 
 module Expression = struct
@@ -667,16 +695,17 @@ module Expression = struct
   let of_ast_internal (feat : Feature.t) expr = match feat with
     | Language_extension Comprehensions ->
       let expr, attrs = Comprehensions.comprehension_expr_of_expr expr in
-      Some (Jexp_comprehension expr, attrs)
+      Replacement (Jexp_comprehension expr, attrs)
     | Language_extension Immutable_arrays ->
       let expr, attrs = Immutable_arrays.of_expr expr in
-      Some (Jexp_immutable_array expr, attrs)
+      Replacement (Jexp_immutable_array expr, attrs)
     | Language_extension Layouts ->
       let expr, attrs = Unboxed_constants.of_expr expr in
-      Some (Jexp_unboxed_constant expr, attrs)
-    | _ -> None
+      Replacement (Jexp_unboxed_constant expr, attrs)
+    | _ -> Extra ()
 
-  let of_ast = Expression.make_of_ast ~of_ast_internal
+  let of_ast =
+    Expression.make_of_ast ~of_ast_internal ~no_extra
 
   let expr_of ~loc ~attrs = function
     | Jexp_comprehension    x -> Comprehensions.expr_of    ~loc ~attrs x
@@ -692,13 +721,13 @@ module Pattern = struct
   let of_ast_internal (feat : Feature.t) pat = match feat with
     | Language_extension Immutable_arrays ->
       let expr, attrs = Immutable_arrays.of_pat pat in
-      Some (Jpat_immutable_array expr, attrs)
+      Replacement (Jpat_immutable_array expr, attrs)
     | Language_extension Layouts ->
       let pat, attrs = Unboxed_constants.of_pat pat in
-      Some (Jpat_unboxed_constant pat, attrs)
-    | _ -> None
+      Replacement (Jpat_unboxed_constant pat, attrs)
+    | _ -> Extra ()
 
-  let of_ast = Pattern.make_of_ast ~of_ast_internal
+  let of_ast = Pattern.make_of_ast ~of_ast_internal ~no_extra
 
   let pat_of ~loc ~attrs = function
     | Jpat_immutable_array x -> Immutable_arrays.pat_of ~loc ~attrs x
@@ -712,10 +741,10 @@ module Module_type = struct
   let of_ast_internal (feat : Feature.t) mty = match feat with
     | Language_extension Module_strengthening ->
       let mty, attrs = Strengthen.of_mty mty in
-      Some (Jmty_strengthen mty, attrs)
-    | _ -> None
+      Replacement (Jmty_strengthen mty, attrs)
+    | _ -> Extra ()
 
-  let of_ast = Module_type.make_of_ast ~of_ast_internal
+  let of_ast = Module_type.make_of_ast ~of_ast_internal ~no_extra
 end
 
 module Signature_item = struct
@@ -725,10 +754,10 @@ module Signature_item = struct
   let of_ast_internal (feat : Feature.t) sigi =
     match feat with
     | Language_extension Include_functor ->
-      Some (Jsig_include_functor (Include_functor.of_sig_item sigi))
-    | _ -> None
+      Replacement (Jsig_include_functor (Include_functor.of_sig_item sigi))
+    | _ -> Extra ()
 
-  let of_ast = Signature_item.make_of_ast ~of_ast_internal
+  let of_ast = Signature_item.make_of_ast ~of_ast_internal ~no_extra
 end
 
 module Structure_item = struct
@@ -738,17 +767,17 @@ module Structure_item = struct
   let of_ast_internal (feat : Feature.t) stri =
     match feat with
     | Language_extension Include_functor ->
-      Some (Jstr_include_functor (Include_functor.of_str_item stri))
-    | _ -> None
+      Replacement (Jstr_include_functor (Include_functor.of_str_item stri))
+    | _ -> Extra ()
 
-  let of_ast = Structure_item.make_of_ast ~of_ast_internal
+  let of_ast = Structure_item.make_of_ast ~of_ast_internal ~no_extra
 end
 
 module Extension_constructor = struct
   type t = |
 
   let of_ast_internal (feat : Feature.t) _ext = match feat with
-    | _ -> None
+    | _ -> Extra ()
 
-  let of_ast = Extension_constructor.make_of_ast ~of_ast_internal
+  let of_ast = Extension_constructor.make_of_ast ~of_ast_internal ~no_extra
 end

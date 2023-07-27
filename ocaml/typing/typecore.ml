@@ -1896,8 +1896,9 @@ type 'case_pattern half_typed_case =
 
 let rec has_literal_pattern p =
   match Jane_syntax.Pattern.of_ast p with
-  | Some (jpat, _attrs) -> has_literal_pattern_jane_syntax jpat
-  | None      -> match p.ppat_desc with
+  | Replacement (jpat, _attrs) -> has_literal_pattern_jane_syntax jpat
+  | Extra () ->
+  match p.ppat_desc with
   | Ppat_constant _
   | Ppat_interval _ ->
      true
@@ -2234,7 +2235,7 @@ and type_pat_aux
         pat_env = !env })
   in
   match Jane_syntax.Pattern.of_ast sp with
-  | Some (jpat, attrs) -> begin
+  | Replacement (jpat, attrs) -> begin
       (* Normally this would go to an auxiliary function, but this function
          takes so many parameters, has such a complex type, and uses so many
          local definitions, it seems better to just put the pattern matching
@@ -2251,7 +2252,7 @@ and type_pat_aux
             pat_attributes = attrs;
             pat_env = !env }
     end
-  | None ->
+  | Extra () ->
   match sp.ppat_desc with
     Ppat_any ->
       let k' d = rvp k {
@@ -2883,8 +2884,8 @@ let combine_pat_tuple_arity a b =
 
 let rec pat_tuple_arity spat =
   match Jane_syntax.Pattern.of_ast spat with
-  | Some (jpat, _attrs) -> pat_tuple_arity_jane_syntax jpat
-  | None      ->
+  | Replacement (jpat, _attrs) -> pat_tuple_arity_jane_syntax jpat
+  | Extra () ->
   match spat.ppat_desc with
   | Ppat_tuple args -> Local_tuple (List.length args)
   | Ppat_any | Ppat_exception _ | Ppat_var _ -> Maybe_local_tuple
@@ -3429,13 +3430,13 @@ let is_local_returning_expr e =
   in
   let rec loop e =
     match Jane_syntax.Expression.of_ast e with
-    | Some (jexp, _attrs) -> begin
+    | Replacement (jexp, _attrs) -> begin
         match jexp with
         | Jexp_comprehension   _ -> false, e.pexp_loc
         | Jexp_immutable_array _ -> false, e.pexp_loc
         | Jexp_unboxed_constant _ -> false, e.pexp_loc
       end
-    | None      ->
+    | Extra () ->
     match e.pexp_desc with
     | Pexp_apply
         ({ pexp_desc = Pexp_extension(
@@ -3521,8 +3522,8 @@ let approx_type_default () = newvar (Layout.any ~why:Dummy_layout)
 
 let rec approx_type env sty =
   match Jane_syntax.Core_type.of_ast sty with
-  | Some (jty, attrs) -> approx_type_jst env attrs jty
-  | None ->
+  | Replacement (jty, attrs) -> approx_type_jst env attrs jty
+  | Extra (({ layouts = { var = _var_layout_opt }}, _attrs)[@warning "+9"]) ->
   match sty.ptyp_desc with
   | Ptyp_arrow (p, ({ ptyp_desc = Ptyp_poly _ } as arg_sty), sty) ->
       (* CR layouts v5: value requirement here to be relaxed *)
@@ -3572,8 +3573,8 @@ let type_pattern_approx_jane_syntax : Jane_syntax.Pattern.t -> _ = function
 
 let type_pattern_approx env spat ty_expected =
   match Jane_syntax.Pattern.of_ast spat with
-  | Some (jpat, _attrs) -> type_pattern_approx_jane_syntax jpat
-  | None      ->
+  | Replacement (jpat, _attrs) -> type_pattern_approx_jane_syntax jpat
+  | Extra () ->
   match spat.ppat_desc with
   | Ppat_constraint(_, ({ptyp_desc=Ptyp_poly _} as sty)) ->
       let arg_type_mode =
@@ -3634,8 +3635,9 @@ let rec type_function_approx env loc label spato sexp in_function ty_expected =
 
 and type_approx_aux env sexp in_function ty_expected =
   match Jane_syntax.Expression.of_ast sexp with
-  | Some (jexp, _attrs) -> type_approx_aux_jane_syntax jexp
-  | None      -> match sexp.pexp_desc with
+  | Replacement (jexp, _attrs) -> type_approx_aux_jane_syntax jexp
+  | Extra () ->
+  match sexp.pexp_desc with
     Pexp_let (_, _, e) -> type_approx_aux env e None ty_expected
   | Pexp_fun (l, _, p, e) ->
       type_function_approx env sexp.pexp_loc l (Some p) e
@@ -3902,8 +3904,8 @@ let shallow_iter_ppat_jane_syntax f : Jane_syntax.Pattern.t -> _ = function
 
 let shallow_iter_ppat f p =
   match Jane_syntax.Pattern.of_ast p with
-  | Some (jpat, _attrs) -> shallow_iter_ppat_jane_syntax f jpat
-  | None      ->
+  | Replacement (jpat, _attrs) -> shallow_iter_ppat_jane_syntax f jpat
+  | Extra () ->
   match p.ppat_desc with
   | Ppat_any | Ppat_var _ | Ppat_constant _ | Ppat_interval _
   | Ppat_construct (_, None)
@@ -4040,8 +4042,9 @@ let unify_exp env exp expected_ty =
 
 let rec is_inferred sexp =
   match Jane_syntax.Expression.of_ast sexp with
-  | Some (jexp, _attrs) -> is_inferred_jane_syntax jexp
-  | None      -> match sexp.pexp_desc with
+  | Replacement (jexp, _attrs) -> is_inferred_jane_syntax jexp
+  | Extra () ->
+  match sexp.pexp_desc with
   | Pexp_ident _ | Pexp_apply _ | Pexp_field _ | Pexp_constraint _
   | Pexp_coerce _ | Pexp_send _ | Pexp_new _ -> true
   | Pexp_sequence (_, e) | Pexp_open (_, e) -> is_inferred e
@@ -4136,7 +4139,7 @@ and type_expect_
     exp
   in
   match Jane_syntax.Expression.of_ast sexp with
-  | Some (jexp, attributes) ->
+  | Replacement (jexp, attributes) ->
       type_expect_jane_syntax
         ~loc
         ~env
@@ -4145,7 +4148,8 @@ and type_expect_
         ~explanation
         ~attributes
         jexp
-  | None      -> match sexp.pexp_desc with
+  | Extra () ->
+  match sexp.pexp_desc with
   | Pexp_ident lid ->
       let path, mode, desc, kind = type_ident env ~recarg lid in
       let exp_desc =
@@ -4461,7 +4465,7 @@ and type_expect_
       in
       let type_sfunct_args sfunct extra_args =
         match Jane_syntax.Expression.of_ast sfunct, sfunct.pexp_desc with
-        | None, Pexp_apply (sfunct, args) ->
+        | Extra (), Pexp_apply (sfunct, args) ->
            type_sfunct sfunct, args @ extra_args
         | _ ->
            type_sfunct sfunct, extra_args
@@ -6912,8 +6916,9 @@ and type_let
   in
   let rec sexp_is_fun sexp =
     match Jane_syntax.Expression.of_ast sexp with
-    | Some (jexp, _attrs) -> jexp_is_fun jexp
-    | None      -> match sexp.pexp_desc with
+    | Replacement (jexp, _attrs) -> jexp_is_fun jexp
+    | Extra () ->
+    match sexp.pexp_desc with
     | Pexp_fun _ | Pexp_function _ -> true
     | Pexp_constraint (e, _)
     | Pexp_newtype (_, e, _)

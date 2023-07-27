@@ -149,30 +149,39 @@ module T = struct
   let type_vars_layouts sub (tvls : type_vars_layouts) =
     List.map (map_opt (map_loc_txt sub sub.layout_annotation)) tvls
 
-  let map_jst sub : Jane_syntax.Core_type.t -> Jane_syntax.Core_type.t =
+  let map_jst_layouts sub :
+        Jane_syntax.Layouts.core_type -> Jane_syntax.Layouts.core_type =
     function
-    | Jtyp_layout (Ltyp_alias { aliased_type; name; layout }) ->
+    | Ltyp_alias { aliased_type; name; layout } ->
       let aliased_type = sub.typ sub aliased_type in
       let layout = map_loc_txt sub sub.layout_annotation layout in
-      Jtyp_layout (Ltyp_alias { aliased_type; name; layout })
+      Ltyp_alias { aliased_type; name; layout }
 
-  let map sub ({ptyp_desc = desc; ptyp_loc = loc; ptyp_attributes = attrs}
+  let map_jst sub : Jane_syntax.Core_type.t -> Jane_syntax.Core_type.t =
+    function
+    | Jtyp_layout typ -> Jtyp_layout (map_jst_layouts sub typ)
+
+  let map sub ({ptyp_desc = desc; ptyp_loc = loc}
                  as typ) =
     let open Typ in
     let loc = sub.location sub loc in
     match Jane_syntax.Core_type.of_ast typ with
-    | Some (jtyp, attrs) -> begin
+    | Replacement (jtyp, attrs) -> begin
         let attrs = sub.attributes sub attrs in
         match sub.typ_jane_syntax sub jtyp with
           | Jtyp_layout l -> Jane_syntax.Layouts.type_of ~loc ~attrs l
     end
-    | None ->
+    | Extra (({ layouts = { var = var_layout_opt }}, attrs)[@warning "+9"]) ->
     let attrs = sub.attributes sub attrs in
     match desc with
     | Ptyp_any -> any ~loc ~attrs ()
-    | Ptyp_var (s, layout) ->
-        var ~loc ~attrs s
-          (map_opt (map_loc_txt sub sub.layout_annotation) layout)
+    | Ptyp_var s ->
+      begin match var_layout_opt with
+      | Some layout ->
+        let layout = map_loc_txt sub sub.layout_annotation layout in
+        Jane_syntax.Layouts.Typ.var ~loc ~attrs s layout
+      | None -> var ~loc ~attrs s
+      end
     | Ptyp_arrow (lab, t1, t2) ->
         arrow ~loc ~attrs lab (sub.typ sub t1) (sub.typ sub t2)
     | Ptyp_tuple tyl -> tuple ~loc ~attrs (List.map (sub.typ sub) tyl)
@@ -266,12 +275,12 @@ module T = struct
     let loc = sub.location sub pext_loc in
     let name = map_loc sub pext_name in
     match Jane_syntax.Extension_constructor.of_ast ext with
-    | Some (jext, attrs) -> begin
+    | Replacement (jext, attrs) -> begin
       let _attrs = sub.attributes sub attrs in
       match sub.extension_constructor_jane_syntax sub jext with
       | _ -> .
     end
-    | None ->
+    | Extra () ->
     let attrs = sub.attributes sub pext_attributes in
     Te.constructor ~loc ~attrs
       name
@@ -330,12 +339,12 @@ module MT = struct
     let open Mty in
     let loc = sub.location sub loc in
     match Jane_syntax.Module_type.of_ast mty with
-    | Some (jmty, attrs) -> begin
+    | Replacement (jmty, attrs) -> begin
         let attrs = sub.attributes sub attrs in
         match sub.module_type_jane_syntax sub jmty with
         | Jmty_strengthen smty -> Jane_syntax.Strengthen.mty_of ~loc ~attrs smty
       end
-    | None ->
+    | Extra () ->
     let attrs = sub.attributes sub attrs in
     match desc with
     | Pmty_ident s -> ident ~loc ~attrs (map_loc sub s)
@@ -382,12 +391,12 @@ module MT = struct
     let open Sig in
     let loc = sub.location sub loc in
     match Jane_syntax.Signature_item.of_ast sigi with
-    | Some jsigi -> begin
+    | Replacement jsigi -> begin
         match sub.signature_item_jane_syntax sub jsigi with
         | Jsig_include_functor incl ->
             Jane_syntax.Include_functor.sig_item_of ~loc incl
     end
-    | None ->
+    | Extra () ->
     match desc with
     | Psig_value vd -> value ~loc (sub.value_description sub vd)
     | Psig_type (rf, l) ->
@@ -461,12 +470,12 @@ module M = struct
     let open Str in
     let loc = sub.location sub loc in
     match Jane_syntax.Structure_item.of_ast stri with
-    | Some jstri -> begin
+    | Replacement jstri -> begin
         match sub.structure_item_jane_syntax sub jstri with
         | Jstr_include_functor incl ->
             Jane_syntax.Include_functor.str_item_of ~loc incl
     end
-    | None ->
+    | Extra () ->
     match desc with
     | Pstr_eval (x, attrs) ->
         let attrs = sub.attributes sub attrs in
@@ -546,12 +555,12 @@ module E = struct
     let open Exp in
     let loc = sub.location sub loc in
     match Jane_syntax.Expression.of_ast exp with
-    | Some (jexp, attrs) -> begin
+    | Replacement (jexp, attrs) -> begin
         let attrs = sub.attributes sub attrs in
         Jane_syntax.Expression.expr_of ~loc ~attrs
           (sub.expr_jane_syntax sub jexp)
     end
-    | None ->
+    | Extra () ->
     let attrs = sub.attributes sub attrs in
     match desc with
     | Pexp_ident x -> ident ~loc ~attrs (map_loc sub x)
@@ -665,11 +674,11 @@ module P = struct
     let open Pat in
     let loc = sub.location sub loc in
     match Jane_syntax.Pattern.of_ast pat with
-    | Some (jpat, attrs) -> begin
+    | Replacement (jpat, attrs) -> begin
         let attrs = sub.attributes sub attrs in
         Jane_syntax.Pattern.pat_of ~loc ~attrs (sub.pat_jane_syntax sub jpat)
     end
-    | None ->
+    | Extra () ->
     let attrs = sub.attributes sub attrs in
     match desc with
     | Ppat_any -> any ~loc ~attrs ()

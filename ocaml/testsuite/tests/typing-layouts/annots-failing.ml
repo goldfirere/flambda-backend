@@ -1,5 +1,6 @@
 (* TEST
    * expect
+   flags = "-extension layouts"
 *)
 
 (* XXX layouts: merge this with annots.ml after these all pass *)

@@ -503,25 +503,23 @@ let check_well_formed_module env loc context mty =
 let () = Env.check_well_formed_module := check_well_formed_module
 
 let type_decl_is_alias sdecl = (* assuming no explicit constraint *)
+  let eq_vars x y =
+    match Jane_syntax.Core_type.of_ast x, Jane_syntax.Core_type.of_ast y with
+    | (Replacement _, _) | (_, Replacement _) -> false
+    (* if there is a layout annotation, then the types might not be aliases *)
+    | (Extra ({ layouts = { var = Some _ }}, _attrs), _)
+    | (_, Extra ({ layouts = { var = Some _ }}, _attrs)) -> false
+    | _ ->
+    match x.ptyp_desc, y.ptyp_desc with
+    | Ptyp_var sx, Ptyp_var sy -> sx = sy
+    | _, _ -> false
+  in
   match sdecl.ptype_manifest with
   | Some {ptyp_desc = Ptyp_constr (lid, stl)}
        when List.length stl = List.length sdecl.ptype_params ->
-     begin
-       match
-         List.iter2 (fun x (y, _) ->
-             match x, y with
-               {ptyp_desc=Ptyp_var (sx,lx)}, {ptyp_desc=Ptyp_var (sy,ly)}
-                  when sx = sy &&
-                       Option.equal
-                         (Location.compare_txt Layout.equal_const)
-                         lx ly
-                  -> ()
-             | _, _ -> raise Exit)
-           stl sdecl.ptype_params;
-       with
-       | exception Exit -> None
-       | () -> Some lid
-     end
+    if List.for_all2 (fun x (y, _) -> eq_vars x y) stl sdecl.ptype_params
+    then Some lid
+    else None
   | _ -> None
 ;;
 
@@ -837,8 +835,8 @@ let map_ext fn exts =
 
 let rec approx_modtype env smty =
   match Jane_syntax.Module_type.of_ast smty with
-  | Some (jmty, attrs) -> approx_modtype_jane_syntax env attrs jmty
-  | None ->
+  | Replacement (jmty, attrs) -> approx_modtype_jane_syntax env attrs jmty
+  | Extra () ->
   match smty.pmty_desc with
     Pmty_ident lid ->
       let path =
@@ -923,8 +921,8 @@ and approx_sig env ssg =
     [] -> []
   | item :: srem ->
       match Jane_syntax.Signature_item.of_ast item with
-      | Some jitem -> approx_sig_jst' env jitem srem
-      | None ->
+      | Replacement jitem -> approx_sig_jst' env jitem srem
+      | Extra () ->
       match item.psig_desc with
       | Psig_type (rec_flag, sdecls) ->
           let decls = Typedecl.approx_type_decl sdecls in
@@ -1389,8 +1387,8 @@ and transl_modtype_functor_arg env sarg =
 and transl_modtype_aux env smty =
   let loc = smty.pmty_loc in
   match Jane_syntax.Module_type.of_ast smty with
-  | Some (jmty, attrs) -> transl_modtype_jane_syntax_aux env attrs jmty
-  | None ->
+  | Replacement (jmty, attrs) -> transl_modtype_jane_syntax_aux env attrs jmty
+  | Extra () ->
   match smty.pmty_desc with
     Pmty_ident lid ->
       let path = transl_modtype_longident loc env lid.txt in
@@ -1529,8 +1527,8 @@ and transl_signature env (sg : Parsetree.signature) =
   let transl_sig_item env sig_acc item =
     let loc = item.psig_loc in
     match Jane_syntax.Signature_item.of_ast item with
-    | Some jitem -> transl_sig_item_jst ~loc env sig_acc jitem
-    | None ->
+    | Replacement jitem -> transl_sig_item_jst ~loc env sig_acc jitem
+    | Extra () ->
     match item.psig_desc with
     | Psig_value sdesc ->
         let (tdesc, newenv) =
@@ -2633,8 +2631,8 @@ and type_structure ?(toplevel = None) funct_body anchor env sstr =
   let type_str_item
         env shape_map ({pstr_loc = loc; pstr_desc = desc} as item) sig_acc =
     match Jane_syntax.Structure_item.of_ast item with
-    | Some jitem -> type_str_item_jst ~loc env shape_map jitem sig_acc
-    | None ->
+    | Replacement jitem -> type_str_item_jst ~loc env shape_map jitem sig_acc
+    | Extra () ->
     match desc with
     | Pstr_eval (sexpr, attrs) ->
         (* We restrict [Tstr_eval] expressions to representable layouts to
