@@ -13,6 +13,24 @@
 (*                                                                        *)
 (**************************************************************************)
 
+module type Lattice = sig
+  type t
+
+  val min : t
+
+  val max : t
+
+  val eq : t -> t -> bool
+
+  val le : t -> t -> bool
+
+  val join : t -> t -> t
+
+  val meet : t -> t -> t
+
+  val print : Format.formatter -> t -> unit
+end
+
 type changes
 
 val undo_changes : changes -> unit
