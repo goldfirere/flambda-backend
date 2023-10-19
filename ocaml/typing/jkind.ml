@@ -51,7 +51,7 @@ module Sort = struct
 
   let log_change change = !change_log change
 
-  let undo_change (v, t_op) = v := n t_op
+  let undo_change (v, t_op) = v := t_op
 
   let var_name : var -> string =
     let next_id = ref 1 in
@@ -68,7 +68,7 @@ module Sort = struct
 
   let set : var -> t option -> unit =
    fun v t_op ->
-    log_change (v, t_op);
+    log_change (v, !v);
     v := t_op
 
   let void = Const Void
