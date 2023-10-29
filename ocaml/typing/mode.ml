@@ -682,9 +682,16 @@ let append_changes = S.S.append_changes
 module type Obj = sig
   type const
 
-  type polarity
+  module Pol :
+    Polarity
+      with type 'a obj := 'a S.obj
+       and type ('a, 'd) mode := ('a, 'd) S.mode
 
-  val obj_s : (const * polarity) S.obj
+  val obj : const S.obj
+
+  (* {[
+     val obj_s : (const * polarity) S.obj
+                   ]} *)
 end
 
 let equate_from_submode submode m0 m1 =
@@ -698,7 +705,7 @@ let equate_from_submode submode m0 m1 =
 module Common (Obj : Obj) = struct
   open Obj
 
-  type 'd t = (const * polarity, 'd) S.mode
+  type 'd t = (const, 'd) S.mode
 
   type l = (allowed * disallowed) t
 
@@ -710,29 +717,29 @@ module Common (Obj : Obj) = struct
 
   type equate_error = equate_step * error
 
-  let disallow_right m = S.disallow_right m
+  let disallow_right m = Pol.disallow_right m
 
-  let disallow_left m = S.disallow_left m
+  let disallow_left m = Pol.disallow_left m
 
-  let allow_left m = S.allow_left m
+  let allow_left m = Pol.allow_left m
 
-  let allow_right m = S.allow_right m
+  let allow_right m = Pol.allow_right m
 
-  let newvar () = S.newvar obj_s
+  let newvar () = S.newvar obj
 
-  let min = S.min obj_s
+  let min = Pol.min obj
 
-  let max = S.max obj_s
+  let max = Pol.max obj
 
-  let newvar_above m = S.newvar_above obj_s m
+  let newvar_above m = Pol.newvar_above obj m
 
-  let newvar_below m = S.newvar_below obj_s m
+  let newvar_below m = Pol.newvar_below obj m
 
-  let submode m0 m1 : (unit, error) result = S.submode obj_s m0 m1
+  let submode m0 m1 : (unit, error) result = Pol.submode obj m0 m1
 
-  let join l = S.join obj_s l
+  let join l = Pol.join obj l
 
-  let meet l = S.meet obj_s l
+  let meet l = Pol.meet obj l
 
   let submode_exn m0 m1 = assert (submode m0 m1 |> Result.is_ok)
 
@@ -741,17 +748,15 @@ module Common (Obj : Obj) = struct
   let equate_exn m0 m1 = assert (equate m0 m1 |> Result.is_ok)
 
   let print ?(raw = false) ?verbose () ppf m =
-    if raw
-    then S.print_raw ?verbose obj_s ppf m
-    else S.print ?verbose obj_s ppf m
+    if raw then S.print_raw ?verbose obj ppf m else S.print ?verbose obj ppf m
 
-  let constrain_upper m = S.constrain_upper obj_s m
+  let constrain_upper m = Pol.constrain_upper obj m
 
-  let constrain_lower m = S.constrain_lower obj_s m
+  let constrain_lower m = Pol.constrain_lower obj m
 
-  let of_const : type l r. const -> (l * r) t = fun a -> S.of_const obj_s a
+  let of_const : type l r. const -> (l * r) t = fun a -> S.of_const obj a
 
-  let check_const m = S.check_const obj_s m
+  let check_const m = S.check_const obj m
 end
 
 module Locality = struct
@@ -760,11 +765,9 @@ module Locality = struct
   module Obj = struct
     type const = Const.t
 
-    type polarity = positive
+    module Pol = S.Pos
 
     let obj = C.Locality
-
-    let obj_s : (const * polarity) S.obj = S.Positive obj
   end
 
   include Common (Obj)
@@ -784,9 +787,15 @@ module Regionality = struct
   module Obj = struct
     type const = Const.t
 
-    type polarity = positive
+    (* {[
+       type polarity = positive
 
-    let obj_s : (const * polarity) S.obj = S.Positive C.Regionality
+       let obj_s : (const * polarity) S.obj = S.Positive C.Regionality
+                                                ]} *)
+
+    module Pol = S.Pos
+
+    let obj = C.Regionality
   end
 
   include Common (Obj)
@@ -808,11 +817,15 @@ module Linearity = struct
   module Obj = struct
     type const = Const.t
 
-    type polarity = positive
+    (* {[
+       type polarity = positive
+
+       let obj_s : (const * polarity) S.obj = S.Positive obj
+                                                ]} *)
+
+    module Pol = S.Pos
 
     let obj = C.Linearity
-
-    let obj_s : (const * polarity) S.obj = S.Positive obj
   end
 
   include Common (Obj)
@@ -833,11 +846,15 @@ module Uniqueness = struct
     type const = Const.t
 
     (* the negation of Uniqueness_op gives us the proper uniqueness *)
-    type polarity = negative
+
+    module Pol = S.Neg
+    (* {[
+       type polarity = negative
+
+       let obj_s : (const * polarity) S.obj = S.Negative obj
+                                                ]} *)
 
     let obj = C.Uniqueness_op
-
-    let obj_s : (const * polarity) S.obj = S.Negative obj
   end
 
   include Common (Obj)
@@ -851,20 +868,16 @@ module Uniqueness = struct
   let constrain_legacy = constrain_upper
 end
 
-let unique_to_linear m =
-  S.apply Linearity.Obj.obj_s (S.Neg_Pos C.Unique_to_linear) m
+let unique_to_linear m = S.apply Linearity.Obj.obj C.Unique_to_linear m
 
-let linear_to_unique m =
-  S.apply Uniqueness.Obj.obj_s (S.Pos_Neg C.Linear_to_unique) m
+let linear_to_unique m = S.apply Uniqueness.Obj.obj C.Linear_to_unique m
 
-let regional_to_local m =
-  S.apply Locality.Obj.obj_s (S.Pos_Pos C.Regional_to_local) m
+let regional_to_local m = S.apply Locality.Obj.obj C.Regional_to_local m
 
 let locality_as_regionality m =
-  S.apply Regionality.Obj.obj_s (S.Pos_Pos C.Locality_as_regionality) m
+  S.apply Regionality.Obj.obj C.Locality_as_regionality m
 
-let regional_to_global m =
-  S.apply Locality.Obj.obj_s (S.Pos_Pos C.Regional_to_global) m
+let regional_to_global m = S.apply Locality.Obj.obj C.Regional_to_global m
 
 module Const = struct
   let unique_to_linear a = C.unique_to_linear a
@@ -876,11 +889,15 @@ module Comonadic_with_regionality = struct
   module Obj = struct
     type const = Const.t
 
-    type polarity = positive
+    module Pol = S.Pos
+
+    (* {[
+       type polarity = positive
+
+       let obj_s : (const * polarity) S.obj = S.Positive obj
+                                                ]} *)
 
     let obj : const C.obj = C.Comonadic_with_regionality
-
-    let obj_s : (const * polarity) S.obj = S.Positive obj
   end
 
   include Common (Obj)
@@ -891,43 +908,41 @@ module Comonadic_with_regionality = struct
 
   type equate_error = equate_step * error
 
-  let regionality m =
-    S.apply Regionality.Obj.obj_s (S.Pos_Pos (C.Proj (Obj.obj, Axis0))) m
+  let regionality m = S.apply Regionality.Obj.obj (C.Proj (Obj.obj, Axis0)) m
 
   let min_with_regionality m =
-    S.apply Obj.obj_s (S.Pos_Pos (C.Min_with Axis0)) (S.disallow_right m)
+    S.apply Obj.obj (C.Min_with Axis0) (Obj.Pol.disallow_right m)
 
   let max_with_regionality m =
-    S.apply Obj.obj_s (S.Pos_Pos (C.Max_with Axis0)) (S.disallow_left m)
+    S.apply Obj.obj (C.Max_with Axis0) (Obj.Pol.disallow_left m)
 
   let set_regionality_max m =
-    S.apply Obj.obj_s
-      (S.Pos_Pos (C.Set (Product.SAxis0, C.Const_max Regionality)))
-      (S.disallow_left m)
+    S.apply Obj.obj
+      (C.Set (Product.SAxis0, C.Const_max Regionality))
+      (Obj.Pol.disallow_left m)
 
   let set_regionality_min m =
-    S.apply Obj.obj_s
-      (S.Pos_Pos (C.Set (Product.SAxis0, C.Const_min Regionality)))
-      (S.disallow_right m)
+    S.apply Obj.obj
+      (C.Set (Product.SAxis0, C.Const_min Regionality))
+      (Obj.Pol.disallow_right m)
 
-  let linearity m =
-    S.apply Linearity.Obj.obj_s (S.Pos_Pos (C.Proj (Obj.obj, Axis1))) m
+  let linearity m = S.apply Linearity.Obj.obj (C.Proj (Obj.obj, Axis1)) m
 
   let min_with_linearity m =
-    S.apply Obj.obj_s (S.Pos_Pos (C.Min_with Axis1)) (S.disallow_right m)
+    S.apply Obj.obj (C.Min_with Axis1) (Obj.Pol.disallow_right m)
 
   let max_with_linearity m =
-    S.apply Obj.obj_s (S.Pos_Pos (C.Max_with Axis1)) (S.disallow_left m)
+    S.apply Obj.obj (C.Max_with Axis1) (Obj.Pol.disallow_left m)
 
   let set_linearity_max m =
-    S.apply Obj.obj_s
-      (S.Pos_Pos (C.Set (Product.SAxis1, C.Const_max Linearity)))
-      (S.disallow_left m)
+    S.apply Obj.obj
+      (C.Set (Product.SAxis1, C.Const_max Linearity))
+      (Obj.Pol.disallow_left m)
 
   let set_linearity_min m =
-    S.apply Obj.obj_s
-      (S.Pos_Pos (C.Set (Product.SAxis1, C.Const_min Linearity)))
-      (S.disallow_right m)
+    S.apply Obj.obj
+      (C.Set (Product.SAxis1, C.Const_min Linearity))
+      (Obj.Pol.disallow_right m)
 
   let constrain_legacy = constrain_lower
 
@@ -963,11 +978,14 @@ module Comonadic_with_locality = struct
   module Obj = struct
     type const = Const.t
 
-    type polarity = positive
+    module Pol = S.Pos
 
+    (* {[
+       type polarity = positive
+
+       let obj_s : (const * polarity) S.obj = S.Positive obj
+                                                ]} *)
     let obj : const C.obj = C.Comonadic_with_locality
-
-    let obj_s : (const * polarity) S.obj = S.Positive obj
   end
 
   include Common (Obj)
@@ -978,43 +996,41 @@ module Comonadic_with_locality = struct
 
   type equate_error = equate_step * error
 
-  let locality m =
-    S.apply Locality.Obj.obj_s (S.Pos_Pos (C.Proj (Obj.obj, Axis0))) m
+  let locality m = S.apply Locality.Obj.obj (C.Proj (Obj.obj, Axis0)) m
 
   let min_with_locality m =
-    S.apply Obj.obj_s (S.Pos_Pos (C.Min_with Axis0)) (S.disallow_right m)
+    S.apply Obj.obj (C.Min_with Axis0) (Obj.Pol.disallow_right m)
 
   let max_with_locality m =
-    S.apply Obj.obj_s (S.Pos_Pos (C.Max_with Axis0)) (S.disallow_left m)
+    S.apply Obj.obj (C.Max_with Axis0) (Obj.Pol.disallow_left m)
 
   let set_locality_max m =
-    S.apply Obj.obj_s
-      (S.Pos_Pos (C.Set (Product.SAxis0, C.Const_max Locality)))
-      (S.disallow_left m)
+    S.apply Obj.obj
+      (C.Set (Product.SAxis0, C.Const_max Locality))
+      (Obj.Pol.disallow_left m)
 
   let set_locality_min m =
-    S.apply Obj.obj_s
-      (S.Pos_Pos (C.Set (Product.SAxis0, C.Const_min Locality)))
-      (S.disallow_right m)
+    S.apply Obj.obj
+      (C.Set (Product.SAxis0, C.Const_min Locality))
+      (Obj.Pol.disallow_right m)
 
-  let linearity m =
-    S.apply Linearity.Obj.obj_s (S.Pos_Pos (C.Proj (Obj.obj, Axis1))) m
+  let linearity m = S.apply Linearity.Obj.obj (C.Proj (Obj.obj, Axis1)) m
 
   let min_with_linearity m =
-    S.apply Obj.obj_s (S.Pos_Pos (C.Min_with Axis1)) (S.disallow_right m)
+    S.apply Obj.obj (C.Min_with Axis1) (Obj.Pol.disallow_right m)
 
   let max_with_linearity m =
-    S.apply Obj.obj_s (S.Pos_Pos (C.Max_with Axis1)) (S.disallow_left m)
+    S.apply Obj.obj (C.Max_with Axis1) (Obj.Pol.disallow_left m)
 
   let set_linearity_max m =
-    S.apply Obj.obj_s
-      (S.Pos_Pos (C.Set (Product.SAxis1, C.Const_max Linearity)))
-      (S.disallow_left m)
+    S.apply Obj.obj
+      (C.Set (Product.SAxis1, C.Const_max Linearity))
+      (Obj.Pol.disallow_left m)
 
   let set_linearity_min m =
-    S.apply Obj.obj_s
-      (S.Pos_Pos (C.Set (Product.SAxis1, C.Const_min Linearity)))
-      (S.disallow_right m)
+    S.apply Obj.obj
+      (C.Set (Product.SAxis1, C.Const_min Linearity))
+      (Obj.Pol.disallow_right m)
 
   let constrain_legacy = constrain_lower
 
@@ -1052,13 +1068,15 @@ module Monadic = struct
 
   type equate_error = equate_step * error
 
-  let max_with_uniqueness m = S.disallow_left m
+  let max_with_uniqueness m = Obj.Pol.disallow_left m
 
-  let min_with_uniqueness m = S.disallow_right m
+  let min_with_uniqueness m = Obj.Pol.disallow_right m
 
-  let set_uniqueness_max _ = Uniqueness.max |> S.disallow_left |> S.allow_right
+  let set_uniqueness_max _ =
+    Uniqueness.max |> Obj.Pol.disallow_left |> Obj.Pol.allow_right
 
-  let set_uniqueness_min _ = Uniqueness.min |> S.disallow_right |> S.allow_left
+  let set_uniqueness_min _ =
+    Uniqueness.min |> Obj.Pol.disallow_right |> Obj.Pol.allow_left
 
   let submode m0 m1 =
     match submode m0 m1 with Ok () -> Ok () | Error e -> Error (`Uniqueness e)
@@ -1573,8 +1591,8 @@ end
 let alloc_as_value m =
   let { comonadic; monadic } = Alloc.disallow_right m in
   let comonadic =
-    S.apply Value.Comonadic.Obj.obj_s
-      (S.Pos_Pos (C.Set (Product.SAxis0, C.Locality_as_regionality)))
+    S.apply Value.Comonadic.Obj.obj
+      (C.Set (Product.SAxis0, C.Locality_as_regionality))
       comonadic
   in
   { comonadic; monadic }
@@ -1582,8 +1600,8 @@ let alloc_as_value m =
 let alloc_to_value_l2r m =
   let { comonadic; monadic } = Alloc.disallow_right m in
   let comonadic =
-    S.apply Value.Comonadic.Obj.obj_s
-      (S.Pos_Pos (C.Set (Product.SAxis0, C.Local_to_regional)))
+    S.apply Value.Comonadic.Obj.obj
+      (C.Set (Product.SAxis0, C.Local_to_regional))
       comonadic
   in
   { comonadic; monadic }
@@ -1591,8 +1609,8 @@ let alloc_to_value_l2r m =
 let value_to_alloc_r2g m =
   let { comonadic; monadic } = Alloc.disallow_right m in
   let comonadic =
-    S.apply Alloc.Comonadic.Obj.obj_s
-      (S.Pos_Pos (C.Set (Product.SAxis0, C.Regional_to_global)))
+    S.apply Alloc.Comonadic.Obj.obj
+      (C.Set (Product.SAxis0, C.Regional_to_global))
       comonadic
   in
   { comonadic; monadic }
@@ -1600,8 +1618,8 @@ let value_to_alloc_r2g m =
 let value_to_alloc_r2l m =
   let { comonadic; monadic } = m in
   let comonadic =
-    S.apply Alloc.Comonadic.Obj.obj_s
-      (S.Pos_Pos (C.Set (Product.SAxis0, C.Regional_to_local)))
+    S.apply Alloc.Comonadic.Obj.obj
+      (C.Set (Product.SAxis0, C.Regional_to_local))
       comonadic
   in
   { comonadic; monadic }

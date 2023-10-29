@@ -3,7 +3,7 @@ open Solver_intf
 (** Error returned by failed [submode a b]. [left] will be the lowest mode [a]
    can be, and [right] will be the highest mode [b] can be. And [left <= right]
    will be false, which is why the submode failed. *)
-type 'a error =
+type nonrec 'a error = 'a error =
   { left : 'a;
     right : 'a
   }
@@ -518,191 +518,249 @@ end
 module Solver_polarized (C : Lattices_mono) = struct
   module S = Solver_mono (C)
 
-  type 'a obj =
-    | Positive : 'a C.obj -> ('a * positive) obj
-    | Negative : 'a C.obj -> ('a * negative) obj
+  type 'a obj = 'a C.obj
 
-  type ('a, 'd, 'b, 'e) morph =
-    | Pos_Pos :
-        ('a, 'b, 'd) C.morph
-        -> ('a * positive, 'd pos, 'b * positive, 'd pos) morph
-    | Pos_Neg :
-        ('a, 'b, 'd) C.morph
-        -> ('a * positive, 'd pos, 'b * negative, 'd neg) morph
-    | Neg_Pos :
-        ('a, 'b, 'd) C.morph
-        -> ('a * negative, 'd neg, 'b * positive, 'd pos) morph
-    | Neg_Neg :
-        ('a, 'b, 'd) C.morph
-        -> ('a * negative, 'd neg, 'b * negative, 'd neg) morph
+  type ('a, 'd) mode = ('a, 'd) S.mode
 
-  type ('a, 'd) mode =
-    | Positive : ('a, 'd) S.mode -> ('a * positive, 'd pos) mode
-    | Negative : ('a, 'd) S.mode -> ('a * negative, 'd neg) mode
+  (* {[
+       type 'a obj =
+         | Positive : 'a C.obj -> ('a * positive) obj
+         | Negative : 'a C.obj -> ('a * negative) obj
+     ]} *)
+
+  module Pos = struct
+    type 'a maybe_swap = 'l * 'r constraint 'a = 'l * 'r
+
+    let submode = S.submode
+
+    let join = S.join
+
+    let meet = S.meet
+
+    let min = S.min
+
+    let max = S.max
+
+    let constrain_lower = S.constrain_lower
+
+    let constrain_upper = S.constrain_upper
+
+    let newvar_above = S.newvar_above
+
+    let newvar_below = S.newvar_below
+
+    let disallow_left = S.disallow_left
+
+    let disallow_right = S.disallow_right
+
+    let allow_left = S.allow_left
+
+    let allow_right = S.allow_right
+  end
+
+  module Neg = struct
+    type 'a maybe_swap = 'r * 'l constraint 'a = 'l * 'r
+
+    let submode obj m0 m1 = S.submode obj m1 m0
+
+    let join = S.meet
+
+    let meet = S.join
+
+    let min = S.max
+
+    let max = S.min
+
+    let constrain_lower = S.constrain_upper
+
+    let constrain_upper = S.constrain_lower
+
+    let newvar_above = S.newvar_below
+
+    let newvar_below = S.newvar_above
+
+    let disallow_left = S.disallow_right
+
+    let disallow_right = S.disallow_left
+
+    let allow_left = S.allow_right
+
+    let allow_right = S.allow_left
+  end
+
+  (* {[
+     type ('a, 'd, 'b, 'e) morph =
+       | Pos_Pos :
+           ('a, 'b, 'd) C.morph
+           -> ('a * positive, 'd pos, 'b * positive, 'd pos) morph
+       | Pos_Neg :
+           ('a, 'b, 'd) C.morph
+           -> ('a * positive, 'd pos, 'b * negative, 'd neg) morph
+       | Neg_Pos :
+           ('a, 'b, 'd) C.morph
+           -> ('a * negative, 'd neg, 'b * positive, 'd pos) morph
+       | Neg_Neg :
+           ('a, 'b, 'd) C.morph
+           -> ('a * negative, 'd neg, 'b * negative, 'd neg) morph
+                ]} *)
+  (* {[
+     type ('a, 'd) mode =
+       | Positive : ('a, 'd) S.mode -> ('a * positive, 'd pos) mode
+       | Negative : ('a, 'd) S.mode -> ('a * negative, 'd neg) mode
+                                         ]} *)
   (* We just run Mono_solver on the original category C, and translate
      submoding on the new category to submoding on the original category.
      Hopefully everything here will be inlined and optimized away. *)
 
-  let id : type a l r. a obj -> (a, l * r, a, l * r) morph = function
-    | Positive _ -> Pos_Pos C.id
-    | Negative _ -> Neg_Neg C.id
+  let apply = S.apply
 
-  let compose :
-      type a b c al ar bl br cl cr.
-      c obj ->
-      (b, bl * br, c, cl * cr) morph ->
-      (a, al * ar, b, bl * br) morph ->
-      (a, al * ar, c, cl * cr) morph =
-   fun dst f g ->
-    match dst, f, g with
-    | Positive dst, Pos_Pos f, Pos_Pos g -> Pos_Pos (C.compose dst f g)
-    | Positive dst, Pos_Pos f, Neg_Pos g -> Neg_Pos (C.compose dst f g)
-    | Negative dst, Pos_Neg f, Neg_Pos g -> Neg_Neg (C.compose dst f g)
-    | Negative dst, Pos_Neg f, Pos_Pos g -> Pos_Neg (C.compose dst f g)
-    | Positive dst, Neg_Pos f, Pos_Neg g -> Pos_Pos (C.compose dst f g)
-    | Positive dst, Neg_Pos f, Neg_Neg g -> Neg_Pos (C.compose dst f g)
-    | Negative dst, Neg_Neg f, Neg_Neg g -> Neg_Neg (C.compose dst f g)
-    | Negative dst, Neg_Neg f, Pos_Neg g -> Pos_Neg (C.compose dst f g)
+  (* {[
+     let apply :
+         type a b d0 d1 e0 e1.
+         b obj ->
+         (a, d0 * d1, b, e0 * e1) morph ->
+         (a, d0 * d1) mode ->
+         (b, e0 * e1) mode =
+      fun dst f ->
+       match dst, f with
+       | Positive dst, Pos_Pos f -> fun (Positive m) -> Positive (S.apply dst f m)
+       | Negative dst, Pos_Neg f -> fun (Positive m) -> Negative (S.apply dst f m)
+       | Positive dst, Neg_Pos f -> fun (Negative m) -> Positive (S.apply dst f m)
+       | Negative dst, Neg_Neg f -> fun (Negative m) -> Negative (S.apply dst f m)
+                                                          ]} *)
+  let newvar = S.newvar
 
-  let apply :
-      type a b d0 d1 e0 e1.
-      b obj ->
-      (a, d0 * d1, b, e0 * e1) morph ->
-      (a, d0 * d1) mode ->
-      (b, e0 * e1) mode =
-   fun dst f ->
-    match dst, f with
-    | Positive dst, Pos_Pos f -> fun (Positive m) -> Positive (S.apply dst f m)
-    | Negative dst, Pos_Neg f -> fun (Positive m) -> Negative (S.apply dst f m)
-    | Positive dst, Neg_Pos f -> fun (Negative m) -> Positive (S.apply dst f m)
-    | Negative dst, Neg_Neg f -> fun (Negative m) -> Negative (S.apply dst f m)
+  (* {[
+                let submode :
+                    type a p l r.
+                    (a * p) obj ->
+                    (a * p, allowed * r) mode ->
+                    (a * p, l * allowed) mode ->
+                    (unit, a error) result = function
+                  | Positive obj -> (
+                    fun m0 m1 ->
+                      match m0, m1 with Positive m0, Positive m1 -> S.submode obj m0 m1)
+                  | Negative obj -> (
+                    fun m0 m1 ->
+                      match m0, m1 with Negative m0, Negative m1 -> S.submode obj m1 m0)
 
-  let newvar : type a l r. a obj -> (a, l * r) mode = function
-    | Positive obj ->
-      let m = S.newvar obj in
-      Positive m
-    | Negative obj ->
-      let m = S.newvar obj in
-      Negative m
+           let join :
+               type a r. a obj -> (a, allowed * r) mode list -> (a, left_only) mode =
+             function
+             | Positive obj ->
+               fun l ->
+                 let l = List.map (fun (Positive m : _ mode) -> m) l in
+                 Positive (S.join obj l)
+             | Negative obj ->
+               fun l ->
+                 let l = List.map (fun (Negative m : _ mode) -> m) l in
+                 Negative (S.meet obj l)
 
-  let submode :
-      type a p l r.
-      (a * p) obj ->
-      (a * p, allowed * r) mode ->
-      (a * p, l * allowed) mode ->
-      (unit, a error) result = function
-    | Positive obj -> (
-      fun m0 m1 ->
-        match m0, m1 with Positive m0, Positive m1 -> S.submode obj m0 m1)
-    | Negative obj -> (
-      fun m0 m1 ->
-        match m0, m1 with Negative m0, Negative m1 -> S.submode obj m1 m0)
+        let meet :
+            type a l. a obj -> (a, l * allowed) mode list -> (a, right_only) mode =
+          function
+          | Positive obj ->
+            fun l ->
+              let l = List.map (fun (Positive m : _ mode) -> m) l in
+              Positive (S.meet obj l)
+          | Negative obj ->
+            fun l ->
+              let l = List.map (fun (Negative m : _ mode) -> m) l in
+              Negative (S.join obj l)
 
-  let join :
-      type a r. a obj -> (a, allowed * r) mode list -> (a, left_only) mode =
-    function
-    | Positive obj ->
-      fun l ->
-        let l = List.map (fun (Positive m : _ mode) -> m) l in
-        Positive (S.join obj l)
-    | Negative obj ->
-      fun l ->
-        let l = List.map (fun (Negative m : _ mode) -> m) l in
-        Negative (S.meet obj l)
+     let of_const : type a p l r. (a * p) obj -> a -> (a * p, l * r) mode =
+       function
+       | Positive _ -> fun a -> Positive (S.of_const a)
+       | Negative _ -> fun a -> Negative (S.of_const a)
+              ]} *)
 
-  let meet :
-      type a l. a obj -> (a, l * allowed) mode list -> (a, right_only) mode =
-    function
-    | Positive obj ->
-      fun l ->
-        let l = List.map (fun (Positive m : _ mode) -> m) l in
-        Positive (S.meet obj l)
-    | Negative obj ->
-      fun l ->
-        let l = List.map (fun (Negative m : _ mode) -> m) l in
-        Negative (S.join obj l)
+  let of_const _ = S.of_const
 
-  let of_const : type a p l r. (a * p) obj -> a -> (a * p, l * r) mode =
-    function
-    | Positive _ -> fun a -> Positive (S.of_const a)
-    | Negative _ -> fun a -> Negative (S.of_const a)
+  (* {[
+                let min : type a l r. a obj -> (a, l * r) mode = function
+                  | Positive obj -> Positive (S.min obj)
+                  | Negative obj -> Negative (S.max obj)
 
-  let min : type a l r. a obj -> (a, l * r) mode = function
-    | Positive obj -> Positive (S.min obj)
-    | Negative obj -> Negative (S.max obj)
+                let max : type a l r. a obj -> (a, l * r) mode = function
+                  | Positive obj -> Positive (S.max obj)
+                  | Negative obj -> Negative (S.min obj)
 
-  let max : type a l r. a obj -> (a, l * r) mode = function
-    | Positive obj -> Positive (S.max obj)
-    | Negative obj -> Negative (S.min obj)
+           let constrain_lower :
+               type a p r. (a * p) obj -> (a * p, allowed * r) mode -> a = function
+             | Positive obj -> fun (Positive m) -> S.constrain_lower obj m
+             | Negative obj -> fun (Negative m) -> S.constrain_upper obj m
 
-  let constrain_lower :
-      type a p r. (a * p) obj -> (a * p, allowed * r) mode -> a = function
-    | Positive obj -> fun (Positive m) -> S.constrain_lower obj m
-    | Negative obj -> fun (Negative m) -> S.constrain_upper obj m
+           let constrain_upper :
+               type a p l. (a * p) obj -> (a * p, l * allowed) mode -> a = function
+             | Positive obj -> fun (Positive m) -> S.constrain_upper obj m
+             | Negative obj -> fun (Negative m) -> S.constrain_lower obj m
 
-  let constrain_upper :
-      type a p l. (a * p) obj -> (a * p, l * allowed) mode -> a = function
-    | Positive obj -> fun (Positive m) -> S.constrain_upper obj m
-    | Negative obj -> fun (Negative m) -> S.constrain_lower obj m
+        let newvar_above :
+            type a r_ l r. a obj -> (a, allowed * r_) mode -> (a, l * r) mode * bool =
+          function
+          | Positive obj ->
+            fun (Positive m) ->
+              let m, b = S.newvar_above obj m in
+              Positive m, b
+          | Negative obj ->
+            fun (Negative m) ->
+              let m, b = S.newvar_below obj m in
+              Negative m, b
 
-  let newvar_above :
-      type a r_ l r. a obj -> (a, allowed * r_) mode -> (a, l * r) mode * bool =
-    function
-    | Positive obj ->
-      fun (Positive m) ->
-        let m, b = S.newvar_above obj m in
-        Positive m, b
-    | Negative obj ->
-      fun (Negative m) ->
-        let m, b = S.newvar_below obj m in
-        Negative m, b
+        let newvar_below :
+            type a l_ l r. a obj -> (a, l_ * allowed) mode -> (a, l * r) mode * bool =
+          function
+          | Positive obj ->
+            fun (Positive m) ->
+              let m, b = S.newvar_below obj m in
+              Positive m, b
+          | Negative obj ->
+            fun (Negative m) ->
+              let m, b = S.newvar_above obj m in
+              Negative m, b
 
-  let newvar_below :
-      type a l_ l r. a obj -> (a, l_ * allowed) mode -> (a, l * r) mode * bool =
-    function
-    | Positive obj ->
-      fun (Positive m) ->
-        let m, b = S.newvar_below obj m in
-        Positive m, b
-    | Negative obj ->
-      fun (Negative m) ->
-        let m, b = S.newvar_above obj m in
-        Negative m, b
+     let disallow_left : type a l r. (a, l * r) mode -> (a, disallowed * r) mode =
+       function
+       | Positive m -> Positive (S.disallow_left m)
+       | Negative m -> Negative (S.disallow_right m)
 
-  let disallow_left : type a l r. (a, l * r) mode -> (a, disallowed * r) mode =
-    function
-    | Positive m -> Positive (S.disallow_left m)
-    | Negative m -> Negative (S.disallow_right m)
+     let disallow_right : type a l r. (a, l * r) mode -> (a, l * disallowed) mode =
+       function
+       | Positive m -> Positive (S.disallow_right m)
+       | Negative m -> Negative (S.disallow_left m)
 
-  let disallow_right : type a l r. (a, l * r) mode -> (a, l * disallowed) mode =
-    function
-    | Positive m -> Positive (S.disallow_right m)
-    | Negative m -> Negative (S.disallow_left m)
+     let allow_left : type a l r. (a, allowed * r) mode -> (a, l * r) mode =
+       function
+       | Positive m -> Positive (S.allow_left m)
+       | Negative m -> Negative (S.allow_right m)
 
-  let allow_left : type a l r. (a, allowed * r) mode -> (a, l * r) mode =
-    function
-    | Positive m -> Positive (S.allow_left m)
-    | Negative m -> Negative (S.allow_right m)
+     let allow_right : type a l r. (a, l * allowed) mode -> (a, l * r) mode =
+       function
+       | Positive m -> Positive (S.allow_right m)
+       | Negative m -> Negative (S.allow_left m)
 
-  let allow_right : type a l r. (a, l * allowed) mode -> (a, l * r) mode =
-    function
-    | Positive m -> Positive (S.allow_right m)
-    | Negative m -> Negative (S.allow_left m)
+     let check_const : type a p l r. (a * p) obj -> (a * p, l * r) mode -> a option
+         = function
+       | Positive obj -> fun (Positive m) -> S.check_const obj m
+       | Negative obj -> fun (Negative m) -> S.check_const obj m
+              ]} *)
+  let check_const = S.check_const
+  (* {[
+     let print : type a. ?verbose:bool -> a obj -> _ -> (a, _) mode -> unit =
+      fun ?(verbose = false) obj ppf m ->
+       match obj, m with
+       | Positive obj, Positive m -> S.print ~verbose obj ppf m
+       | Negative obj, Negative m -> S.print ~verbose obj ppf m
 
-  let check_const : type a p l r. (a * p) obj -> (a * p, l * r) mode -> a option
-      = function
-    | Positive obj -> fun (Positive m) -> S.check_const obj m
-    | Negative obj -> fun (Negative m) -> S.check_const obj m
+     let print_raw : type a. ?verbose:bool -> a obj -> _ -> (a, _) mode -> unit =
+      fun ?(verbose = false) obj ppf m ->
+       match obj, m with
+       | Positive obj, Positive m -> S.print_raw ~verbose obj ppf m
+       | Negative obj, Negative m -> S.print_raw ~verbose obj ppf m
+                                       ]}
+  *)
 
-  let print : type a. ?verbose:bool -> a obj -> _ -> (a, _) mode -> unit =
-   fun ?(verbose = false) obj ppf m ->
-    match obj, m with
-    | Positive obj, Positive m -> S.print ~verbose obj ppf m
-    | Negative obj, Negative m -> S.print ~verbose obj ppf m
+  let print = S.print
 
-  let print_raw : type a. ?verbose:bool -> a obj -> _ -> (a, _) mode -> unit =
-   fun ?(verbose = false) obj ppf m ->
-    match obj, m with
-    | Positive obj, Positive m -> S.print_raw ~verbose obj ppf m
-    | Negative obj, Negative m -> S.print_raw ~verbose obj ppf m
+  let print_raw = S.print_raw
 end

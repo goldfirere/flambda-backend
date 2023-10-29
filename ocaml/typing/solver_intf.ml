@@ -2,10 +2,6 @@ type allowed = private Allowed
 
 type disallowed = private Disallowed
 
-type positive = private Positive
-
-type negative = private Negative
-
 type left_only = allowed * disallowed
 
 type right_only = disallowed * allowed
@@ -117,8 +113,67 @@ module type Lattices_mono = sig
   val print_morph : 'b obj -> Format.formatter -> ('a, 'b, 'd) morph -> unit
 end
 
+type 'a error =
+  { left : 'a;
+    right : 'a
+  }
+
+module type Polarity = sig
+  type 'a obj
+
+  type ('a, 'd) mode
+
+  type 'a maybe_swap constraint 'a = 'l * 'r
+
+  val submode :
+    'a obj ->
+    ('a, (allowed * 'r) maybe_swap) mode ->
+    ('a, ('l * allowed) maybe_swap) mode ->
+    (unit, 'a error) result
+
+  val join :
+    'a obj ->
+    ('a, (allowed * 'r) maybe_swap) mode list ->
+    ('a, left_only maybe_swap) mode
+
+  val meet :
+    'a obj ->
+    ('a, ('l * allowed) maybe_swap) mode list ->
+    ('a, right_only maybe_swap) mode
+
+  val min : 'a obj -> ('a, 'l * 'r) mode
+
+  val max : 'a obj -> ('a, 'l * 'r) mode
+
+  val constrain_lower : 'a obj -> ('a, (allowed * 'r) maybe_swap) mode -> 'a
+
+  val constrain_upper : 'a obj -> ('a, ('l * allowed) maybe_swap) mode -> 'a
+
+  val newvar_above :
+    'a obj ->
+    ('a, (allowed * 'r_) maybe_swap) mode ->
+    ('a, ('l * 'r) maybe_swap) mode * bool
+
+  val newvar_below :
+    'a obj ->
+    ('a, ('l_ * allowed) maybe_swap) mode ->
+    ('a, ('l * 'r) maybe_swap) mode * bool
+
+  val disallow_left :
+    ('a, ('l * 'r) maybe_swap) mode -> ('a, (disallowed * 'r) maybe_swap) mode
+
+  val disallow_right :
+    ('a, ('l * 'r) maybe_swap) mode -> ('a, ('l * disallowed) maybe_swap) mode
+
+  val allow_right :
+    ('a, ('l * allowed) maybe_swap) mode -> ('a, ('l * 'r) maybe_swap) mode
+
+  val allow_left :
+    ('a, (allowed * 'r) maybe_swap) mode -> ('a, ('l * 'r) maybe_swap) mode
+end
+
 module type S = sig
-  type 'a error =
+  type nonrec 'a error = 'a error =
     { left : 'a;
       right : 'a
     }
@@ -205,94 +260,143 @@ module type S = sig
   module Solver_polarized (C : Lattices_mono) : sig
     module S : module type of Solver_mono (C)
 
+    type 'a obj = 'a C.obj
+
+    type ('a, 'd) mode = ('a, 'd) S.mode
+
     (* First construct a new category based on the original category C. The
        objects are those from the C, and those from C but flipped lattice
        structure. The morphisms are the obvious four copies of the original
        morhpisms. *)
 
-    type 'a obj =
-      | Positive : 'a C.obj -> ('a * positive) obj
-          (** The original lattice of obj *)
-      | Negative : 'a C.obj -> ('a * negative) obj
-          (** the dual lattice of obj *)
+    (* {[
+       type ('a, 'd_polarized, 'd_mono) obj =
+         | Positive : 'a C.obj -> ('a * positive, 'l * 'r, 'l * 'r) obj
+             (** The original lattice of obj *)
+         | Negative : 'a C.obj -> ('a * negative, 'l * 'r, 'r * 'l) obj
+             (** the dual lattice of obj *)
+       ]} *)
 
-    (* ['a] and ['b] are source and destination objects;
-       ['d] and ['e] are source and desitnation adjoint status *)
-    type ('a, 'd, 'b, 'e) morph =
-      | Pos_Pos :
-          ('a, 'b, 'd) C.morph
-          -> ('a * positive, 'd pos, 'b * positive, 'd pos) morph
-      | Pos_Neg :
-          ('a, 'b, 'd) C.morph
-          -> ('a * positive, 'd pos, 'b * negative, 'd neg) morph
-      | Neg_Pos :
-          ('a, 'b, 'd) C.morph
-          -> ('a * negative, 'd neg, 'b * positive, 'd pos) morph
-      | Neg_Neg :
-          ('a, 'b, 'd) C.morph
-          -> ('a * negative, 'd neg, 'b * negative, 'd neg) morph
+    module Pos :
+      Polarity
+        with type 'a obj := 'a obj
+         and type ('a, 'd) mode := ('a, 'd) mode
+         and type 'a maybe_swap = 'l * 'r constraint 'a = 'l * 'r
 
-    (* [id] and [compose] not used; just for fun *)
-    val id : 'a obj -> ('a, 'l * 'r, 'a, 'l * 'r) morph
+    module Neg :
+      Polarity
+        with type 'a obj := 'a C.obj
+         and type ('a, 'd) mode := ('a, 'd) mode
+         and type 'a maybe_swap = 'r * 'l constraint 'a = 'l * 'r
 
-    val compose :
-      'c obj ->
-      ('b, 'bl * 'br, 'c, 'cl * 'cr) morph ->
-      ('a, 'al * 'ar, 'b, 'bl * 'br) morph ->
-      ('a, 'al * 'ar, 'c, 'cl * 'cr) morph
+    (* = ('a, 'b, 'd) Morph()().morph
+       constraint 'a_pol = 'a * 'pol_a constraint 'b_pol = 'b * 'pol_b *)
 
-    type ('a, 'd) mode =
-      | Positive : ('a, 'd) S.mode -> ('a * positive, 'd pos) mode
-      | Negative : ('a, 'd) S.mode -> ('a * negative, 'd neg) mode
+    (* {[
+       (* ['a] and ['b] are source and destination objects;
+          ['d] and ['e] are source and desitnation adjoint status *)
+       type ('a, 'd, 'b, 'e) morph =
+         | Pos_Pos :
+             ('a, 'b, 'd) C.morph
+             -> ('a * positive, 'd pos, 'b * positive, 'd pos) morph
+         | Pos_Neg :
+             ('a, 'b, 'd) C.morph
+             -> ('a * positive, 'd pos, 'b * negative, 'd neg) morph
+         | Neg_Pos :
+             ('a, 'b, 'd) C.morph
+             -> ('a * negative, 'd neg, 'b * positive, 'd pos) morph
+         | Neg_Neg :
+             ('a, 'b, 'd) C.morph
+             -> ('a * negative, 'd neg, 'b * negative, 'd neg) morph
+                  ]}*)
 
-    val disallow_right : ('a, 'l * 'r) mode -> ('a, 'l * disallowed) mode
+    (* {[=
+          | Positive : ('a, 'd) S.mode -> ('a * positive, 'd pos) mode
+          | Negative : ('a, 'd) S.mode -> ('a * negative, 'd neg) mode
 
-    val disallow_left : ('a, 'l * 'r) mode -> ('a, disallowed * 'r) mode
+       val disallow_right : ('a, 'l * 'r) mode -> ('a, 'l * disallowed) mode
 
-    val allow_right : ('a, 'l * allowed) mode -> ('a, 'l * 'r) mode
+       val disallow_left : ('a, 'l * 'r) mode -> ('a, disallowed * 'r) mode
 
-    val allow_left : ('a, allowed * 'r) mode -> ('a, 'l * 'r) mode
+       val allow_right : ('a, 'l * allowed) mode -> ('a, 'l * 'r) mode
+
+       val allow_left : ('a, allowed * 'r) mode -> ('a, 'l * 'r) mode
+                                            ]} *)
 
     val apply :
-      'b obj ->
-      ('a, 'd0 * 'd1, 'b, 'e0 * 'e1) morph ->
-      ('a, 'd0 * 'd1) mode ->
-      ('b, 'e0 * 'e1) mode
+      'b C.obj ->
+      ('a, 'b, 'l * 'r) C.morph ->
+      ('a, 'l * 'r) S.mode ->
+      ('b, 'l * 'r) S.mode
 
-    val of_const : ('a * 'p) obj -> 'a -> ('a * 'p, 'l * 'r) mode
+    (* {[
+            val apply :
+                'b obj ->
+                ('a, 'd0 * 'd1, 'b, 'e0 * 'e1) morph ->
+                ('a, 'd0 * 'd1) mode ->
+                ('b, 'e0 * 'e1) mode
 
-    val min : 'a obj -> ('a, 'l * 'r) mode
 
-    val max : 'a obj -> ('a, 'l * 'r) mode
+       val of_const : ('a * 'p) obj -> 'a -> ('a * 'p, 'l * 'r) mode
+          ]} *)
 
-    val constrain_lower : ('a * 'p) obj -> ('a * 'p, allowed * 'r) mode -> 'a
+    val of_const : 'a C.obj -> 'a -> ('a, 'l * 'r) S.mode
 
-    val constrain_upper : ('a * 'p) obj -> ('a * 'p, 'l * allowed) mode -> 'a
+    (* {[
+           val min : 'a obj -> ('a, 'l * 'r) mode
 
-    val newvar : 'a obj -> ('a, 'l * 'r) mode
+           val max : 'a obj -> ('a, 'l * 'r) mode
 
-    val submode :
-      ('a * 'p) obj ->
-      ('a * 'p, allowed * 'r) mode ->
-      ('a * 'p, 'l * allowed) mode ->
-      (unit, 'a error) result
+           val constrain_lower : ('a * 'p) obj -> ('a * 'p, allowed * 'r) mode -> 'a
 
-    val newvar_above :
-      'a obj -> ('a, allowed * 'r_) mode -> ('a, 'l * 'r) mode * bool
+           val constrain_upper : ('a * 'p) obj -> ('a * 'p, 'l * allowed) mode -> 'a
+       }]*)
+    val newvar : 'a C.obj -> ('a, 'l * 'r) S.mode
 
-    val newvar_below :
-      'a obj -> ('a, 'l_ * allowed) mode -> ('a, 'l * 'r) mode * bool
+    (* {[
+       val newvar : 'a obj -> ('a, 'l * 'r) mode
+       ]} *)
+    (* {[
+              val submode :
+                ('a * 'p, 'd_polarize) obj ->
+                ('a * 'p, allowed * 'r) mode ->
+                ('a * 'p, 'l * allowed) mode ->
+                (unit, 'a error) result
 
-    val join : 'a obj -> ('a, allowed * 'r) mode list -> ('a, left_only) mode
+       val newvar_above :
+         'a obj -> ('a, allowed * 'r_) mode -> ('a, 'l * 'r) mode * bool
 
-    val meet : 'a obj -> ('a, 'l * allowed) mode list -> ('a, right_only) mode
+       val newvar_below :
+         'a obj -> ('a, 'l_ * allowed) mode -> ('a, 'l * 'r) mode * bool
 
-    val check_const : ('a * 'p) obj -> ('a * 'p, 'l * 'r) mode -> 'a option
+       val join : 'a obj -> ('a, allowed * 'r) mode list -> ('a, left_only) mode
+
+       val meet : 'a obj -> ('a, 'l * allowed) mode list -> ('a, right_only) mode
+          ]} *)
+
+    (* {[
+       val check_const : ('a * 'p) obj -> ('a * 'p, 'l * 'r) mode -> 'a option
+
+       val print :
+         ?verbose:bool -> 'a obj -> Format.formatter -> ('a, 'l * 'r) mode -> unit
+
+       val print_raw :
+         ?verbose:bool -> 'a obj -> Format.formatter -> ('a, 'l * 'r) mode -> unit
+         ]} *)
+    val check_const : 'a C.obj -> ('a, 'l * 'r) S.mode -> 'a option
 
     val print :
-      ?verbose:bool -> 'a obj -> Format.formatter -> ('a, 'l * 'r) mode -> unit
+      ?verbose:bool ->
+      'a C.obj ->
+      Format.formatter ->
+      ('a, 'l * 'r) S.mode ->
+      unit
 
     val print_raw :
-      ?verbose:bool -> 'a obj -> Format.formatter -> ('a, 'l * 'r) mode -> unit
+      ?verbose:bool ->
+      'a C.obj ->
+      Format.formatter ->
+      ('a, 'l * 'r) S.mode ->
+      unit
   end
 end
