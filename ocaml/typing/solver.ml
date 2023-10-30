@@ -520,7 +520,7 @@ module Solver_polarized (C : Lattices_mono) = struct
 
   type 'a obj = 'a C.obj
 
-  type ('a, 'd) mode = ('a, 'd) S.mode
+  type ('a, 'd) mode = P of ('a, 'd) S.mode [@@unboxed]
 
   (* {[
        type 'a obj =
@@ -528,64 +528,115 @@ module Solver_polarized (C : Lattices_mono) = struct
          | Negative : 'a C.obj -> ('a * negative) obj
      ]} *)
 
+  module type Wrappers = sig
+    type ('a, 'd) mono_mode constraint 'd = 'l * 'r
+
+    val unwrap : ('a, 'd) mode -> ('a, 'd) mono_mode
+
+    val wrap : ('a, 'd) mono_mode -> ('a, 'd) mode
+
+    val unwrap_list : ('a, 'd) mode list -> ('a, 'd) mono_mode list
+
+    val wrap_product : ('a, 'd) mono_mode * 'b -> ('a, 'd) mode * 'b
+  end
+
+  module type Pos_wrappers =
+    Wrappers with type ('a, 'd) mono_mode = ('a, 'd) S.mode
+
+  module Pos_wrappers : Pos_wrappers = struct
+    type ('a, 'd) mono_mode = ('a, 'd) S.mode constraint 'd = 'l * 'r
+
+    let unwrap : 'a 'd. ('a, 'd) mode -> ('a, 'd) S.mode = fun (P m) -> m
+
+    let wrap : 'a 'd. ('a, 'd) S.mode -> ('a, 'd) mode = fun m -> P m
+
+    let unwrap_list : 'a 'd. ('a, 'd) mode list -> ('a, 'd) S.mode list =
+      Obj.magic
+
+    let wrap_product : 'a 'd 'b. ('a, 'd) S.mode * 'b -> ('a, 'd) mode * 'b =
+      Obj.magic
+  end
+
   module Pos = struct
-    type nonrec ('a, 'd) mode = ('a, 'd) mode constraint 'd = 'l * 'r
+    include Pos_wrappers
 
-    let submode = S.submode
+    let submode o m1 m2 = S.submode o (unwrap m1) (unwrap m2)
 
-    let join = S.join
+    let join o ms = wrap (S.join o (unwrap_list ms))
 
-    let meet = S.meet
+    let meet o ms = wrap (S.meet o (unwrap_list ms))
 
-    let min = S.min
+    let min o = wrap (S.min o)
 
-    let max = S.max
+    let max o = wrap (S.max o)
 
-    let constrain_lower = S.constrain_lower
+    let constrain_lower o m = S.constrain_lower o (unwrap m)
 
-    let constrain_upper = S.constrain_upper
+    let constrain_upper o m = S.constrain_upper o (unwrap m)
 
-    let newvar_above = S.newvar_above
+    let newvar_above o m = wrap_product (S.newvar_above o (unwrap m))
 
-    let newvar_below = S.newvar_below
+    let newvar_below o m = wrap_product (S.newvar_below o (unwrap m))
 
-    let disallow_left = S.disallow_left
+    let disallow_left m = wrap (S.disallow_left (unwrap m))
 
-    let disallow_right = S.disallow_right
+    let disallow_right m = wrap (S.disallow_right (unwrap m))
 
-    let allow_left = S.allow_left
+    let allow_left m = wrap (S.allow_left (unwrap m))
 
-    let allow_right = S.allow_right
+    let allow_right m = wrap (S.allow_right (unwrap m))
+  end
+
+  module type Neg_wrappers =
+    Wrappers
+      with type ('a, 'd) mono_mode = ('a, 'r * 'l) S.mode
+        constraint 'd = 'l * 'r
+
+  module Neg_wrappers : Neg_wrappers = struct
+    type ('a, 'd) mono_mode = ('a, 'r * 'l) S.mode constraint 'd = 'l * 'r
+
+    let unwrap : 'a 'r 'l. ('a, 'l * 'r) mode -> ('a, 'r * 'l) S.mode =
+      Obj.magic
+
+    let wrap : 'a 'r 'l. ('a, 'r * 'l) S.mode -> ('a, 'l * 'r) mode = Obj.magic
+
+    let unwrap_list :
+          'a 'l 'r. ('a, 'l * 'r) mode list -> ('a, 'r * 'l) S.mode list =
+      Obj.magic
+
+    let wrap_product :
+          'a 'l 'r 'b. ('a, 'r * 'l) S.mode * 'b -> ('a, 'l * 'r) mode * 'b =
+      Obj.magic
   end
 
   module Neg = struct
-    type nonrec ('a, 'd) mode = ('a, 'r * 'l) mode constraint 'd = 'l * 'r
+    include Neg_wrappers
 
-    let submode obj m0 m1 = S.submode obj m1 m0
+    let submode obj m0 m1 = S.submode obj (unwrap m1) (unwrap m0)
 
-    let join = S.meet
+    let join o ms = wrap (S.meet o (unwrap_list ms))
 
-    let meet = S.join
+    let meet o ms = wrap (S.join o (unwrap_list ms))
 
-    let min = S.max
+    let min o = wrap (S.max o)
 
-    let max = S.min
+    let max o = wrap (S.min o)
 
-    let constrain_lower = S.constrain_upper
+    let constrain_lower o m = S.constrain_upper o (unwrap m)
 
-    let constrain_upper = S.constrain_lower
+    let constrain_upper o m = S.constrain_lower o (unwrap m)
 
-    let newvar_above = S.newvar_below
+    let newvar_above o m = wrap_product (S.newvar_below o (unwrap m))
 
-    let newvar_below = S.newvar_above
+    let newvar_below o m = wrap_product (S.newvar_above o (unwrap m))
 
-    let disallow_left = S.disallow_right
+    let disallow_left m = wrap (S.disallow_right (unwrap m))
 
-    let disallow_right = S.disallow_left
+    let disallow_right m = wrap (S.disallow_left (unwrap m))
 
-    let allow_left = S.allow_right
+    let allow_left m = wrap (S.allow_right (unwrap m))
 
-    let allow_right = S.allow_left
+    let allow_right m = wrap (S.allow_left (unwrap m))
   end
 
   (* {[
@@ -612,7 +663,7 @@ module Solver_polarized (C : Lattices_mono) = struct
      submoding on the new category to submoding on the original category.
      Hopefully everything here will be inlined and optimized away. *)
 
-  let apply = S.apply
+  let apply o morph (P m) = P (S.apply o morph m)
 
   (* {[
      let apply :
@@ -628,7 +679,7 @@ module Solver_polarized (C : Lattices_mono) = struct
        | Positive dst, Neg_Pos f -> fun (Negative m) -> Positive (S.apply dst f m)
        | Negative dst, Neg_Neg f -> fun (Negative m) -> Negative (S.apply dst f m)
                                                           ]} *)
-  let newvar = S.newvar
+  let newvar o = P (S.newvar o)
 
   (* {[
                 let submode :
@@ -674,7 +725,7 @@ module Solver_polarized (C : Lattices_mono) = struct
        | Negative _ -> fun a -> Negative (S.of_const a)
               ]} *)
 
-  let of_const _ = S.of_const
+  let of_const _ x = P (S.of_const x)
 
   (* {[
                 let min : type a l r. a obj -> (a, l * r) mode = function
@@ -744,7 +795,7 @@ module Solver_polarized (C : Lattices_mono) = struct
        | Positive obj -> fun (Positive m) -> S.check_const obj m
        | Negative obj -> fun (Negative m) -> S.check_const obj m
               ]} *)
-  let check_const = S.check_const
+  let check_const o (P m) = S.check_const o m
   (* {[
      let print : type a. ?verbose:bool -> a obj -> _ -> (a, _) mode -> unit =
       fun ?(verbose = false) obj ppf m ->
@@ -760,7 +811,7 @@ module Solver_polarized (C : Lattices_mono) = struct
                                        ]}
   *)
 
-  let print = S.print
+  let print ?verbose o ppf (P m) = S.print ?verbose o ppf m
 
-  let print_raw = S.print_raw
+  let print_raw ?verbose o ppf (P m) = S.print_raw ?verbose o ppf m
 end

@@ -682,7 +682,10 @@ let append_changes = S.S.append_changes
 module type Obj = sig
   type const
 
-  module Pol : Polarity with type 'a obj := 'a S.obj
+  module Pol :
+    Polarity
+      with type 'a obj := 'a S.obj
+       and type ('a, 'd) mode := ('a, 'd) S.mode
 
   val obj : const S.obj
 
@@ -1573,11 +1576,14 @@ module Alloc = struct
       locality', linearity', uniqueness'
   end
 
-  let close_over comonadic monadic =
+  let close_over (type l r) (comonadic : (allowed * r) Comonadic.t)
+      (monadic : (l * allowed) Monadic.t) =
     let locality = min_with_locality (Comonadic.locality comonadic) in
     (* uniqueness of the returned function is not constrained *)
-    let linearity0 = min_with_linearity (Comonadic.linearity comonadic) in
-    let linearity1 =
+    let linearity0 : (allowed * disallowed) t =
+      min_with_linearity (Comonadic.linearity comonadic)
+    in
+    let linearity1 : (allowed * disallowed) t =
       min_with_linearity (unique_to_linear (Monadic.uniqueness monadic))
     in
     join [locality; linearity0; linearity1]

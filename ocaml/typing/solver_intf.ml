@@ -121,7 +121,7 @@ type 'a error =
 module type Polarity = sig
   type 'a obj
 
-  type ('a, 'd) mode constraint 'd = 'l * 'r
+  type ('a, 'd) mode
 
   val submode :
     'a obj ->
@@ -261,9 +261,15 @@ module type S = sig
              (** the dual lattice of obj *)
        ]} *)
 
-    module Pos : Polarity with type 'a obj := 'a obj
+    module Pos :
+      Polarity
+        with type 'a obj := 'a obj
+         and type ('a, 'd) mode := ('a, 'd) mode
 
-    module Neg : Polarity with type 'a obj := 'a C.obj
+    module Neg :
+      Polarity
+        with type 'a obj := 'a C.obj
+         and type ('a, 'd) mode := ('a, 'd) mode
 
     (* = ('a, 'b, 'd) Morph()().morph
        constraint 'a_pol = 'a * 'pol_a constraint 'b_pol = 'b * 'pol_b *)
