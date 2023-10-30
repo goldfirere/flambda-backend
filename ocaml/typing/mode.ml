@@ -682,10 +682,7 @@ let append_changes = S.S.append_changes
 module type Obj = sig
   type const
 
-  module Pol :
-    Polarity
-      with type 'a obj := 'a S.obj
-       and type ('a, 'd) mode := ('a, 'd) S.mode
+  module Pol : Polarity with type 'a obj := 'a S.obj
 
   val obj : const S.obj
 

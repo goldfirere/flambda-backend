@@ -529,7 +529,7 @@ module Solver_polarized (C : Lattices_mono) = struct
      ]} *)
 
   module Pos = struct
-    type 'a maybe_swap = 'l * 'r constraint 'a = 'l * 'r
+    type nonrec ('a, 'd) mode = ('a, 'd) mode constraint 'd = 'l * 'r
 
     let submode = S.submode
 
@@ -559,7 +559,7 @@ module Solver_polarized (C : Lattices_mono) = struct
   end
 
   module Neg = struct
-    type 'a maybe_swap = 'r * 'l constraint 'a = 'l * 'r
+    type nonrec ('a, 'd) mode = ('a, 'r * 'l) mode constraint 'd = 'l * 'r
 
     let submode obj m0 m1 = S.submode obj m1 m0
 

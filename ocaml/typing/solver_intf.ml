@@ -121,55 +121,39 @@ type 'a error =
 module type Polarity = sig
   type 'a obj
 
-  type ('a, 'd) mode
-
-  type 'a maybe_swap constraint 'a = 'l * 'r
+  type ('a, 'd) mode constraint 'd = 'l * 'r
 
   val submode :
     'a obj ->
-    ('a, (allowed * 'r) maybe_swap) mode ->
-    ('a, ('l * allowed) maybe_swap) mode ->
+    ('a, allowed * 'r) mode ->
+    ('a, 'l * allowed) mode ->
     (unit, 'a error) result
 
-  val join :
-    'a obj ->
-    ('a, (allowed * 'r) maybe_swap) mode list ->
-    ('a, left_only maybe_swap) mode
+  val join : 'a obj -> ('a, allowed * 'r) mode list -> ('a, left_only) mode
 
-  val meet :
-    'a obj ->
-    ('a, ('l * allowed) maybe_swap) mode list ->
-    ('a, right_only maybe_swap) mode
+  val meet : 'a obj -> ('a, 'l * allowed) mode list -> ('a, right_only) mode
 
   val min : 'a obj -> ('a, 'l * 'r) mode
 
   val max : 'a obj -> ('a, 'l * 'r) mode
 
-  val constrain_lower : 'a obj -> ('a, (allowed * 'r) maybe_swap) mode -> 'a
+  val constrain_lower : 'a obj -> ('a, allowed * 'r) mode -> 'a
 
-  val constrain_upper : 'a obj -> ('a, ('l * allowed) maybe_swap) mode -> 'a
+  val constrain_upper : 'a obj -> ('a, 'l * allowed) mode -> 'a
 
   val newvar_above :
-    'a obj ->
-    ('a, (allowed * 'r_) maybe_swap) mode ->
-    ('a, ('l * 'r) maybe_swap) mode * bool
+    'a obj -> ('a, allowed * 'r_) mode -> ('a, 'l * 'r) mode * bool
 
   val newvar_below :
-    'a obj ->
-    ('a, ('l_ * allowed) maybe_swap) mode ->
-    ('a, ('l * 'r) maybe_swap) mode * bool
+    'a obj -> ('a, 'l_ * allowed) mode -> ('a, 'l * 'r) mode * bool
 
-  val disallow_left :
-    ('a, ('l * 'r) maybe_swap) mode -> ('a, (disallowed * 'r) maybe_swap) mode
+  val disallow_left : ('a, 'l * 'r) mode -> ('a, disallowed * 'r) mode
 
-  val disallow_right :
-    ('a, ('l * 'r) maybe_swap) mode -> ('a, ('l * disallowed) maybe_swap) mode
+  val disallow_right : ('a, 'l * 'r) mode -> ('a, 'l * disallowed) mode
 
-  val allow_right :
-    ('a, ('l * allowed) maybe_swap) mode -> ('a, ('l * 'r) maybe_swap) mode
+  val allow_right : ('a, 'l * allowed) mode -> ('a, 'l * 'r) mode
 
-  val allow_left :
-    ('a, (allowed * 'r) maybe_swap) mode -> ('a, ('l * 'r) maybe_swap) mode
+  val allow_left : ('a, allowed * 'r) mode -> ('a, 'l * 'r) mode
 end
 
 module type S = sig
@@ -262,7 +246,7 @@ module type S = sig
 
     type 'a obj = 'a C.obj
 
-    type ('a, 'd) mode = ('a, 'd) S.mode
+    type ('a, 'd) mode
 
     (* First construct a new category based on the original category C. The
        objects are those from the C, and those from C but flipped lattice
@@ -277,17 +261,9 @@ module type S = sig
              (** the dual lattice of obj *)
        ]} *)
 
-    module Pos :
-      Polarity
-        with type 'a obj := 'a obj
-         and type ('a, 'd) mode := ('a, 'd) mode
-         and type 'a maybe_swap = 'l * 'r constraint 'a = 'l * 'r
+    module Pos : Polarity with type 'a obj := 'a obj
 
-    module Neg :
-      Polarity
-        with type 'a obj := 'a C.obj
-         and type ('a, 'd) mode := ('a, 'd) mode
-         and type 'a maybe_swap = 'r * 'l constraint 'a = 'l * 'r
+    module Neg : Polarity with type 'a obj := 'a C.obj
 
     (* = ('a, 'b, 'd) Morph()().morph
        constraint 'a_pol = 'a * 'pol_a constraint 'b_pol = 'b * 'pol_b *)
@@ -326,8 +302,8 @@ module type S = sig
     val apply :
       'b C.obj ->
       ('a, 'b, 'l * 'r) C.morph ->
-      ('a, 'l * 'r) S.mode ->
-      ('b, 'l * 'r) S.mode
+      ('a, 'l * 'r) mode ->
+      ('b, 'l * 'r) mode
 
     (* {[
             val apply :
@@ -340,7 +316,7 @@ module type S = sig
        val of_const : ('a * 'p) obj -> 'a -> ('a * 'p, 'l * 'r) mode
           ]} *)
 
-    val of_const : 'a C.obj -> 'a -> ('a, 'l * 'r) S.mode
+    val of_const : 'a C.obj -> 'a -> ('a, 'l * 'r) mode
 
     (* {[
            val min : 'a obj -> ('a, 'l * 'r) mode
@@ -351,7 +327,7 @@ module type S = sig
 
            val constrain_upper : ('a * 'p) obj -> ('a * 'p, 'l * allowed) mode -> 'a
        }]*)
-    val newvar : 'a C.obj -> ('a, 'l * 'r) S.mode
+    val newvar : 'a C.obj -> ('a, 'l * 'r) mode
 
     (* {[
        val newvar : 'a obj -> ('a, 'l * 'r) mode
@@ -383,20 +359,20 @@ module type S = sig
        val print_raw :
          ?verbose:bool -> 'a obj -> Format.formatter -> ('a, 'l * 'r) mode -> unit
          ]} *)
-    val check_const : 'a C.obj -> ('a, 'l * 'r) S.mode -> 'a option
+    val check_const : 'a C.obj -> ('a, 'l * 'r) mode -> 'a option
 
     val print :
       ?verbose:bool ->
       'a C.obj ->
       Format.formatter ->
-      ('a, 'l * 'r) S.mode ->
+      ('a, 'l * 'r) mode ->
       unit
 
     val print_raw :
       ?verbose:bool ->
       'a C.obj ->
       Format.formatter ->
-      ('a, 'l * 'r) S.mode ->
+      ('a, 'l * 'r) mode ->
       unit
   end
 end
