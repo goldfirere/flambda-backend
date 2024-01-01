@@ -588,7 +588,7 @@ let get_type_param_name styp =
   | _ -> Misc.fatal_error "non-type-variable in get_type_param_name"
 
 let get_alloc_mode styp : Alloc.Const.t =
-  let locality =
+  let areality =
     match Builtin_attributes.has_local styp.ptyp_attributes with
     | Ok true -> Locality.Const.Local
     | Ok false -> Locality.Const.Global
@@ -609,7 +609,7 @@ let get_alloc_mode styp : Alloc.Const.t =
     | Error () ->
       raise (Error(styp.ptyp_loc, Env.empty, Unsupported_extension Unique))
   in
-  {locality; linearity; uniqueness}
+  {areality; linearity; uniqueness}
 
 let rec extract_params styp =
   let final styp =
@@ -683,7 +683,7 @@ and transl_type_aux env ~row_context ~aliased ~policy mode styp =
         | (l, arg_mode, arg) :: rest ->
           check_arg_type arg;
           let arg_cty = transl_type env ~policy ~row_context arg_mode arg in
-          let {locality; linearity; _} : Alloc.Const.t =
+          let {areality; linearity; _} : Alloc.Const.t =
             Alloc.Const.join
               (Alloc.Const.close_over arg_mode)
               (Alloc.Const.partial_apply acc_mode)
@@ -692,7 +692,7 @@ and transl_type_aux env ~row_context ~aliased ~policy mode styp =
           A -> B -> C (to be used as constraint on something), we should make
           (B -> C) shared. A proper way to do this is via modal kinds. *)
           let acc_mode : Alloc.Const.t
-            = {locality; linearity; uniqueness=Uniqueness.Const.Shared}
+            = {areality; linearity; uniqueness=Uniqueness.Const.Shared}
           in
           let ret_mode =
             match rest with

@@ -196,9 +196,9 @@ module type S = sig
     val zap_to_legacy : ('l * allowed) t -> Const.t
   end
 
-  (** The most general mode. Used in most type checking,
-      including in value bindings in [Env] *)
-  module Value : sig
+  module type Mode := sig
+    module Areality : Common
+
     module Monadic : sig
       include Common with type error = [`Uniqueness of Uniqueness.error]
 
@@ -209,22 +209,50 @@ module type S = sig
       include
         Common
           with type error =
-            [ `Regionality of Regionality.error
+            [ `Areality of Areality.error
             | `Linearity of Linearity.error ]
 
       val check_const :
-        ('l * 'r) t -> Regionality.Const.t option * Linearity.Const.t option
+        ('l * 'r) t -> Areality.Const.t option * Linearity.Const.t option
 
       val linearity : ('l * 'r) t -> ('l * 'r) Linearity.t
     end
 
-    module Const :
-      Lattice
-        with type t =
-          Regionality.Const.t * Linearity.Const.t * Uniqueness.Const.t
+    module Const : sig
+      type ('area, 'lin, 'uni) modes =
+        { areality : 'area;
+          linearity : 'lin;
+          uniqueness : 'uni
+        }
+
+      include
+        Lattice
+          with type t =
+            (Areality.Const.t, Linearity.Const.t, Uniqueness.Const.t) modes
+
+      (** Similar to [Alloc.close_over] but for constants *)
+      val close_over : t -> t
+
+      (** Similar to [Alloc.partial_apply] but for constants *)
+      val partial_apply : t -> t
+
+      module Option : sig
+        type some = t
+
+        type t =
+          ( Areality.Const.t option,
+            Linearity.Const.t option,
+            Uniqueness.Const.t option )
+          modes
+
+        val none : t
+
+        val value : t -> default:some -> some
+      end
+    end
 
     type error =
-      [ `Regionality of Regionality.error
+      [ `Areality of Areality.error
       | `Uniqueness of Uniqueness.error
       | `Linearity of Linearity.error ]
 
@@ -250,124 +278,9 @@ module type S = sig
       ('l * 'r) t ->
       unit
 
-    val check_const :
-      ('l * 'r) t ->
-      Regionality.Const.t option
-      * Linearity.Const.t option
-      * Uniqueness.Const.t option
-
-    val regionality : ('l * 'r) t -> ('l * 'r) Regionality.t
-
-    val uniqueness : ('l * 'r) t -> ('l * 'r) Uniqueness.t
-
-    val linearity : ('l * 'r) t -> ('l * 'r) Linearity.t
-
-    val max_with_uniqueness : ('l * 'r) Uniqueness.t -> (disallowed * 'r) t
-
-    val min_with_uniqueness : ('l * 'r) Uniqueness.t -> ('l * disallowed) t
-
-    val min_with_regionality : ('l * 'r) Regionality.t -> ('l * disallowed) t
-
-    val max_with_regionality : ('l * 'r) Regionality.t -> (disallowed * 'r) t
-
-    val min_with_linearity : ('l * 'r) Linearity.t -> ('l * disallowed) t
-
-    val max_with_linearity : ('l * 'r) Linearity.t -> (disallowed * 'r) t
-
-    val set_regionality_min : ('l * 'r) t -> ('l * disallowed) t
-
-    val set_regionality_max : ('l * 'r) t -> (disallowed * 'r) t
-
-    val set_linearity_min : ('l * 'r) t -> ('l * disallowed) t
-
-    val set_linearity_max : ('l * 'r) t -> (disallowed * 'r) t
-
-    val set_uniqueness_min : ('l * 'r) t -> ('l * disallowed) t
-
-    val set_uniqueness_max : ('l * 'r) t -> (disallowed * 'r) t
-
-    val zap_to_legacy : lr -> Const.t
-  end
-
-  (** The mode on arrow types. Compared to [Value], it contains the [Locality]
-      axis instead of [Regionality] axis, as arrow types are exposed to users
-      and would be hard to understand if it involves [Regionality]. *)
-  module Alloc : sig
-    module Monadic : sig
-      include Common with type error = [`Uniqueness of Uniqueness.error]
-
-      val check_const : ('l * 'r) t -> Uniqueness.Const.t option
-    end
-
-    module Comonadic : sig
-      include
-        Common
-          with type error =
-            [ `Locality of Locality.error
-            | `Linearity of Linearity.error ]
-
-      val check_const :
-        ('l * 'r) t -> Locality.Const.t option * Linearity.Const.t option
-    end
-
-    module Const : sig
-      type ('loc, 'lin, 'uni) modes =
-        { locality : 'loc;
-          linearity : 'lin;
-          uniqueness : 'uni
-        }
-
-      include
-        Lattice
-          with type t =
-            (Locality.Const.t, Linearity.Const.t, Uniqueness.Const.t) modes
-
-      module Option : sig
-        type some = t
-
-        type t =
-          ( Locality.Const.t option,
-            Linearity.Const.t option,
-            Uniqueness.Const.t option )
-          modes
-
-        val none : t
-
-        val value : t -> default:some -> some
-      end
-
-      (** Similar to [Alloc.close_over] but for constants *)
-      val close_over : t -> t
-
-      (** Similar to [Alloc.partial_apply] but for constants *)
-      val partial_apply : t -> t
-    end
-
-    type error =
-      [ `Locality of Locality.error
-      | `Uniqueness of Uniqueness.error
-      | `Linearity of Linearity.error ]
-
-    type 'd t = ('d Monadic.t, 'd Comonadic.t) monadic_comonadic
-
-    include
-      Common
-        with module Const := Const
-         and type error := error
-         and type 'd t := 'd t
-
-    (* some overriding *)
-    val print :
-      ?raw:bool ->
-      ?verbose:bool ->
-      unit ->
-      Format.formatter ->
-      ('l * 'r) t ->
-      unit
-
     val check_const : ('l * 'r) t -> Const.Option.t
 
-    val locality : ('l * 'r) t -> ('l * 'r) Locality.t
+    val areality : ('l * 'r) t -> ('l * 'r) Areality.t
 
     val uniqueness : ('l * 'r) t -> ('l * 'r) Uniqueness.t
 
@@ -377,17 +290,17 @@ module type S = sig
 
     val min_with_uniqueness : ('l * 'r) Uniqueness.t -> ('l * disallowed) t
 
-    val min_with_locality : ('l * 'r) Locality.t -> ('l * disallowed) t
+    val min_with_areality : ('l * 'r) Areality.t -> ('l * disallowed) t
 
-    val max_with_locality : ('l * 'r) Locality.t -> (disallowed * 'r) t
+    val max_with_areality : ('l * 'r) Areality.t -> (disallowed * 'r) t
 
     val min_with_linearity : ('l * 'r) Linearity.t -> ('l * disallowed) t
 
     val max_with_linearity : ('l * 'r) Linearity.t -> (disallowed * 'r) t
 
-    val set_locality_min : ('l * 'r) t -> ('l * disallowed) t
+    val set_areality_min : ('l * 'r) t -> ('l * disallowed) t
 
-    val set_locality_max : ('l * 'r) t -> (disallowed * 'r) t
+    val set_areality_max : ('l * 'r) t -> (disallowed * 'r) t
 
     val set_linearity_min : ('l * 'r) t -> ('l * disallowed) t
 
@@ -411,6 +324,15 @@ module type S = sig
     (** Returns the lower bound needed for [B -> C] in relation to [A -> B -> C] *)
     val partial_apply : (allowed * 'r) t -> l
   end
+
+  (** The most general mode. Used in most type checking,
+      including in value bindings in [Env] *)
+  module Value : Mode with module Areality := Regionality
+
+  (** The mode on arrow types. Compared to [Value], it contains the [Locality]
+      axis instead of [Regionality] axis, as arrow types are exposed to users
+      and would be hard to understand if it involves [Regionality]. *)
+  module Alloc : Mode with module Areality := Locality
 
   (** Returns the linearity dual to the given uniqueness *)
   val unique_to_linear : ('l * 'r) Uniqueness.t -> ('r * 'l) Linearity.t
@@ -438,9 +360,4 @@ module type S = sig
 
   (** Similar to [regional_to_global], behaves as identity on other axes *)
   val value_to_alloc_r2g : ('l * 'r) Value.t -> ('l * 'r) Alloc.t
-
-  module Const : sig
-    (** Returns the linearity dual to the given uniqueness *)
-    val unique_to_linear : Uniqueness.Const.t -> Linearity.Const.t
-  end
 end

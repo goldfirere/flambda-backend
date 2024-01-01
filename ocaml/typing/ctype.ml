@@ -1583,15 +1583,15 @@ let prim_mode mvar = function
     put in [mode.ml] *)
 let with_locality locality m =
   let m' = Alloc.newvar () in
-  Locality.equate_exn (Alloc.locality m') locality;
-  Alloc.submode_exn m' (Alloc.set_locality_max m);
-  Alloc.submode_exn (Alloc.set_locality_min m) m';
+  Locality.equate_exn (Alloc.areality m') locality;
+  Alloc.submode_exn m' (Alloc.set_areality_max m);
+  Alloc.submode_exn (Alloc.set_areality_min m) m';
   m'
 
 let rec instance_prim_locals locals mvar macc finalret ty =
   match locals, get_desc ty with
   | l :: locals, Tarrow ((lbl,marg,mret),arg,ret,commu) ->
-     let marg = with_locality  (prim_mode (Some mvar) l) marg in
+     let marg = with_locality (prim_mode (Some mvar) l) marg in
      let macc =
        Alloc.join [
         Alloc.disallow_right mret;
@@ -2018,7 +2018,7 @@ let rec estimate_type_jkind env ty =
        This notably prevents [constrain_type_jkind] from changing layout
        [any] to a sort or changing the externality once the Tvar gets
        generalized.
-       
+
        This, however, still allows sort variables to get instantiated. *)
     Jkind jkind
   | Tvar { jkind } -> TyVar (jkind, ty)
