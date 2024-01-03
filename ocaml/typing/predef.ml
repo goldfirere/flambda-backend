@@ -325,7 +325,7 @@ let build_initial_env add_type add_extension empty_env =
          variant [cstr ident_none []; cstr ident_some [tvar, Unrestricted]]
            [| [| |]; [| option_argument_jkind |] |])
        ~jkind:(Jkind.value ~why:Boxed_variant)
-  |> add_type ident_string ~kind:(extrnal "string")
+  |> add_type ident_string ~kind:(builtin Builtin_string)
   |> add_type ident_unboxed_float
        ~kind:(extrnal "float#")
        ~jkind:(Jkind.float64 ~why:(Primitive ident_unboxed_float))
@@ -342,7 +342,7 @@ let build_initial_env add_type add_extension empty_env =
        ~kind:(extrnal "int64#")
        ~jkind:(Jkind.bits64 ~why:(Primitive ident_unboxed_int64))
        ~jkind_annotation:Bits64
-  |> add_type ident_bytes ~kind:(extrnal "bytes")
+  |> add_type ident_bytes ~kind:(builtin Builtin_bytes)
   |> add_type ident_unit
        ~kind:(variant [cstr ident_void []] [| [| |] |])
        ~jkind:(Jkind.immediate ~why:Enumeration)

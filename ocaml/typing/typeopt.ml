@@ -133,6 +133,8 @@ let classify env ty : classification =
           | Type_external (External_builtin b) ->
             begin match b with
             | Builtin_int | Builtin_char -> assert false (* handled above *)
+            | Builtin_string
+            | Builtin_bytes
             | Builtin_nativeint
             | Builtin_int32
             | Builtin_int64
@@ -166,8 +168,12 @@ let array_type_kind env ty =
       | Addr | Lazy -> Paddrarray
       | Int -> Pintarray
       end
-  | Tconstr(p, [], _) when Path.same p Predef.path_floatarray ->
-      Pfloatarray
+  | Tconstr(p, _, _) ->
+    begin match (Env.find_type p env).type_kind with
+    | Type_external (External_builtin Builtin_floatarray) -> Pfloatarray
+    | _ -> Pgenarray
+    | exception Not_found -> Pgenarray
+    end
   | _ ->
       (* This can happen with e.g. Obj.field *)
       Pgenarray
@@ -367,6 +373,8 @@ let rec value_kind env ~loc ~visited ~depth ~num_nodes_visited ty
           num_nodes_visited, begin match b with
           | Builtin_int
           | Builtin_char -> Pintval
+          | Builtin_string
+          | Builtin_bytes -> Pgenval
           | Builtin_float -> Pfloatval
           | Builtin_nativeint -> Pboxedintval Pnativeint
           | Builtin_int32 -> Pboxedintval Pint32

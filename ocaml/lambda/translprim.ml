@@ -649,21 +649,21 @@ let specialize_primitive env loc ty ~has_constant_constructor prim =
     if (has_constant_constructor
         && simplify_constant_constructor comp) then begin
       Some (Comparison(comp, Compare_ints))
-    end else if (is_base_type env p1 Predef.path_int
-        || is_base_type env p1 Predef.path_char
+    end else if (is_base_type env p1 Builtin_int
+        || is_base_type env p1 Builtin_char
         || (maybe_pointer_type env p1 = Immediate)) then begin
       Some (Comparison(comp, Compare_ints))
-    end else if is_base_type env p1 Predef.path_float then begin
+    end else if is_base_type env p1 Builtin_float then begin
       Some (Comparison(comp, Compare_floats))
-    end else if is_base_type env p1 Predef.path_string then begin
+    end else if is_base_type env p1 Builtin_string then begin
       Some (Comparison(comp, Compare_strings))
-    end else if is_base_type env p1 Predef.path_bytes then begin
+    end else if is_base_type env p1 Builtin_bytes then begin
       Some (Comparison(comp, Compare_bytes))
-    end else if is_base_type env p1 Predef.path_nativeint then begin
+    end else if is_base_type env p1 Builtin_nativeint then begin
       Some (Comparison(comp, Compare_nativeints))
-    end else if is_base_type env p1 Predef.path_int32 then begin
+    end else if is_base_type env p1 Builtin_int32 then begin
       Some (Comparison(comp, Compare_int32s))
-    end else if is_base_type env p1 Predef.path_int64 then begin
+    end else if is_base_type env p1 Builtin_int64 then begin
       Some (Comparison(comp, Compare_int64s))
     end else begin
       None

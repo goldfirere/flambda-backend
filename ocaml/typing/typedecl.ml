@@ -145,6 +145,8 @@ let transl_external_type ~loc type_name id =
     let builtin = match type_name with
       | "%int" -> Builtin_int
       | "%char" -> Builtin_char
+      | "%string" -> Builtin_string
+      | "%bytes" -> Builtin_bytes
       | "%float" -> Builtin_float
       | "%nativeint" -> Builtin_nativeint
       | "%int32" -> Builtin_int32
@@ -345,7 +347,12 @@ let update_type temp_env env id loc =
 *)
 let is_float env ty =
   match get_desc (Ctype.get_unboxed_type_approximation env ty) with
-    Tconstr(p, _, _) -> Path.same p Predef.path_float
+  | Tconstr(p, _, _) ->
+    begin match (Env.find_type p env).type_kind with
+      | Type_external (External_builtin Builtin_float) -> true
+      | _ -> false
+      | exception Not_found -> false
+    end
   | _ -> false
 
 (* Determine if a type definition defines a fixed type. (PW) *)

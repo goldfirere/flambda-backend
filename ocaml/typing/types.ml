@@ -313,6 +313,8 @@ and external_builtin =
   (* CR layouts v2.8: I think the next one can go away once we have modal kinds *)
   | Builtin_char
   | Builtin_float
+  | Builtin_string
+  | Builtin_bytes
   | Builtin_nativeint
   | Builtin_int32
   | Builtin_int64
@@ -330,6 +332,8 @@ and external_builtin =
 let jkind_of_builtin id = function
   | Builtin_int
   | Builtin_char -> Jkind.immediate ~why:(Primitive id)
+  | Builtin_string
+  | Builtin_bytes
   | Builtin_float
   | Builtin_nativeint
   | Builtin_int32
@@ -347,6 +351,8 @@ let string_of_external_representation = function
   | External_builtin b -> begin match b with
       | Builtin_int -> "%int"
       | Builtin_char -> "%char"
+      | Builtin_string -> "%string"
+      | Builtin_bytes -> "%bytes"
       | Builtin_float -> "%float"
       | Builtin_nativeint -> "%nativeint"
       | Builtin_int32 -> "%int32"

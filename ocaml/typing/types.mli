@@ -596,6 +596,8 @@ and external_builtin =
   (* CR layouts v2.8: I think the next one can go away once we have modal kinds *)
   | Builtin_char
   | Builtin_float
+  | Builtin_string
+  | Builtin_bytes
   | Builtin_nativeint
   | Builtin_int32
   | Builtin_int64

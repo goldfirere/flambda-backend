@@ -2735,11 +2735,13 @@ let is_instantiable env ~for_jkind_eqn p =
   with Not_found -> false
 
 
-let compatible_paths p1 p2 =
-  let open Predef in
-  Path.same p1 p2 ||
-  Path.same p1 path_bytes && Path.same p2 path_string ||
-  Path.same p1 path_string && Path.same p2 path_bytes
+let compatible_decls decl1 decl2 =
+  match decl1.type_kind, decl2.type_kind with
+  | Type_external (External_builtin Builtin_bytes),
+    Type_external (External_builtin Builtin_string)
+  | Type_external (External_builtin Builtin_string),
+    Type_external (External_builtin Builtin_bytes) -> true
+  | _ -> false
 
 (* Check for datatypes carefully; see PR#6348 *)
 let rec expands_to_datatype env ty =
@@ -2901,7 +2903,7 @@ and mcomp_type_decl type_pairs env p1 p2 tl1 tl2 =
   try
     let decl = Env.find_type p1 env in
     let decl' = Env.find_type p2 env in
-    if compatible_paths p1 p2 then begin
+    if Path.same p1 p2 || compatible_decls decl decl' then begin
       let inj =
         try List.map Variance.(mem Inj) (Env.find_type p1 env).type_variance
         with Not_found -> List.map (fun _ -> false) tl1
