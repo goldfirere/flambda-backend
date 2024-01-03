@@ -963,9 +963,9 @@ and print_out_type_decl kwd ppf td =
       fprintf ppf " =%a .."
         print_private td.otype_private
   | Otyp_external (None, string) ->
-      fprintf ppf "@[<1>[%%external@ \"%s\"]@]" string
+      fprintf ppf " = @[<1>[%%external@ \"%s\"]@]" string
   | Otyp_external (Some ty, string) ->
-      fprintf ppf "@[<1>[%%external@ (\"%s\"@ :@ %a)]@]"
+      fprintf ppf " = @[<1>[%%external@ (\"%s\"@ :@ %a)]@]"
         string !out_type ty
   | ty ->
       fprintf ppf " =%a@;<1 2>%a"

@@ -1082,6 +1082,10 @@ let type_declarations ?(equality = false) ~loc env ~mark name
           labels1 labels2
           rep1 rep2
     | (Type_open, Type_open) -> None
+    | (Type_external (External_builtin b1),
+       Type_external (External_builtin b2)) when b1 = b2 -> None
+    | (Type_external (External_fresh s1),
+       Type_external (External_fresh s2)) when String.equal s1 s2 -> None
     | (_, _) -> Some (Kind (of_kind decl1.type_kind, of_kind decl2.type_kind))
   in
   if err <> None then err else
