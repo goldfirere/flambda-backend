@@ -37,6 +37,12 @@ and reaching_type_step =
   | Expands_to of type_expr * type_expr
   | Contains of type_expr * type_expr
 
+type external_type_problem =
+  | Malformed_extension_node
+  | Cannot_be_private
+  | Empty_name
+  | Unknown_primitive of string
+
 type error =
     Repeated_parameter
   | Duplicate_constructor of string
@@ -89,10 +95,72 @@ type error =
   | Nonrec_gadt
   | Invalid_private_row_declaration of type_expr
   | Local_not_enabled
+  | Invalid_external_type of external_type_problem
 
 open Typedtree
 
 exception Error of Location.t * error
+
+(* Intentionally shadows constructors from Parsetree; all handling of
+   type declarations should go through [interpret_external_types] *)
+type type_kind =
+  | Ptype_abstract
+  | Ptype_variant of Parsetree.constructor_declaration list
+  | Ptype_record of Parsetree.label_declaration list
+  | Ptype_open
+  | Ptype_external of string
+
+let interpret_external_types sd =
+  match sd.ptype_kind, sd.ptype_manifest with
+  | Ptype_abstract,
+    Some { ptyp_desc = Ptyp_extension ({ txt = "external"; loc }, payload) } ->
+    let interpret_name = function
+      | { pexp_desc = Pexp_constant (Pconst_string (type_name, _, None)) } ->
+        type_name
+      | _ -> raise (Error (loc, Invalid_external_type Malformed_extension_node))
+    in
+    begin match payload with
+    | PStr [ { pstr_desc =
+                 Pstr_eval ({ pexp_desc =
+                                Pexp_constraint (expr, typ) }, []) } ] ->
+      Some typ, Ptype_external (interpret_name expr)
+    | PStr [ { pstr_desc = Pstr_eval (expr, []) } ] ->
+      None, Ptype_external (interpret_name expr)
+    | _ -> raise (Error (loc, Invalid_external_type Malformed_extension_node))
+    end
+  | Ptype_abstract, manifest ->
+    manifest, Ptype_abstract
+  | Ptype_variant cstrs, manifest ->
+    manifest, Ptype_variant cstrs
+  | Ptype_record lbls, manifest ->
+    manifest, Ptype_record lbls
+  | Ptype_open, manifest ->
+    manifest, Ptype_open
+
+let transl_external_type ~loc type_name id =
+  if String.length type_name = 0
+  then raise (Error(loc, Invalid_external_type Empty_name))
+  else if type_name.[0] = '%'
+  then
+    let builtin = match type_name with
+      | "%int" -> Builtin_int
+      | "%char" -> Builtin_char
+      | "%float" -> Builtin_float
+      | "%nativeint" -> Builtin_nativeint
+      | "%int32" -> Builtin_int32
+      | "%int64" -> Builtin_int64
+      | "%floatarray" -> Builtin_floatarray
+
+      | "%int8x16" -> Builtin_int8x16
+      | "%int16x8" -> Builtin_int16x8
+      | "%int32x4" -> Builtin_int32x4
+      | "%int64x2" -> Builtin_int64x2
+      | "%float32x4" -> Builtin_float32x4
+      | "%float64x2" -> Builtin_float64x2
+      | _ -> raise (Error(loc, Invalid_external_type (Unknown_primitive type_name)))
+    in
+    External_builtin builtin, jkind_of_builtin id builtin
+  else External_fresh type_name, Jkind.value ~why:(Primitive id)
 
 let get_unboxed_from_attributes sdecl =
   let unboxed = Builtin_attributes.has_unboxed sdecl.ptype_attributes in
@@ -128,10 +196,11 @@ let add_type ~check id decl env =
    [abstract_abbrevs] is given along with a reason for not allowing expansion.
    This function is only used in [transl_type_decl]. *)
 let enter_type ?abstract_abbrevs rec_flag env sdecl (id, uid) =
+  let ptype_manifest, ptype_kind = interpret_external_types sdecl in
   let needed =
     match rec_flag with
     | Asttypes.Nonrecursive ->
-        begin match sdecl.ptype_kind with
+        begin match ptype_kind with
         | Ptype_variant scds ->
             List.iter (fun cd ->
               if cd.pcd_res <> None then raise (Error(cd.pcd_loc, Nonrec_gadt)))
@@ -205,7 +274,7 @@ let enter_type ?abstract_abbrevs rec_flag env sdecl (id, uid) =
       sdecl
   in
   let abstract_reason, type_manifest =
-    match sdecl.ptype_manifest, abstract_abbrevs with
+    match ptype_manifest, abstract_abbrevs with
     | (None, _ | Some _, None) -> Abstract_def, Some (Ctype.newvar type_jkind)
     | Some _, Some reason -> reason, None
   in
@@ -293,10 +362,11 @@ let is_fixed_type sd =
     | Ptyp_variant (_, Closed, Some _) -> true
     | _ -> false
   in
-  match sd.ptype_manifest with
+  let ptype_manifest, ptype_kind = interpret_external_types sd in
+  match ptype_manifest with
     None -> false
   | Some sty ->
-      sd.ptype_kind = Ptype_abstract &&
+      ptype_kind = Ptype_abstract &&
       sd.ptype_private = Private &&
       has_row_var sty
 
@@ -503,11 +573,12 @@ let make_constructor
       end
 
 let verify_unboxed_attr unboxed_attr sdecl =
+  let _, ptype_kind = interpret_external_types sdecl in
   begin match unboxed_attr with
   | (None | Some false) -> ()
   | Some true ->
     let bad msg = raise(Error(sdecl.ptype_loc, Bad_unboxed_attribute msg)) in
-    match sdecl.ptype_kind with
+    match ptype_kind with
     | Ptype_abstract    -> bad "it is abstract"
     | Ptype_open        -> bad "extensible variant types cannot be unboxed"
     | Ptype_record fields -> begin match fields with
@@ -536,6 +607,7 @@ let verify_unboxed_attr unboxed_attr sdecl =
                 ()
           end
       end
+    | Ptype_external _ -> bad "it is an external type"
   end
 
 (* Note [Default jkinds in transl_declaration]
@@ -618,6 +690,7 @@ let verify_unboxed_attr unboxed_attr sdecl =
 *)
 
 let transl_declaration env sdecl (id, uid) =
+  let ptype_manifest, ptype_kind = interpret_external_types sdecl in
   (* Bind type parameters *)
   Ctype.with_local_level begin fun () ->
   TyVarEnv.reset();
@@ -632,7 +705,7 @@ let transl_declaration env sdecl (id, uid) =
   in
   let unboxed_attr = get_unboxed_from_attributes sdecl in
   let unbox, unboxed_default =
-    match sdecl.ptype_kind with
+    match ptype_kind with
     | Ptype_variant [{pcd_args = Pcstr_tuple [_]; _}]
     | Ptype_variant [{pcd_args = Pcstr_record [{pld_mutable=Immutable; _}]; _}]
     | Ptype_record [{pld_mutable=Immutable; _}] ->
@@ -647,7 +720,7 @@ let transl_declaration env sdecl (id, uid) =
         Some jkind, Some jkind_annotation, sdecl_attributes
     | None -> None, None, sdecl.ptype_attributes
   in
-  let (tman, man) = match sdecl.ptype_manifest with
+  let (tman, man) = match ptype_manifest with
       None -> None, None
     | Some sty ->
       let no_row = not (is_fixed_type sdecl) in
@@ -660,7 +733,7 @@ let transl_declaration env sdecl (id, uid) =
      See Note [Default jkinds in transl_declaration].
   *)
   let (tkind, kind, jkind_default) =
-    match sdecl.ptype_kind with
+    match ptype_kind with
       | Ptype_abstract ->
         Ttype_abstract, Type_abstract Abstract_def, Jkind.value ~why:Default_type_jkind
       | Ptype_variant scstrs ->
@@ -752,6 +825,14 @@ let transl_declaration env sdecl (id, uid) =
           Ttype_record lbls, Type_record(lbls', rep), jkind
       | Ptype_open ->
         Ttype_open, Type_open, Jkind.value ~why:Extensible_variant
+      | Ptype_external type_name ->
+        if sdecl.ptype_private = Private
+        then raise (Error (sdecl.ptype_loc,
+                           Invalid_external_type Cannot_be_private));
+        let ext_rep, jkind =
+          transl_external_type ~loc:sdecl.ptype_loc type_name id
+        in
+        Ttype_external type_name, Type_external ext_rep, jkind
       in
     let jkind =
     (* - If there's an annotation, we use that. It's checked against
@@ -879,6 +960,7 @@ let check_constraints_labels env visited l pl =
     l
 
 let check_constraints env sdecl (_, decl) =
+  let ptype_manifest, ptype_kind = interpret_external_types sdecl in
   let visited = ref TypeSet.empty in
   List.iter2
     (fun (sty, _) ty -> check_constraints_rec env sty.ptyp_loc visited ty)
@@ -888,9 +970,10 @@ let check_constraints env sdecl (_, decl) =
   | Type_variant (l, _rep) ->
       let find_pl = function
           Ptype_variant pl -> pl
-        | Ptype_record _ | Ptype_abstract | Ptype_open -> assert false
+        | Ptype_record _ | Ptype_abstract | Ptype_open | Ptype_external _
+          -> assert false
       in
-      let pl = find_pl sdecl.ptype_kind in
+      let pl = find_pl ptype_kind in
       let pl_index =
         let foldf acc x =
           String.Map.add x.pcd_name.txt x acc
@@ -923,17 +1006,19 @@ let check_constraints env sdecl (_, decl) =
   | Type_record (l, _) ->
       let find_pl = function
           Ptype_record pl -> pl
-        | Ptype_variant _ | Ptype_abstract | Ptype_open -> assert false
+        | Ptype_variant _ | Ptype_abstract | Ptype_open | Ptype_external _
+          -> assert false
       in
-      let pl = find_pl sdecl.ptype_kind in
+      let pl = find_pl ptype_kind in
       check_constraints_labels env visited l pl
   | Type_open -> ()
+  | Type_external _ -> ()
   end;
   begin match decl.type_manifest with
   | None -> ()
   | Some ty ->
       let sty =
-        match sdecl.ptype_manifest with Some sty -> sty | _ -> assert false
+        match ptype_manifest with Some sty -> sty | _ -> assert false
       in
       check_constraints_rec env sty.ptyp_loc visited ty
   end
@@ -958,7 +1043,7 @@ let check_constraints env sdecl (_, decl) =
 *)
 let check_coherence env loc dpath decl =
   match decl with
-    { type_kind = (Type_variant _ | Type_record _| Type_open);
+    { type_kind = (Type_variant _ | Type_record _| Type_open | Type_external _);
       type_manifest = Some ty } ->
       begin match get_desc ty with
         Tconstr(path, args, _) ->
@@ -1101,7 +1186,7 @@ let update_constructor_arguments_jkinds env loc cd_args jkinds =
    is consistent (i.e. a subjkind of) any jkind annotation.
    See Note [Default jkinds in transl_declaration].
 *)
-let update_decl_jkind env dpath decl =
+let update_decl_jkind env id decl =
   let open struct
     (* For tracking what types appear in record blocks. *)
     type has_values = Has_values | No_values
@@ -1208,6 +1293,10 @@ let update_decl_jkind env dpath decl =
       let cstrs, rep, type_jkind = update_variant_kind cstrs rep in
       { decl with type_kind = Type_variant (cstrs, rep); type_jkind },
       type_jkind
+    | Type_external (External_builtin b) ->
+      let type_jkind = jkind_of_builtin id b in
+      { decl with type_jkind }, type_jkind
+    | Type_external (External_fresh _) -> decl, decl.type_jkind
   in
 
   (* check that the jkind computed from the kind matches the jkind
@@ -1216,7 +1305,7 @@ let update_decl_jkind env dpath decl =
     begin match Jkind.sub new_jkind decl.type_jkind with
     | Ok () -> ()
     | Error err ->
-      raise(Error(decl.type_loc, Jkind_mismatch_of_path (dpath,err)))
+      raise(Error(decl.type_loc, Jkind_mismatch_of_path (Pident id,err)))
     end;
   new_decl
 
@@ -1236,7 +1325,7 @@ let update_decls_jkind_reason decls =
 
 let update_decls_jkind env decls =
   List.map
-    (fun (id, decl) -> (id, update_decl_jkind env (Pident id) decl))
+    (fun (id, decl) -> (id, update_decl_jkind env id decl))
     decls
 
 
@@ -1572,7 +1661,9 @@ let check_abbrev_regularity ~abs_env env id_loc_list to_check tdecl =
 let check_duplicates sdecl_list =
   let labels = Hashtbl.create 7 and constrs = Hashtbl.create 7 in
   List.iter
-    (fun sdecl -> match sdecl.ptype_kind with
+    (fun sdecl ->
+      let _ptype_manifest, ptype_kind = interpret_external_types sdecl in
+      match ptype_kind with
       Ptype_variant cl ->
         List.iter
           (fun pcd ->
@@ -1596,7 +1687,8 @@ let check_duplicates sdecl_list =
             with Not_found -> Hashtbl.add labels cname.txt sdecl.ptype_name.txt)
           fl
     | Ptype_abstract -> ()
-    | Ptype_open -> ())
+    | Ptype_open -> ()
+    | Ptype_external _ -> ())
     sdecl_list
 
 (* Force recursion to go through id for private types*)
@@ -1648,7 +1740,7 @@ let transl_type_decl env rec_flag sdecl_list =
            let loc = Location.ghostify sdecl.ptype_name.loc in
            mkloc (sdecl.ptype_name.txt ^"#row") loc
          in
-         let ptype_kind = Ptype_abstract in
+         let ptype_kind = Parsetree.Ptype_abstract in
          let ptype_manifest = None in
          let ptype_loc = Location.ghostify sdecl.ptype_loc in
         {sdecl with
@@ -2146,31 +2238,30 @@ let get_native_repr_attribute attrs ~global_repr =
     raise (Error (loc, Multiple_native_repr_attributes))
 
 let native_repr_of_type env kind ty =
-  match kind, get_desc (Ctype.expand_head_opt env ty) with
-  | Untagged, Tconstr (path, _, _) when Path.same path Predef.path_int ->
-    Some Untagged_int
-  | Unboxed, Tconstr (path, _, _) when Path.same path Predef.path_float ->
-    Some Unboxed_float
-  | Unboxed, Tconstr (path, _, _) when Path.same path Predef.path_int32 ->
-    Some (Unboxed_integer Pint32)
-  | Unboxed, Tconstr (path, _, _) when Path.same path Predef.path_int64 ->
-    Some (Unboxed_integer Pint64)
-  | Unboxed, Tconstr (path, _, _) when Path.same path Predef.path_nativeint ->
-    Some (Unboxed_integer Pnativeint)
-  | Unboxed, Tconstr (path, _, _) when Path.same path Predef.path_int8x16 ->
-    Some (Unboxed_vector (Pvec128 Int8x16))
-  | Unboxed, Tconstr (path, _, _) when Path.same path Predef.path_int16x8 ->
-    Some (Unboxed_vector (Pvec128 Int16x8))
-  | Unboxed, Tconstr (path, _, _) when Path.same path Predef.path_int32x4 ->
-    Some (Unboxed_vector (Pvec128 Int32x4))
-  | Unboxed, Tconstr (path, _, _) when Path.same path Predef.path_int64x2 ->
-    Some (Unboxed_vector (Pvec128 Int64x2))
-  | Unboxed, Tconstr (path, _, _) when Path.same path Predef.path_float32x4 ->
-    Some (Unboxed_vector (Pvec128 Float32x4))
-  | Unboxed, Tconstr (path, _, _) when Path.same path Predef.path_float64x2 ->
-    Some (Unboxed_vector (Pvec128 Float64x2))
-  | _ ->
-    None
+  match get_desc (Ctype.expand_head_opt env ty) with
+  | Tconstr (path, _, _) ->
+    begin try
+      let decl = Env.find_type path env in
+      match decl.type_kind with
+      | Type_external (External_builtin b) ->
+        begin match kind, b with
+        | Untagged, Builtin_int -> Some Untagged_int
+        | Unboxed, Builtin_float -> Some Unboxed_float
+        | Unboxed, Builtin_int32 -> Some (Unboxed_integer Pint32)
+        | Unboxed, Builtin_int64 -> Some (Unboxed_integer Pint64)
+        | Unboxed, Builtin_nativeint -> Some (Unboxed_integer Pnativeint)
+        | Unboxed, Builtin_int8x16 -> Some (Unboxed_vector (Pvec128 Int8x16))
+        | Unboxed, Builtin_int16x8 -> Some (Unboxed_vector (Pvec128 Int16x8))
+        | Unboxed, Builtin_int32x4 -> Some (Unboxed_vector (Pvec128 Int32x4))
+        | Unboxed, Builtin_int64x2 -> Some (Unboxed_vector (Pvec128 Int64x2))
+        | Unboxed, Builtin_float32x4 -> Some (Unboxed_vector (Pvec128 Float32x4))
+        | Unboxed, Builtin_float64x2 -> Some (Unboxed_vector (Pvec128 Float64x2))
+        | _ -> None
+        end
+      | _ -> None
+    with Not_found -> None
+    end
+  | _ -> None
 
 (* Raises an error when [core_type] contains an [@unboxed] or [@untagged]
    attribute in a strict sub-term. *)
@@ -2546,9 +2637,10 @@ let approx_type_decl sdecl_list =
   let scope = Ctype.create_scope () in
   List.map
     (fun sdecl ->
+       let _ptype_manifest, ptype_kind = interpret_external_types sdecl in
        let id = Ident.create_scoped ~scope sdecl.ptype_name.txt in
        let path = Path.Pident id in
-       let injective = sdecl.ptype_kind <> Ptype_abstract in
+       let injective = ptype_kind <> Ptype_abstract in
        let jkind, jkind_annotation, _sdecl_attributes =
          Jkind.of_type_decl_default
            ~context:(Type_declaration path)
@@ -2985,6 +3077,21 @@ let report_error ppf = function
   | Local_not_enabled ->
       fprintf ppf "@[The local extension is disabled@ \
                    To enable it, pass the '-extension local' flag@]"
+  | Invalid_external_type problem ->
+      let format_problem ppf = match problem with
+      | Malformed_extension_node ->
+        fprintf ppf
+          "@[External types must be written as@ \
+          [%%external \"type_name\"] or@ \
+          [%%external (\"type_name\" : manifest)]@]"
+      | Cannot_be_private ->
+        fprintf ppf "External types cannot be private"
+      | Empty_name ->
+        fprintf ppf "The name of an external type cannot be blank"
+      | Unknown_primitive str ->
+        fprintf ppf "Unknown primitive %s" str
+      in
+      fprintf ppf "@[Malformed external type:@ %t@]" format_problem
 
 let () =
   Location.register_error_of_exn

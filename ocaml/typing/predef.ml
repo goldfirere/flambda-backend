@@ -196,7 +196,7 @@ let list_argument_jkind = Jkind.value ~why:(
 
 let mk_add_type add_type
       ?manifest type_ident
-      ?(kind=Type_abstract Abstract_def)
+      ~kind
       ?(jkind=Jkind.value ~why:(Primitive type_ident))
       (* [jkind_annotation] is just used for printing. It's best to
          provide it if the jkind is not implied by the kind of the
@@ -274,6 +274,8 @@ let build_initial_env add_type add_extension empty_env =
       }
   in
   let variant constrs jkinds = Type_variant (constrs, Variant_boxed jkinds) in
+  let builtin b = Type_external (External_builtin b) in
+  let extrnal s = Type_external (External_fresh s) in
   empty_env
   (* Predefined types *)
   |> add_type1 ident_array
@@ -286,18 +288,22 @@ let build_initial_env add_type add_extension empty_env =
        ~kind:(variant [cstr ident_false []; cstr ident_true []]
                 [| [| |]; [| |] |])
        ~jkind:(Jkind.immediate ~why:Enumeration)
-  |> add_type ident_char ~jkind:(Jkind.immediate ~why:(Primitive ident_char))
-      ~jkind_annotation:Immediate
+  |> add_type ident_char
+       ~kind:(builtin Builtin_char)
+       ~jkind:(Jkind.immediate ~why:(Primitive ident_char))
+       ~jkind_annotation:Immediate
   |> add_type ident_exn
        ~kind:Type_open
        ~jkind:(Jkind.value ~why:Extensible_variant)
-  |> add_type ident_extension_constructor
-  |> add_type ident_float
-  |> add_type ident_floatarray
-  |> add_type ident_int ~jkind:(Jkind.immediate ~why:(Primitive ident_int))
+  |> add_type ident_extension_constructor ~kind:(extrnal "extension_constructor")
+  |> add_type ident_float ~kind:(builtin Builtin_float)
+  |> add_type ident_floatarray ~kind:(builtin Builtin_floatarray)
+  |> add_type ident_int
+      ~kind:(builtin Builtin_int)
+      ~jkind:(Jkind.immediate ~why:(Primitive ident_int))
       ~jkind_annotation:Immediate
-  |> add_type ident_int32
-  |> add_type ident_int64
+  |> add_type ident_int32 ~kind:(builtin Builtin_int32)
+  |> add_type ident_int64 ~kind:(builtin Builtin_int64)
   |> add_type1 ident_lazy_t
        ~variance:Variance.covariant
        ~separability:Separability.Ind
@@ -311,7 +317,7 @@ let build_initial_env add_type add_extension empty_env =
            [| [| |]; [| list_argument_jkind;
                         Jkind.value ~why:Boxed_variant |] |] )
        ~jkind:(Jkind.value ~why:Boxed_variant)
-  |> add_type ident_nativeint
+  |> add_type ident_nativeint ~kind:(builtin Builtin_nativeint)
   |> add_type1 ident_option
        ~variance:Variance.covariant
        ~separability:Separability.Ind
@@ -319,20 +325,24 @@ let build_initial_env add_type add_extension empty_env =
          variant [cstr ident_none []; cstr ident_some [tvar, Unrestricted]]
            [| [| |]; [| option_argument_jkind |] |])
        ~jkind:(Jkind.value ~why:Boxed_variant)
-  |> add_type ident_string
+  |> add_type ident_string ~kind:(extrnal "string")
   |> add_type ident_unboxed_float
+       ~kind:(extrnal "float#")
        ~jkind:(Jkind.float64 ~why:(Primitive ident_unboxed_float))
        ~jkind_annotation:Float64
   |> add_type ident_unboxed_nativeint
+       ~kind:(extrnal "nativeint#")
        ~jkind:(Jkind.word ~why:(Primitive ident_unboxed_nativeint))
        ~jkind_annotation:Word
   |> add_type ident_unboxed_int32
+       ~kind:(extrnal "int32#")
        ~jkind:(Jkind.bits32 ~why:(Primitive ident_unboxed_int32))
        ~jkind_annotation:Bits32
   |> add_type ident_unboxed_int64
+       ~kind:(extrnal "int64#")
        ~jkind:(Jkind.bits64 ~why:(Primitive ident_unboxed_int64))
        ~jkind_annotation:Bits64
-  |> add_type ident_bytes
+  |> add_type ident_bytes ~kind:(extrnal "bytes")
   |> add_type ident_unit
        ~kind:(variant [cstr ident_void []] [| [| |] |])
        ~jkind:(Jkind.immediate ~why:Enumeration)
@@ -360,14 +370,15 @@ let build_initial_env add_type add_extension empty_env =
        [| Jkind.value ~why:Tuple |]
 
 let add_simd_extension_types add_type env =
+  let builtin b = Type_external (External_builtin b) in
   let add_type = mk_add_type add_type in
   env
-  |> add_type ident_int8x16
-  |> add_type ident_int16x8
-  |> add_type ident_int32x4
-  |> add_type ident_int64x2
-  |> add_type ident_float32x4
-  |> add_type ident_float64x2
+  |> add_type ident_int8x16 ~kind:(builtin Builtin_int8x16)
+  |> add_type ident_int16x8 ~kind:(builtin Builtin_int16x8)
+  |> add_type ident_int32x4 ~kind:(builtin Builtin_int32x4)
+  |> add_type ident_int64x2 ~kind:(builtin Builtin_int64x2)
+  |> add_type ident_float32x4 ~kind:(builtin Builtin_float32x4)
+  |> add_type ident_float64x2 ~kind:(builtin Builtin_float64x2)
 
 let builtin_values =
   List.map (fun id -> (Ident.name id, id)) all_predef_exns

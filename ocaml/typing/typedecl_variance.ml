@@ -309,13 +309,17 @@ let compute_variance_decl env ~check decl (required, _ as rloc) =
     Option.map (fun id -> Type_declaration (id, decl)) check
   in
   let abstract = Btype.type_kind_is_abstract decl in
-  if (abstract || decl.type_kind = Type_open)
-       && decl.type_manifest = None then
+  match decl.type_kind with
+  | Type_abstract _ | Type_open | Type_external (External_builtin _)
+      when Option.is_none decl.type_manifest ->
     List.map
       (fun (c, n, i) ->
         make (not n) (not c) (not abstract || i))
       required
-  else begin
+  | Type_external (External_fresh _)
+      when Option.is_none decl.type_manifest ->
+    List.map (fun _ -> injective) required
+  | _ -> begin
     let mn =
       match decl.type_manifest with
         None -> []
@@ -323,7 +327,7 @@ let compute_variance_decl env ~check decl (required, _ as rloc) =
     in
     let vari =
       match decl.type_kind with
-        Type_abstract _ | Type_open ->
+        Type_abstract _ | Type_open | Type_external _ ->
           compute_variance_type env ~check rloc decl mn
       | Type_variant (tll,_rep) ->
           if List.for_all (fun c -> c.Types.cd_res = None) tll then

@@ -178,12 +178,14 @@ type type_kind =
   | Kind_record
   | Kind_variant
   | Kind_open
+  | Kind_external
 
 let of_kind = function
   | Type_abstract _ -> Kind_abstract
   | Type_record (_, _) -> Kind_record
   | Type_variant (_, _) -> Kind_variant
   | Type_open -> Kind_open
+  | Type_external _ -> Kind_external
 
 type kind_mismatch = type_kind * type_kind
 
@@ -474,7 +476,8 @@ let report_kind_mismatch first second ppf (kind1, kind2) =
   | Kind_abstract -> "abstract"
   | Kind_record -> "a record"
   | Kind_variant -> "a variant"
-  | Kind_open -> "an extensible variant" in
+  | Kind_open -> "an extensible variant"
+  | Kind_external -> "a primitive type" in
   pr "%s is %s, but %s is %s."
     (String.capitalize_ascii first)
     (kind_to_string kind1)

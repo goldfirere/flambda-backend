@@ -252,6 +252,7 @@ and ('lbl, 'cstr) type_kind =
   | Type_record of 'lbl list * record_representation
   | Type_variant of 'cstr list * variant_representation
   | Type_open
+  | Type_external of external_representation
 
 and tag = Ordinary of {src_index: int;     (* Unique name (per type) *)
                        runtime_tag: int}   (* The runtime tag *)
@@ -302,6 +303,63 @@ and constructor_declaration =
 and constructor_arguments =
   | Cstr_tuple of (type_expr * global_flag) list
   | Cstr_record of label_declaration list
+
+and external_representation =
+  | External_builtin of external_builtin
+  | External_fresh of string
+
+and external_builtin =
+  | Builtin_int
+  (* CR layouts v2.8: I think the next one can go away once we have modal kinds *)
+  | Builtin_char
+  | Builtin_float
+  | Builtin_nativeint
+  | Builtin_int32
+  | Builtin_int64
+  | Builtin_floatarray
+  (* TODO: Expand this facility to handle parameterised types, like array
+     and lazy. *)
+
+  | Builtin_int8x16
+  | Builtin_int16x8
+  | Builtin_int32x4
+  | Builtin_int64x2
+  | Builtin_float32x4
+  | Builtin_float64x2
+
+let jkind_of_builtin id = function
+  | Builtin_int
+  | Builtin_char -> Jkind.immediate ~why:(Primitive id)
+  | Builtin_float
+  | Builtin_nativeint
+  | Builtin_int32
+  | Builtin_int64
+  | Builtin_floatarray -> Jkind.value ~why:(Primitive id)
+
+  | Builtin_int8x16
+  | Builtin_int16x8
+  | Builtin_int32x4
+  | Builtin_int64x2
+  | Builtin_float32x4
+  | Builtin_float64x2 -> Jkind.value ~why:(Primitive id)
+
+let string_of_external_representation = function
+  | External_builtin b -> begin match b with
+      | Builtin_int -> "%int"
+      | Builtin_char -> "%char"
+      | Builtin_float -> "%float"
+      | Builtin_nativeint -> "%nativeint"
+      | Builtin_int32 -> "%int32"
+      | Builtin_int64 -> "%int64"
+      | Builtin_floatarray -> "%floatarray"
+      | Builtin_int8x16 -> "%int8x16"
+      | Builtin_int16x8 -> "%int16x8"
+      | Builtin_int32x4 -> "%int32x4"
+      | Builtin_int64x2 -> "%int64x2"
+      | Builtin_float32x4 -> "%float32x4"
+      | Builtin_float64x2 -> "%float64x2"
+  end
+  | External_fresh str -> str
 
 type extension_constructor =
   { ext_type_path: Path.t;
@@ -589,7 +647,7 @@ let find_unboxed_type decl =
                     | Record_boxed _ | Record_float | Record_ufloat ))
   | Type_variant (_, ( Variant_boxed _ | Variant_unboxed
                      | Variant_extensible ))
-  | Type_abstract _ | Type_open ->
+  | Type_abstract _ | Type_open | Type_external _ ->
     None
 
 let item_visibility = function

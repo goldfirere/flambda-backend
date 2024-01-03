@@ -62,3 +62,213 @@ let tag = Obj.tag (Obj.repr arr)
 not flat float array
 |}]
 
+(* This will be [type floaty2 = floaty = external "%float"] someday *)
+
+type floaty2 = [%external ("%float" : floaty)]
+
+let f : floaty -> floaty2 = fun x -> x
+
+[%%expect{|
+success
+|}]
+
+(* No private external types *)
+
+type t4 = private [%external "boo"]
+
+[%%expect{|
+failure
+|}]
+
+(* No unboxed external types *)
+
+type t5 = [%external "foo"] [@@unboxed]
+
+[%%expect{|
+failure
+|}]
+
+(* test module inclusion *)
+
+module M : sig
+  type t = [%external "foo"]
+end = struct
+  type t = [%external "foo"]
+end
+
+[%%expect{|
+success
+|}]
+
+module M : sig
+  type t
+end = struct
+  type t = [%external "foo"]
+end
+
+[%%expect{|
+success
+|}]
+
+module M : sig
+  type t = [%external "foo"]
+end = struct
+  type t
+end
+
+[%%expect{|
+failure
+|}]
+
+module M : sig
+  type t = [%external "foo"]
+end = struct
+  type t = [%external "bar"]
+end
+
+[%%expect{|
+failure
+|}]
+
+module M : sig
+  type t = [%external "%float"]
+end = struct
+  type t = [%external "%float"]
+end
+
+[%%expect{|
+success
+|}]
+
+module M : sig
+  type t
+end = struct
+  type t = [%external "%float"]
+end
+
+[%%expect{|
+success
+|}]
+
+module M : sig
+  type t = [%external "%int"]
+end = struct
+  type t = [%external "%float"]
+end
+
+[%%expect{|
+failure
+|}]
+
+(* Cannot use "external" in a [with] constraint *)
+
+module type S = sig
+  type t
+end
+
+module type S2 = S with type t = [%external "%float"]
+
+[%%expect{|
+failure
+|}]
+
+(* Test variance and injectivity: all parameters are injective, but
+   variance must be declared *)
+
+type ('a, !'b, +'c, -'d, !+'e, !-'f) t = [%external "foo"]
+type ('a, !'b, +'c, -'d, !+'e, !-'f) t2 = ('a, 'b, 'c, 'd, 'e, 'f) t
+type 'a t3 = [%external "bar"]
+type !'a t4 = 'a t3
+
+[%%expect{|
+success
+|}]
+
+type +'a t5 = 'a t3
+
+[%%expect{|
+failure
+|}]
+
+type -'a t6 = 'a t3
+
+[%%expect{|
+failure
+|}]
+
+(* check for injectivity propagation through recursive modules *)
+
+module rec M1 : sig
+  type 'a t = [%external "foo"]
+end = struct
+  type 'a t = [%external "foo"]
+end
+
+and M2 : sig
+  type !'b t
+end = struct
+  type 'b t = 'b M1.t
+end
+
+[%%expect{|
+success
+|}]
+
+(* check for manifests *)
+
+type t8 = [%external "foo"]
+type t9 = [%external ("foo" : t8)]
+
+[%%expect{|
+success
+|}]
+
+type t10 = [%external ("bar" : t8)]
+
+[%%expect{|
+failure
+|}]
+
+type t11 = [%external ("%float" : float)]
+
+[%%expect{|
+success
+|}]
+
+(* check for builtin *)
+
+type bad = [%external "%bad"]
+
+[%%expect{|
+failure
+|}]
+
+(* check for separability *)
+
+type 'a t = [%external "blah"]
+type t2 = A : 'a t -> t2
+
+[%%expect{|
+failure
+|}]
+
+type 'a t = [%external "%int32"]
+type t2 = A : 'a t -> t2
+
+[%%expect{|
+success
+|}]
+
+(* check for empty name *)
+
+type t = [%external ""]
+
+[%%expect{|
+failure
+|}]
+
+type t = [%external 1 + 2]
+
+[%%expect{|
+failure
+|}]

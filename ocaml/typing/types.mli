@@ -81,7 +81,7 @@ and type_desc =
   | Ttuple of (string option * type_expr) list
   (** [Ttuple [None, t1; ...; None, tn]] ==> [t1 * ... * tn]
       [Ttuple [Some "l1", t1; ...; Some "ln", tn]] ==> [l1:t1 * ... * ln:tn]
-      
+
       Any mix of labeled and unlabeled components also works:
       [Ttuple [Some "l1", t1; None, t2; Some "l3", t3]] ==> [l1:t1 * t2 * l3:t3]
   *)
@@ -515,6 +515,7 @@ and ('lbl, 'cstr) type_kind =
   | Type_record of 'lbl list  * record_representation
   | Type_variant of 'cstr list * variant_representation
   | Type_open
+  | Type_external of external_representation
 
 (* CR layouts: after removing the void translation from lambda, we could get rid of
    this src_index / runtime_tag distinction.  But I am leaving it in because it
@@ -585,6 +586,34 @@ and constructor_declaration =
 and constructor_arguments =
   | Cstr_tuple of (type_expr * global_flag) list
   | Cstr_record of label_declaration list
+
+and external_representation =
+  | External_builtin of external_builtin
+  | External_fresh of string
+
+and external_builtin =
+  | Builtin_int
+  (* CR layouts v2.8: I think the next one can go away once we have modal kinds *)
+  | Builtin_char
+  | Builtin_float
+  | Builtin_nativeint
+  | Builtin_int32
+  | Builtin_int64
+  | Builtin_floatarray
+  (* TODO: Expand this facility to handle parameterised types, like array
+     and lazy. Update the treatment of external types in the variance
+     and separability calculations, as these assume that external builtins
+     are not parameterised. *)
+
+  | Builtin_int8x16
+  | Builtin_int16x8
+  | Builtin_int32x4
+  | Builtin_int64x2
+  | Builtin_float32x4
+  | Builtin_float64x2
+
+val jkind_of_builtin : Ident.t -> external_builtin -> Jkind.t
+val string_of_external_representation : external_representation -> string
 
 val tys_of_constr_args : constructor_arguments -> type_expr list
 

@@ -99,6 +99,7 @@ type out_type =
   | Otyp_jkind_annot of out_type * out_jkind
       (* Currently only introduced with very explicit code in [Printtyp] and not
          synthesized directly from the [Typedtree] *)
+  | Otyp_external of out_type option * string
 
 and out_constructor = {
   ocstr_name: string;

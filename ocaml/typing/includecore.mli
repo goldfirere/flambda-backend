@@ -53,6 +53,7 @@ type type_kind =
   | Kind_record
   | Kind_variant
   | Kind_open
+  | Kind_external
 
 type kind_mismatch = type_kind * type_kind
 

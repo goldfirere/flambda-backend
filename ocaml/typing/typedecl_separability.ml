@@ -45,6 +45,7 @@ type type_structure =
   | Abstract
   | Open
   | Algebraic
+  | Builtin
   | Unboxed of argument_to_unbox
 
 let structure : type_definition -> type_structure = fun def ->
@@ -70,6 +71,8 @@ let structure : type_definition -> type_structure = fun def ->
         in
         Unboxed { argument_type = ty; result_type_parameter_instances = params }
       end
+  | Type_external (External_builtin _) -> Builtin
+  | Type_external (External_fresh _) -> Abstract
 
 type error =
   | Non_separable_evar of string option
@@ -622,7 +625,7 @@ let check_def
   | Synonym type_expr ->
       check_type env type_expr Sep
       |> msig_of_context ~decl_loc:def.type_loc ~parameters:def.type_params
-  | Open | Algebraic ->
+  | Open | Algebraic | Builtin ->
       best_msig def
   | Unboxed constructor ->
       check_type env constructor.argument_type Sep

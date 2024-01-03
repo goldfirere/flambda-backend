@@ -613,6 +613,8 @@ and type_kind i ppf x =
       list (i+1) label_decl ppf l;
   | Ttype_open ->
       line i ppf "Ttype_open\n"
+  | Ttype_external str ->
+      line i ppf "Ttype_external %s\n" str
 
 and type_extension i ppf x =
   line i ppf "type_extension\n";

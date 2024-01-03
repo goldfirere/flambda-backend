@@ -472,6 +472,7 @@ let type_declaration' copy_scope s decl =
           in
           Type_record (List.map (label_declaration copy_scope s) lbls, rep)
       | Type_open -> Type_open
+      | Type_external e -> Type_external e
       end;
     type_manifest =
       begin

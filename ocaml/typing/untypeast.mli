@@ -69,7 +69,9 @@ type mapper = {
   type_declaration: mapper -> Typedtree.type_declaration -> type_declaration;
   type_extension: mapper -> Typedtree.type_extension -> type_extension;
   type_exception: mapper -> Typedtree.type_exception -> type_exception;
-  type_kind: mapper -> Typedtree.type_kind -> type_kind;
+  type_manifest_kind:
+    mapper -> Typedtree.core_type option -> Typedtree.type_kind ->
+    core_type option * type_kind;
   value_binding: mapper -> Typedtree.value_binding -> value_binding;
   value_description: mapper -> Typedtree.value_description -> value_description;
   with_constraint:

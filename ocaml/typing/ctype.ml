@@ -400,7 +400,7 @@ let in_pervasives p =
 let is_datatype decl=
   match decl.type_kind with
     Type_record _ | Type_variant _ | Type_open -> true
-  | Type_abstract _ -> false
+  | Type_abstract _ | Type_external _ -> false
 
 
                   (**********************************************)
@@ -655,6 +655,7 @@ let closed_type_decl decl =
     | Type_record(r, _rep) ->
         List.iter (fun l -> closed_type l.ld_type) r
     | Type_open -> ()
+    | Type_external _ -> ()
     end;
     begin match decl.type_manifest with
       None    -> ()
@@ -1400,7 +1401,7 @@ let instance_parameterized_type ?keep_names sch_args sch =
 
 (* [map_kind f kind] maps [f] over all the types in [kind]. [f] must preserve jkinds *)
 let map_kind f = function
-  | (Type_abstract _ | Type_open) as k -> k
+  | (Type_abstract _ | Type_open | Type_external _) as k -> k
   | Type_variant (cl, rep) ->
       Type_variant (
         List.map

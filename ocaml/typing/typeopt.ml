@@ -115,21 +115,30 @@ let classify env ty : classification =
   | Tvar _ | Tunivar _ ->
       Any
   | Tconstr (p, _args, _abbrev) ->
-      if Path.same p Predef.path_float then Float
-      else if Path.same p Predef.path_lazy_t then Lazy
-      else if Path.same p Predef.path_string
-           || Path.same p Predef.path_bytes
-           || Path.same p Predef.path_array
-           || Path.same p Predef.path_nativeint
-           || Path.same p Predef.path_int32
-           || Path.same p Predef.path_int64 then Addr
+      if Path.same p Predef.path_lazy_t then Lazy
+      else if Path.same p Predef.path_array then Addr
       else begin
         try
           match (Env.find_type p env).type_kind with
-          | Type_abstract _ ->
+          | Type_abstract _ | Type_external (External_fresh _) ->
               Any
           | Type_record _ | Type_variant _ | Type_open ->
               Addr
+          | Type_external (External_builtin b) ->
+            begin match b with
+            | Builtin_int | Builtin_char -> assert false (* handled above *)
+            | Builtin_nativeint
+            | Builtin_int32
+            | Builtin_int64
+            | Builtin_floatarray
+            | Builtin_int8x16
+            | Builtin_int16x8
+            | Builtin_int32x4
+            | Builtin_int64x2
+            | Builtin_float32x4
+            | Builtin_float64x2 -> Addr
+            | Builtin_float -> Float
+            end
         with Not_found ->
           (* This can happen due to e.g. missing -I options,
              causing some .cmi files to be unavailable.
@@ -319,33 +328,8 @@ let rec value_kind env ~loc ~visited ~depth ~num_nodes_visited ty
         else raise (Error (loc, Non_value_layout (ty, Some violation)))
   end;
   match get_desc scty with
-  | Tconstr(p, _, _) when Path.same p Predef.path_int ->
-    num_nodes_visited, Pintval
-  | Tconstr(p, _, _) when Path.same p Predef.path_char ->
-    num_nodes_visited, Pintval
-  | Tconstr(p, _, _) when Path.same p Predef.path_float ->
-    num_nodes_visited, Pfloatval
-  | Tconstr(p, _, _) when Path.same p Predef.path_int32 ->
-    num_nodes_visited, (Pboxedintval Pint32)
-  | Tconstr(p, _, _) when Path.same p Predef.path_int64 ->
-    num_nodes_visited, (Pboxedintval Pint64)
-  | Tconstr(p, _, _) when Path.same p Predef.path_nativeint ->
-    num_nodes_visited, (Pboxedintval Pnativeint)
-  | Tconstr(p, _, _) when Path.same p Predef.path_int8x16 ->
-    num_nodes_visited, (Pboxedvectorval (Pvec128 Int8x16))
-  | Tconstr(p, _, _) when Path.same p Predef.path_int16x8 ->
-    num_nodes_visited, (Pboxedvectorval (Pvec128 Int16x8))
-  | Tconstr(p, _, _) when Path.same p Predef.path_int32x4 ->
-    num_nodes_visited, (Pboxedvectorval (Pvec128 Int32x4))
-  | Tconstr(p, _, _) when Path.same p Predef.path_int64x2 ->
-    num_nodes_visited, (Pboxedvectorval (Pvec128 Int64x2))
-  | Tconstr(p, _, _) when Path.same p Predef.path_float32x4 ->
-    num_nodes_visited, (Pboxedvectorval (Pvec128 Float32x4))
-  | Tconstr(p, _, _) when Path.same p Predef.path_float64x2 ->
-    num_nodes_visited, (Pboxedvectorval (Pvec128 Float64x2))
   | Tconstr(p, _, _)
-    when (Path.same p Predef.path_array
-          || Path.same p Predef.path_floatarray) ->
+    when Path.same p Predef.path_array ->
     num_nodes_visited, Parrayval (array_type_kind env ty)
   | Tconstr(p, _, _) -> begin
       let decl =
@@ -369,10 +353,27 @@ let rec value_kind env ~loc ~visited ~depth ~num_nodes_visited ty
           fallback_if_missing_cmi ~default:(num_nodes_visited, Pgenval)
             (fun () -> value_kind_record env ~loc ~visited ~depth
                          ~num_nodes_visited labels rep)
-        | Type_abstract _ ->
+        | Type_abstract _ | Type_external (External_fresh _) ->
           num_nodes_visited,
           value_kind_of_value_jkind decl.type_jkind
         | Type_open -> num_nodes_visited, Pgenval
+        | Type_external (External_builtin b) ->
+          num_nodes_visited, begin match b with
+          | Builtin_int
+          | Builtin_char -> Pintval
+          | Builtin_float -> Pfloatval
+          | Builtin_nativeint -> Pboxedintval Pnativeint
+          | Builtin_int32 -> Pboxedintval Pint32
+          | Builtin_int64 -> Pboxedintval Pint64
+          | Builtin_floatarray -> Parrayval Pfloatarray
+
+          | Builtin_int8x16 -> Pboxedvectorval (Pvec128 Int8x16)
+          | Builtin_int16x8 -> Pboxedvectorval (Pvec128 Int16x8)
+          | Builtin_int32x4 -> Pboxedvectorval (Pvec128 Int32x4)
+          | Builtin_int64x2 -> Pboxedvectorval (Pvec128 Int64x2)
+          | Builtin_float32x4 -> Pboxedvectorval (Pvec128 Float32x4)
+          | Builtin_float64x2 -> Pboxedvectorval (Pvec128 Float64x2)
+          end
     end
   | Ttuple labeled_fields ->
     if cannot_proceed () then

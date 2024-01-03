@@ -1654,6 +1654,7 @@ let prepare_decl id decl =
   | Type_record(l, _rep) ->
       List.iter (fun l -> prepare_type l.ld_type) l
   | Type_open -> ()
+  | Type_external _ -> ()
   end;
   ty_manifest, params
 
@@ -1676,6 +1677,8 @@ let tree_of_type_decl id decl =
           List.exists (fun cd -> cd.cd_res <> None) tll
       | Type_open ->
           decl.type_manifest = None
+      | Type_external _ ->
+          false
     in
     let vari =
       List.map2
@@ -1735,6 +1738,11 @@ let tree_of_type_decl id decl =
         (match rep with Record_unboxed -> true | _ -> false)
     | Type_open ->
         tree_of_manifest Otyp_open,
+        decl.type_private,
+        false
+    | Type_external ext_rep ->
+        let ext_rep = string_of_external_representation ext_rep in
+        Otyp_external (Option.map (tree_of_typexp Type) ty_manifest, ext_rep),
         decl.type_private,
         false
   in
@@ -2856,7 +2864,8 @@ let warn_on_missing_def env ppf t =
           "@,@[<hov>Type %a is abstract because@ no corresponding\
            @ cmi file@ was found@ in path.@]" path p
     | {type_kind =
-       Type_abstract Abstract_def | Type_record _ | Type_variant _ | Type_open }
+       Type_abstract Abstract_def | Type_record _ |
+       Type_variant _ | Type_open | Type_external _ }
       -> ()
     end
   | _ -> ()

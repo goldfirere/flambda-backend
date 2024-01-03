@@ -889,7 +889,8 @@ let pats_of_type env ty =
               labels
           in
           [make_pat (Tpat_record (fields, Closed)) ty env]
-      | Type_variant _ | Type_abstract _ | Type_open -> [omega]
+      | Type_variant _ | Type_abstract _ | Type_open | Type_external _
+        -> [omega]
       end
   | Has_no_typedecl ->
       begin match get_desc (Ctype.expand_head env ty) with
@@ -898,7 +899,7 @@ let pats_of_type env ty =
             ty env]
       | _ -> [omega]
       end
-  | Typedecl (_, _, {type_kind = Type_abstract _ | Type_open})
+  | Typedecl (_, _, {type_kind = Type_abstract _ | Type_open | Type_external _})
   | May_have_typedecl -> [omega]
 
 let get_variant_constructors env ty =

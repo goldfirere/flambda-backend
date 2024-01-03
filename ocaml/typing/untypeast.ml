@@ -64,7 +64,8 @@ type mapper = {
   type_declaration: mapper -> T.type_declaration -> type_declaration;
   type_extension: mapper -> T.type_extension -> type_extension;
   type_exception: mapper -> T.type_exception -> type_exception;
-  type_kind: mapper -> T.type_kind -> type_kind;
+  type_manifest_kind:
+    mapper -> T.core_type option -> T.type_kind -> core_type option * type_kind;
   value_binding: mapper -> T.value_binding -> value_binding;
   value_description: mapper -> T.value_description -> value_description;
   with_constraint:
@@ -234,6 +235,9 @@ let type_parameter sub (ct, v) = (sub.typ sub ct, v)
 let type_declaration sub decl =
   let loc = sub.location sub decl.typ_loc in
   let attrs = sub.attributes sub decl.typ_attributes in
+  let manifest, kind =
+    sub.type_manifest_kind sub decl.typ_manifest decl.typ_kind
+  in
   Jane_syntax.Layouts.type_declaration_of
     ~loc ~attrs
     ~params:(List.map (type_parameter sub) decl.typ_params)
@@ -242,21 +246,31 @@ let type_declaration sub decl =
         (fun (ct1, ct2, loc) ->
            (sub.typ sub ct1, sub.typ sub ct2, sub.location sub loc))
         decl.typ_cstrs)
-    ~kind:(sub.type_kind sub decl.typ_kind)
+    ~kind
     ~priv:decl.typ_private
-    ~manifest:(Option.map (sub.typ sub) decl.typ_manifest)
+    ~manifest
     ~docs:Docstrings.empty_docs
     ~text:None
     ~jkind:decl.typ_jkind_annotation
     (map_loc sub decl.typ_name)
 
-let type_kind sub tk = match tk with
-  | Ttype_abstract -> Ptype_abstract
+let type_manifest_kind sub manifest tk =
+  let manifest = Option.map (sub.typ sub) manifest in
+  match tk with
+  | Ttype_abstract -> manifest, Ptype_abstract
   | Ttype_variant list ->
-      Ptype_variant (List.map (sub.constructor_declaration sub) list)
+      manifest, Ptype_variant (List.map (sub.constructor_declaration sub) list)
   | Ttype_record list ->
-      Ptype_record (List.map (sub.label_declaration sub) list)
-  | Ttype_open -> Ptype_open
+      manifest, Ptype_record (List.map (sub.label_declaration sub) list)
+  | Ttype_open -> manifest, Ptype_open
+  | Ttype_external string ->
+    let extrnal = mkloc "external" !Ast_helper.default_loc in
+    let string_expr = Exp.constant (Const.string string) in
+    let expr = match manifest with
+      | None -> string_expr
+      | Some man -> Exp.constraint_ string_expr man
+    in
+    Some (Typ.extension (extrnal, PStr [Str.eval expr])), Ptype_abstract
 
 let constructor_arguments sub = function
    | Cstr_tuple l -> Pcstr_tuple (List.map (fun (ty, _) -> sub.typ sub ty) l)
@@ -1134,7 +1148,7 @@ let default_mapper =
     class_type_declaration = class_type_declaration;
     class_description = class_description;
     type_declaration = type_declaration;
-    type_kind = type_kind;
+    type_manifest_kind = type_manifest_kind;
     typ = core_type;
     type_extension = type_extension;
     type_exception = type_exception;

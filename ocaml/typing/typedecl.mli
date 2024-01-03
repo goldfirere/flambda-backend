@@ -78,6 +78,12 @@ and reaching_type_step =
   | Expands_to of type_expr * type_expr
   | Contains of type_expr * type_expr
 
+type external_type_problem =
+  | Malformed_extension_node
+  | Cannot_be_private
+  | Empty_name
+  | Unknown_primitive of string
+
 type error =
     Repeated_parameter
   | Duplicate_constructor of string
@@ -130,6 +136,7 @@ type error =
   | Nonrec_gadt
   | Invalid_private_row_declaration of type_expr
   | Local_not_enabled
+  | Invalid_external_type of external_type_problem
 
 exception Error of Location.t * error
 

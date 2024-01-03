@@ -339,7 +339,8 @@ let iter_type_expr_kind f = function
       List.iter (fun d -> f d.ld_type) lbls
   | Type_open ->
       ()
-
+  | Type_external _ ->
+      ()
 
 let type_iterators =
   let it_signature it =

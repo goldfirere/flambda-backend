@@ -463,6 +463,8 @@ module Make(O : OBJ)(EVP : EVALPATH with type valu = O.t) = struct
                     end
                 | {type_kind = Type_open} ->
                     tree_of_extension path ty_list depth obj
+                | {type_kind = Type_external _} ->
+                    Oval_stuff "<external>"
               with
                 Not_found ->                (* raised by Env.find_type *)
                   Oval_stuff "<abstr>"
