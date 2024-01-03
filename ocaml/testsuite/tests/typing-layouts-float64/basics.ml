@@ -881,7 +881,7 @@ let f14_4 r =
 module FU = Stdlib__Float_u
 type t14_1 = { x : float#; y : float#; }
 val f14_1 : t14_1 -> float# = <fun>
-val r14 : t14_1 = {x = <abstr>; y = <abstr>}
+val r14 : t14_1 = {x = <external>; y = <external>}
 val sum14_1 : float = 0.419999999999999929
 val f14_2 : t14_1 -> float# = <fun>
 val sum14_2 : float = 0.419999999999999929

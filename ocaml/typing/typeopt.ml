@@ -75,9 +75,14 @@ let is_function_type env ty =
   | Tarrow (_, lhs, rhs, _) -> Some (lhs, rhs)
   | _ -> None
 
-let is_base_type env ty base_ty_path =
+let is_base_type env ty builtin =
   match scrape env ty with
-  | Tconstr(p, _, _) -> Path.same p base_ty_path
+  | Tconstr(p, _, _) ->
+    begin match (Env.find_type p env).type_kind with
+      | Type_external (External_builtin b) -> b = builtin
+      | _ -> false
+      | exception Not_found -> false
+    end
   | _ -> false
 
 let is_always_gc_ignorable env ty =
@@ -120,9 +125,10 @@ let classify env ty : classification =
       else begin
         try
           match (Env.find_type p env).type_kind with
-          | Type_abstract _ | Type_external (External_fresh _) ->
+          | Type_abstract _ ->
               Any
-          | Type_record _ | Type_variant _ | Type_open ->
+          | Type_record _ | Type_variant _
+          | Type_open | Type_external (External_fresh _) ->
               Addr
           | Type_external (External_builtin b) ->
             begin match b with
