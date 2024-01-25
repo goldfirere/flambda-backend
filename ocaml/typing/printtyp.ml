@@ -1678,7 +1678,7 @@ let tree_of_type_decl id decl =
       | Type_open ->
           decl.type_manifest = None
       | Type_external _ ->
-          false
+          decl.type_manifest = None
     in
     let vari =
       List.map2

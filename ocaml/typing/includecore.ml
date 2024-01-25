@@ -178,14 +178,14 @@ type type_kind =
   | Kind_record
   | Kind_variant
   | Kind_open
-  | Kind_external
+  | Kind_external of external_representation
 
 let of_kind = function
   | Type_abstract _ -> Kind_abstract
   | Type_record (_, _) -> Kind_record
   | Type_variant (_, _) -> Kind_variant
   | Type_open -> Kind_open
-  | Type_external _ -> Kind_external
+  | Type_external ext_rep -> Kind_external ext_rep
 
 type kind_mismatch = type_kind * type_kind
 
@@ -477,7 +477,9 @@ let report_kind_mismatch first second ppf (kind1, kind2) =
   | Kind_record -> "a record"
   | Kind_variant -> "a variant"
   | Kind_open -> "an extensible variant"
-  | Kind_external -> "a primitive type" in
+  | Kind_external rep ->
+    let str = string_of_external_representation rep in
+    Format.sprintf "a primitive type \"%s\"" str in
   pr "%s is %s, but %s is %s."
     (String.capitalize_ascii first)
     (kind_to_string kind1)

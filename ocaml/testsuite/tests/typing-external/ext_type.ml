@@ -7,13 +7,18 @@ type t2 = [%external "t2"]
 type floaty = [%external "%float"]
 
 [%%expect{|
-success
+type t1 = [%external "t1"]
+type t2 = [%external "t2"]
+type floaty = [%external "%float"]
 |}]
 
 let f : t1 -> t2 = fun x -> x
 
 [%%expect{|
-failure
+Line 1, characters 28-29:
+1 | let f : t1 -> t2 = fun x -> x
+                                ^
+Error: This expression has type t1 but an expression was expected of type t2
 |}]
 
 type t1' = [%external "t1"]
@@ -21,13 +26,21 @@ type t1' = [%external "t1"]
 let f : t1 -> t1' = fun x -> x
 
 [%%expect{|
-failure
+type t1' = [%external "t1"]
+Line 3, characters 29-30:
+3 | let f : t1 -> t1' = fun x -> x
+                                 ^
+Error: This expression has type t1 but an expression was expected of type t1'
 |}]
 
 let f : floaty -> float = fun x -> x
 
 [%%expect{|
-failure
+Line 1, characters 35-36:
+1 | let f : floaty -> float = fun x -> x
+                                       ^
+Error: This expression has type floaty but an expression was expected of type
+         float
 |}]
 
 (* check that the compiler recognizes floaty as a float type by
@@ -40,7 +53,9 @@ type r = { x1 : float; x2 : floaty; x3 : float }
 let tag = Obj.tag (Obj.repr { x1 = 3.14; x2 = float_to_floaty 5.68; x3 = 2.78 })
 
 [%%expect{|
-float_array_tag
+external float_to_floaty : float -> floaty = "%identity"
+type r = { x1 : float; x2 : floaty; x3 : float; }
+val tag : int = 254
 |}]
 
 (* similar, but for non-float *)
@@ -50,7 +65,8 @@ type r = { x1 : float; x2 : t1; x3 : float }
 let tag = Obj.tag (Obj.repr { x1 = 3.14; x2 = Obj.magic (); x3 = 2.78 })
 
 [%%expect{|
-0
+type r = { x1 : float; x2 : t1; x3 : float; }
+val tag : int = 0
 |}]
 
 (* check that non-float external types skip the flat-float array optimization *)
@@ -59,7 +75,8 @@ let arr : t1 array = [| Obj.magic 3.14 |]
 let tag = Obj.tag (Obj.repr arr)
 
 [%%expect{|
-not flat float array
+val arr : t1 array = [|<external>|]
+val tag : int = 0
 |}]
 
 (* This will be [type floaty2 = floaty = external "%float"] someday *)
@@ -69,7 +86,8 @@ type floaty2 = [%external ("%float" : floaty)]
 let f : floaty -> floaty2 = fun x -> x
 
 [%%expect{|
-success
+type floaty2 = [%external ("%float" : floaty)]
+val f : floaty -> floaty2 = <fun>
 |}]
 
 (* No private external types *)
@@ -77,7 +95,10 @@ success
 type t4 = private [%external "boo"]
 
 [%%expect{|
-failure
+Line 1, characters 0-35:
+1 | type t4 = private [%external "boo"]
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Error: Malformed external type: External types cannot be private
 |}]
 
 (* No unboxed external types *)
@@ -85,7 +106,10 @@ failure
 type t5 = [%external "foo"] [@@unboxed]
 
 [%%expect{|
-failure
+Line 1, characters 0-39:
+1 | type t5 = [%external "foo"] [@@unboxed]
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Error: This type cannot be unboxed because it is an external type.
 |}]
 
 (* test module inclusion *)
@@ -97,7 +121,7 @@ end = struct
 end
 
 [%%expect{|
-success
+module M : sig type t = [%external "foo"] end
 |}]
 
 module M : sig
@@ -107,7 +131,7 @@ end = struct
 end
 
 [%%expect{|
-success
+module M : sig type t end
 |}]
 
 module M : sig
@@ -117,7 +141,20 @@ end = struct
 end
 
 [%%expect{|
-failure
+Lines 3-5, characters 6-3:
+3 | ......struct
+4 |   type t
+5 | end
+Error: Signature mismatch:
+       Modules do not match:
+         sig type t end
+       is not included in
+         sig type t = [%external "foo"] end
+       Type declarations do not match:
+         type t
+       is not included in
+         type t = [%external "foo"]
+       The first is abstract, but the second is a primitive type "foo".
 |}]
 
 module M : sig
@@ -127,7 +164,20 @@ end = struct
 end
 
 [%%expect{|
-failure
+Lines 3-5, characters 6-3:
+3 | ......struct
+4 |   type t = [%external "bar"]
+5 | end
+Error: Signature mismatch:
+       Modules do not match:
+         sig type t = [%external "bar"] end
+       is not included in
+         sig type t = [%external "foo"] end
+       Type declarations do not match:
+         type t = [%external "bar"]
+       is not included in
+         type t = [%external "foo"]
+       The first is a primitive type "bar", but the second is a primitive type "foo".
 |}]
 
 module M : sig
@@ -137,7 +187,7 @@ end = struct
 end
 
 [%%expect{|
-success
+module M : sig type t = [%external "%float"] end
 |}]
 
 module M : sig
@@ -147,7 +197,7 @@ end = struct
 end
 
 [%%expect{|
-success
+module M : sig type t end
 |}]
 
 module M : sig
@@ -157,7 +207,20 @@ end = struct
 end
 
 [%%expect{|
-failure
+Lines 3-5, characters 6-3:
+3 | ......struct
+4 |   type t = [%external "%float"]
+5 | end
+Error: Signature mismatch:
+       Modules do not match:
+         sig type t = [%external "%float"] end
+       is not included in
+         sig type t = [%external "%int"] end
+       Type declarations do not match:
+         type t = [%external "%float"]
+       is not included in
+         type t = [%external "%int"]
+       The first is a primitive type "%float", but the second is a primitive type "%int".
 |}]
 
 (* Cannot use "external" in a [with] constraint *)
@@ -169,7 +232,11 @@ end
 module type S2 = S with type t = [%external "%float"]
 
 [%%expect{|
-failure
+module type S = sig type t end
+Line 5, characters 35-43:
+5 | module type S2 = S with type t = [%external "%float"]
+                                       ^^^^^^^^
+Error: Uninterpreted extension 'external'.
 |}]
 
 (* Test variance and injectivity: all parameters are injective, but
@@ -181,19 +248,32 @@ type 'a t3 = [%external "bar"]
 type !'a t4 = 'a t3
 
 [%%expect{|
-success
+type ('a, 'b, +'c, -'d, +'e, -'f) t = [%external "foo"]
+type ('a, 'b, 'c, 'd, 'e, 'f) t2 = ('a, 'b, 'c, 'd, 'e, 'f) t
+type 'a t3 = [%external "bar"]
+type 'a t4 = 'a t3
 |}]
 
 type +'a t5 = 'a t3
 
 [%%expect{|
-failure
+Line 1, characters 0-19:
+1 | type +'a t5 = 'a t3
+    ^^^^^^^^^^^^^^^^^^^
+Error: In this definition, expected parameter variances are not satisfied.
+       The 1st type parameter was expected to be covariant,
+       but it is injective invariant.
 |}]
 
 type -'a t6 = 'a t3
 
 [%%expect{|
-failure
+Line 1, characters 0-19:
+1 | type -'a t6 = 'a t3
+    ^^^^^^^^^^^^^^^^^^^
+Error: In this definition, expected parameter variances are not satisfied.
+       The 1st type parameter was expected to be contravariant,
+       but it is injective invariant.
 |}]
 
 (* check for injectivity propagation through recursive modules *)
@@ -211,7 +291,8 @@ end = struct
 end
 
 [%%expect{|
-success
+module rec M1 : sig type 'a t = [%external "foo"] end
+and M2 : sig type !'b t end
 |}]
 
 (* check for manifests *)
@@ -220,19 +301,24 @@ type t8 = [%external "foo"]
 type t9 = [%external ("foo" : t8)]
 
 [%%expect{|
-success
+type t8 = [%external "foo"]
+type t9 = [%external ("foo" : t8)]
 |}]
 
 type t10 = [%external ("bar" : t8)]
 
 [%%expect{|
-failure
+Line 1, characters 0-35:
+1 | type t10 = [%external ("bar" : t8)]
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Error: This variant or record definition does not match that of type t8
+       The original is a primitive type "foo", but this is a primitive type "bar".
 |}]
 
 type t11 = [%external ("%float" : float)]
 
 [%%expect{|
-success
+type t11 = [%external ("%float" : float)]
 |}]
 
 (* check for builtin *)
@@ -240,7 +326,10 @@ success
 type bad = [%external "%bad"]
 
 [%%expect{|
-failure
+Line 1, characters 0-29:
+1 | type bad = [%external "%bad"]
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Error: Malformed external type: Unknown primitive %bad
 |}]
 
 (* check for separability *)
@@ -249,14 +338,16 @@ type 'a t = [%external "blah"]
 type t2 = A : 'a t -> t2
 
 [%%expect{|
-failure
+type 'a t = [%external "blah"]
+type t2 = A : 'a t -> t2
 |}]
 
 type 'a t = [%external "%int32"]
 type t2 = A : 'a t -> t2
 
 [%%expect{|
-success
+type 'a t = [%external "%int32"]
+type t2 = A : 'a t -> t2
 |}]
 
 (* check for empty name *)
@@ -264,11 +355,19 @@ success
 type t = [%external ""]
 
 [%%expect{|
-failure
+Line 1, characters 0-23:
+1 | type t = [%external ""]
+    ^^^^^^^^^^^^^^^^^^^^^^^
+Error: Malformed external type: The name of an external type cannot be blank
 |}]
 
 type t = [%external 1 + 2]
 
 [%%expect{|
-failure
+Line 1, characters 11-19:
+1 | type t = [%external 1 + 2]
+               ^^^^^^^^
+Error: Malformed external type:
+       External types must be written as [%external "type_name"] or
+       [%external ("type_name" : manifest)]
 |}]

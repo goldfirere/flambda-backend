@@ -2802,11 +2802,11 @@ let report_error ppf = function
         Reaching_path.pp_colon reaching_path
   | Definition_mismatch (ty, _env, None) ->
       fprintf ppf "@[<v>@[<hov>%s@ %s@;<1 2>%a@]@]"
-        "This variant or record definition" "does not match that of type"
+        "This type definition" "does not match that of type"
         Printtyp.type_expr ty
   | Definition_mismatch (ty, env, Some err) ->
       fprintf ppf "@[<v>@[<hov>%s@ %s@;<1 2>%a@]%a@]"
-        "This variant or record definition" "does not match that of type"
+        "This type definition" "does not match that of type"
         Printtyp.type_expr ty
         (Includecore.report_type_mismatch
            "the original" "this" "definition" env)
