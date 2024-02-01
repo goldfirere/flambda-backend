@@ -86,6 +86,12 @@ module Solver_mono (C : Lattices_mono) = struct
 
   and ('b, 'd) morphvar =
     | Amorphvar : 'a var * ('a, 'b, 'd) C.morph -> ('b, 'd) morphvar
+    | Asolvedvar : 'a -> ('a, 'd) morphvar
+
+  let make_morphvar dst var morph =
+    match C.is_constant_morph dst morph var.lower var.upper with
+    | Some m -> Asolvedvar m
+    | None -> Amorphvar (var, morph)
 
   module VarSet = Set.Make (Int)
 
@@ -110,7 +116,7 @@ module Solver_mono (C : Lattices_mono) = struct
 
   type ('a, 'd) mode =
     | Amode : 'a -> ('a, 'l * 'r) mode
-    | Amodevar : ('a, 'd) morphvar -> ('a, 'd) mode
+    | Amodevar : { mutable mv : ('a, 'd) morphvar } -> ('a, 'd) mode
     | Amodejoin :
         'a * ('a, 'l * disallowed) morphvar list
         -> ('a, 'l * disallowed) mode
@@ -154,10 +160,12 @@ module Solver_mono (C : Lattices_mono) = struct
 
   and print_morphvar :
       type a d. ?traversed:VarSet.t -> a C.obj -> _ -> (a, d) morphvar -> _ =
-   fun ?traversed dst ppf (Amorphvar (v, f)) ->
-    let src = C.src dst f in
-    Format.fprintf ppf "%a(%a)" (C.print_morph dst) f (print_var ?traversed src)
-      v
+   fun ?traversed dst ppf -> function
+    | Amorphvar (v, f) ->
+      let src = C.src dst f in
+      Format.fprintf ppf "%a(%a)" (C.print_morph dst) f
+        (print_var ?traversed src) v
+    | Asolvedvar m -> Format.fprintf ppf "solved:%a" (C.print dst) m
 
   let print_raw :
       type a l r.
@@ -166,7 +174,7 @@ module Solver_mono (C : Lattices_mono) = struct
     let traversed = if verbose then Some VarSet.empty else None in
     match m with
     | Amode a -> C.print obj ppf a
-    | Amodevar mv -> print_morphvar ?traversed obj ppf mv
+    | Amodevar { mv } -> print_morphvar ?traversed obj ppf mv
     | Amodejoin (a, mvs) ->
       Format.fprintf ppf "join(%a,%a)" (C.print obj) a
         (Format.pp_print_list
@@ -186,27 +194,29 @@ module Solver_mono (C : Lattices_mono) = struct
     let rec allow_left : type a l r. (a, allowed * r) mode -> (a, l * r) mode =
       function
       | Amode c -> Amode c
-      | Amodevar mv -> Amodevar (allow_left_mv mv)
+      | Amodevar { mv } -> Amodevar { mv = allow_left_mv mv }
       | Amodejoin (c, mvs) -> Amodejoin (c, List.map allow_left_mv mvs)
 
     and allow_left_mv :
         type a l r. (a, allowed * r) morphvar -> (a, l * r) morphvar = function
       | Amorphvar (v, m) -> Amorphvar (v, C.allow_left m)
+      | Asolvedvar m -> Asolvedvar m
 
     let rec allow_right : type a l r. (a, l * allowed) mode -> (a, l * r) mode =
       function
       | Amode c -> Amode c
-      | Amodevar mv -> Amodevar (allow_right_mv mv)
+      | Amodevar { mv } -> Amodevar { mv = allow_right_mv mv }
       | Amodemeet (c, mvs) -> Amodemeet (c, List.map allow_right_mv mvs)
 
     and allow_right_mv :
         type a l r. (a, l * allowed) morphvar -> (a, l * r) morphvar = function
       | Amorphvar (v, m) -> Amorphvar (v, C.allow_right m)
+      | Asolvedvar m -> Asolvedvar m
 
     let rec disallow_left :
         type a l r. (a, l * r) mode -> (a, disallowed * r) mode = function
       | Amode c -> Amode c
-      | Amodevar mv -> Amodevar (disallow_left_mv mv)
+      | Amodevar { mv } -> Amodevar { mv = disallow_left_mv mv }
       | Amodejoin (c, mvs) -> Amodejoin (c, List.map disallow_left_mv mvs)
       | Amodemeet (c, mvs) -> Amodemeet (c, List.map disallow_left_mv mvs)
 
@@ -214,11 +224,12 @@ module Solver_mono (C : Lattices_mono) = struct
         type a l r. (a, l * r) morphvar -> (a, disallowed * r) morphvar =
       function
       | Amorphvar (v, m) -> Amorphvar (v, C.disallow_left m)
+      | Asolvedvar m -> Asolvedvar m
 
     let rec disallow_right :
         type a l r. (a, l * r) mode -> (a, l * disallowed) mode = function
       | Amode c -> Amode c
-      | Amodevar mv -> Amodevar (disallow_right_mv mv)
+      | Amodevar { mv } -> Amodevar { mv = disallow_right_mv mv }
       | Amodejoin (c, mvs) -> Amodejoin (c, List.map disallow_right_mv mvs)
       | Amodemeet (c, mvs) -> Amodemeet (c, List.map disallow_right_mv mvs)
 
@@ -226,11 +237,16 @@ module Solver_mono (C : Lattices_mono) = struct
         type a l r. (a, l * r) morphvar -> (a, l * disallowed) morphvar =
       function
       | Amorphvar (v, m) -> Amorphvar (v, C.disallow_right m)
+      | Asolvedvar m -> Asolvedvar m
   end)
 
-  let mlower dst (Amorphvar (var, morph)) = C.apply dst morph var.lower
+  let mlower dst = function
+    | Amorphvar (var, morph) -> C.apply dst morph var.lower
+    | Asolvedvar m -> m
 
-  let mupper dst (Amorphvar (var, morph)) = C.apply dst morph var.upper
+  let mupper dst = function
+    | Amorphvar (var, morph) -> C.apply dst morph var.upper
+    | Asolvedvar m -> m
 
   let min (type a) (obj : a C.obj) = Amode (C.min obj)
 
@@ -238,20 +254,38 @@ module Solver_mono (C : Lattices_mono) = struct
 
   let of_const a = Amode a
 
-  let apply_morphvar dst morph (Amorphvar (var, morph')) =
-    Amorphvar (var, C.compose dst morph morph')
+  let apply_morphvar dst morph = function
+    | Amorphvar (var, morph') ->
+      make_morphvar dst var (C.compose dst morph morph')
+    | Asolvedvar m -> Asolvedvar (C.apply dst morph m)
 
   let apply :
       type a b l r.
       b C.obj -> (a, b, l * r) C.morph -> (a, l * r) mode -> (b, l * r) mode =
    fun dst morph m ->
+    let rec partition_map acc_mvs acc_solveds = function
+      | [] -> acc_mvs, acc_solveds
+      | mv :: mvs -> (
+        match apply_morphvar dst morph mv with
+        | Amorphvar _ as mv' -> partition_map (mv' :: acc_mvs) acc_solveds mvs
+        | Asolvedvar m -> partition_map acc_mvs (m :: acc_solveds) mvs)
+    in
+    let partition_map mvs = partition_map [] [] mvs in
     match m with
     | Amode a -> Amode (C.apply dst morph a)
-    | Amodevar mv -> Amodevar (apply_morphvar dst morph mv)
-    | Amodejoin (a, vs) ->
-      Amodejoin (C.apply dst morph a, List.map (apply_morphvar dst morph) vs)
-    | Amodemeet (a, vs) ->
-      Amodemeet (C.apply dst morph a, List.map (apply_morphvar dst morph) vs)
+    | Amodevar { mv = Amorphvar (var, morph') } -> (
+      match make_morphvar dst var (C.compose dst morph morph') with
+      | Amorphvar _ as mv -> Amodevar { mv }
+      | Asolvedvar m -> Amode m)
+    | Amodevar { mv = Asolvedvar m } -> Amode (C.apply dst morph m)
+    | Amodejoin (a, vs) -> (
+      let mvs, solveds = partition_map vs in
+      let const = List.fold_left (C.join dst) (C.apply dst morph a) solveds in
+      match mvs with [] -> Amode const | _ :: _ -> Amodejoin (const, mvs))
+    | Amodemeet (a, vs) -> (
+      let mvs, solveds = partition_map vs in
+      let const = List.fold_left (C.meet dst) (C.apply dst morph a) solveds in
+      match mvs with [] -> Amode const | _ :: _ -> Amodemeet (const, mvs))
 
   (** Arguments are not checked and used directly. They must satisfy the
       INVARIANT listed above. *)
@@ -277,14 +311,15 @@ module Solver_mono (C : Lattices_mono) = struct
     | Some log -> log := Cvlower (v, v.vlower) :: !log);
     v.vlower <- vlower
 
-  let submode_cv : type a. log:_ -> a C.obj -> a -> a var -> (unit, a) Result.t
+  let submode_cv : type a. log:_ -> a C.obj -> a -> a var -> (a option, a) Result.t
       =
     fun (type a) ~log (obj : a C.obj) a' v ->
      if C.le obj a' v.lower
-     then Ok ()
+     then Ok None
      else if not (C.le obj a' v.upper)
      then Error v.upper
      else (
+       if C.le obj v.upper a' then Ok
        update_lower ~log obj v a';
        if C.le obj v.upper v.lower then set_vlower ~log v [];
        Ok ())

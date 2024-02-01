@@ -141,6 +141,10 @@ module type Lattices_mono = sig
 
   (** Print morphism *)
   val print_morph : 'b obj -> Format.formatter -> ('a, 'b, 'd) morph -> unit
+
+  (** Checks whether a morphism is constant within the given range, returning
+      the constant if it is. *)
+  val is_constant_morph : 'b obj -> ('a, 'b, 'd) morph -> 'a -> 'a -> 'b option
 end
 
 (** Arrange the permissions appropriately for a positive lattice, by
