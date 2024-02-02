@@ -42,12 +42,21 @@ type 'a error =
   }
 
 (** Map the function to the list, and returns the first [Error] found;
-    Returns [Ok ()] if no error. *)
-let rec find_error (f : 'x -> ('a, 'b) Result.t) : 'x list -> ('a, 'b) Result.t
-    = function
-  | [] -> Ok ()
-  | x :: rest -> (
-    match f x with Ok () -> find_error f rest | Error _ as e -> e)
+    Returns [Ok] if no error, returning all the ['a] collected by combining
+    the outputs of the passed function. In addition, all the ['x]s that produced
+    [Ok None] are returned in a list. No guarantees about the orders of the
+    lists. *)
+let find_error (f : 'x -> ('a option, 'b) Result.t) (xs : 'x list) :
+    ('a list * 'x list, 'b) Result.t =
+  let rec loop a_acc x_acc = function
+    | [] -> Ok (a_acc, x_acc)
+    | x :: rest -> (
+      match f x with
+      | Ok None -> loop a_acc (x :: x_acc) rest
+      | Ok (Some a) -> loop (a :: a_acc) x_acc rest
+      | Error _ as e -> e)
+  in
+  loop [] [] xs
 
 module Solver_mono (C : Lattices_mono) = struct
   type 'a var =
@@ -118,11 +127,15 @@ module Solver_mono (C : Lattices_mono) = struct
     | Amode : 'a -> ('a, 'l * 'r) mode
     | Amodevar : { mutable mv : ('a, 'd) morphvar } -> ('a, 'd) mode
     | Amodejoin :
-        'a * ('a, 'l * disallowed) morphvar list
+        { mutable m : 'a;
+          mutable mvs : ('a, 'l * disallowed) morphvar list
+        }
         -> ('a, 'l * disallowed) mode
         (** [Amodejoin a [mv0, mv1, ...]] represents [a join mv0 join mv1 join ...] *)
     | Amodemeet :
-        'a * ('a, disallowed * 'r) morphvar list
+        { mutable m : 'a;
+          mutable mvs : ('a, disallowed * 'r) morphvar list
+        }
         -> ('a, disallowed * 'r) mode
         (** [Amodemeet a [mv0, mv1, ...]] represents [a meet mv0 meet mv1 meet ...]. *)
 
@@ -175,14 +188,14 @@ module Solver_mono (C : Lattices_mono) = struct
     match m with
     | Amode a -> C.print obj ppf a
     | Amodevar { mv } -> print_morphvar ?traversed obj ppf mv
-    | Amodejoin (a, mvs) ->
-      Format.fprintf ppf "join(%a,%a)" (C.print obj) a
+    | Amodejoin { m; mvs } ->
+      Format.fprintf ppf "join(%a,%a)" (C.print obj) m
         (Format.pp_print_list
            ~pp_sep:(fun ppf () -> Format.fprintf ppf ",")
            (print_morphvar ?traversed obj))
         mvs
-    | Amodemeet (a, mvs) ->
-      Format.fprintf ppf "meet(%a,%a)" (C.print obj) a
+    | Amodemeet { m; mvs } ->
+      Format.fprintf ppf "meet(%a,%a)" (C.print obj) m
         (Format.pp_print_list
            ~pp_sep:(fun ppf () -> Format.fprintf ppf ",")
            (print_morphvar ?traversed obj))
@@ -195,7 +208,8 @@ module Solver_mono (C : Lattices_mono) = struct
       function
       | Amode c -> Amode c
       | Amodevar { mv } -> Amodevar { mv = allow_left_mv mv }
-      | Amodejoin (c, mvs) -> Amodejoin (c, List.map allow_left_mv mvs)
+      | Amodejoin { m; mvs } ->
+        Amodejoin { m; mvs = List.map allow_left_mv mvs }
 
     and allow_left_mv :
         type a l r. (a, allowed * r) morphvar -> (a, l * r) morphvar = function
@@ -206,7 +220,8 @@ module Solver_mono (C : Lattices_mono) = struct
       function
       | Amode c -> Amode c
       | Amodevar { mv } -> Amodevar { mv = allow_right_mv mv }
-      | Amodemeet (c, mvs) -> Amodemeet (c, List.map allow_right_mv mvs)
+      | Amodemeet { m; mvs } ->
+        Amodemeet { m; mvs = List.map allow_right_mv mvs }
 
     and allow_right_mv :
         type a l r. (a, l * allowed) morphvar -> (a, l * r) morphvar = function
@@ -217,8 +232,10 @@ module Solver_mono (C : Lattices_mono) = struct
         type a l r. (a, l * r) mode -> (a, disallowed * r) mode = function
       | Amode c -> Amode c
       | Amodevar { mv } -> Amodevar { mv = disallow_left_mv mv }
-      | Amodejoin (c, mvs) -> Amodejoin (c, List.map disallow_left_mv mvs)
-      | Amodemeet (c, mvs) -> Amodemeet (c, List.map disallow_left_mv mvs)
+      | Amodejoin { m; mvs } ->
+        Amodejoin { m; mvs = List.map disallow_left_mv mvs }
+      | Amodemeet { m; mvs } ->
+        Amodemeet { m; mvs = List.map disallow_left_mv mvs }
 
     and disallow_left_mv :
         type a l r. (a, l * r) morphvar -> (a, disallowed * r) morphvar =
@@ -230,8 +247,10 @@ module Solver_mono (C : Lattices_mono) = struct
         type a l r. (a, l * r) mode -> (a, l * disallowed) mode = function
       | Amode c -> Amode c
       | Amodevar { mv } -> Amodevar { mv = disallow_right_mv mv }
-      | Amodejoin (c, mvs) -> Amodejoin (c, List.map disallow_right_mv mvs)
-      | Amodemeet (c, mvs) -> Amodemeet (c, List.map disallow_right_mv mvs)
+      | Amodejoin { m; mvs } ->
+        Amodejoin { m; mvs = List.map disallow_right_mv mvs }
+      | Amodemeet { m; mvs } ->
+        Amodemeet { m; mvs = List.map disallow_right_mv mvs }
 
     and disallow_right_mv :
         type a l r. (a, l * r) morphvar -> (a, l * disallowed) morphvar =
@@ -253,6 +272,10 @@ module Solver_mono (C : Lattices_mono) = struct
   let max (type a) (obj : a C.obj) = Amode (C.max obj)
 
   let of_const a = Amode a
+
+  let joins obj m ms = List.fold_left (C.join obj) m ms
+
+  let meets obj m ms = List.fold_left (C.meet obj) m ms
 
   let apply_morphvar dst morph = function
     | Amorphvar (var, morph') ->
@@ -278,30 +301,44 @@ module Solver_mono (C : Lattices_mono) = struct
       | Amorphvar _ as mv -> Amodevar { mv }
       | Asolvedvar m -> Amode m)
     | Amodevar { mv = Asolvedvar m } -> Amode (C.apply dst morph m)
-    | Amodejoin (a, vs) -> (
-      let mvs, solveds = partition_map vs in
-      let const = List.fold_left (C.join dst) (C.apply dst morph a) solveds in
-      match mvs with [] -> Amode const | _ :: _ -> Amodejoin (const, mvs))
-    | Amodemeet (a, vs) -> (
-      let mvs, solveds = partition_map vs in
-      let const = List.fold_left (C.meet dst) (C.apply dst morph a) solveds in
-      match mvs with [] -> Amode const | _ :: _ -> Amodemeet (const, mvs))
+    | Amodejoin { m; mvs } -> (
+      let mvs', solveds = partition_map mvs in
+      let const = joins dst (C.apply dst morph m) solveds in
+      match mvs' with
+      | [] -> Amode const
+      | _ :: _ -> Amodejoin { m = const; mvs = mvs' })
+    | Amodemeet { m; mvs } -> (
+      let mvs', solveds = partition_map mvs in
+      let const = meets dst (C.apply dst morph m) solveds in
+      match mvs' with
+      | [] -> Amode const
+      | _ :: _ -> Amodemeet { m = const; mvs = mvs' })
+
+  (** Arguments are not checked and used directly. They must satisfy the
+      INVARIANT listed above. *)
+  let set_lower ~log v a =
+    (match log with
+    | None -> ()
+    | Some log -> log := Clower (v, v.lower) :: !log);
+    v.lower <- a
 
   (** Arguments are not checked and used directly. They must satisfy the
       INVARIANT listed above. *)
   let update_lower (type a) ~log (obj : a C.obj) v a =
+    set_lower ~log v (C.join obj v.lower a)
+
+  (** Arguments are not checked and used directly. They must satisfy the
+      INVARIANT listed above. *)
+  let set_upper ~log v a =
     (match log with
     | None -> ()
-    | Some log -> log := Clower (v, v.lower) :: !log);
-    v.lower <- C.join obj v.lower a
+    | Some log -> log := Cupper (v, v.upper) :: !log);
+    v.upper <- a
 
   (** Arguments are not checked and used directly. They must satisfy the
       INVARIANT listed above. *)
   let update_upper (type a) ~log (obj : a C.obj) v a =
-    (match log with
-    | None -> ()
-    | Some log -> log := Cupper (v, v.upper) :: !log);
-    v.upper <- C.meet obj v.upper a
+    set_upper ~log v (C.meet obj v.upper a)
 
   (** Arguments are not checked and used directly. They must satisfy the
       INVARIANT listed above. *)
@@ -311,59 +348,71 @@ module Solver_mono (C : Lattices_mono) = struct
     | Some log -> log := Cvlower (v, v.vlower) :: !log);
     v.vlower <- vlower
 
-  let submode_cv : type a. log:_ -> a C.obj -> a -> a var -> (a option, a) Result.t
-      =
+  (* If changing the lower bound on the variable solves it, returns the
+     resulting constant. *)
+  let submode_cv :
+      type a. log:_ -> a C.obj -> a -> a var -> (a option, a) Result.t =
     fun (type a) ~log (obj : a C.obj) a' v ->
      if C.le obj a' v.lower
      then Ok None
      else if not (C.le obj a' v.upper)
      then Error v.upper
      else (
-       if C.le obj v.upper a' then Ok
        update_lower ~log obj v a';
-       if C.le obj v.upper v.lower then set_vlower ~log v [];
-       Ok ())
+       if C.le obj v.upper v.lower
+       then (
+         set_vlower ~log v [];
+         Ok (Some v.upper))
+       else Ok None)
 
   let submode_cmv :
       type a l.
-      log:_ -> a C.obj -> a -> (a, l * allowed) morphvar -> (unit, a) Result.t =
-   fun ~log obj a (Amorphvar (v, f) as mv) ->
-    (* Want a <= f v, therefore f' a <= v. Ideally the two are equivalent.
-       However, [f v] could have been implicitly injected into a larger lattice,
-       which means [a] could be outside of [f]'s co-domain, which is also [f']'s
-       domain - so applying [f'] to [a] could be invalid.
+      log:_ ->
+      a C.obj ->
+      a ->
+      (a, l * allowed) morphvar ->
+      (a option, a) Result.t =
+   fun ~log obj a -> function
+    | Amorphvar (v, f) as mv -> (
+      (* Want a <= f v, therefore f' a <= v. Ideally the two are equivalent.
+         However, [f v] could have been implicitly injected into a larger lattice,
+         which means [a] could be outside of [f]'s co-domain, which is also [f']'s
+         domain - so applying [f'] to [a] could be invalid.
 
-       The following (seemingly redundant) several lines prevents that:
-       - If a <= (f v).lower, immediately succeed
-       - If not (a <= (f v).upper), immediately fail
-       - Note that at this point, we still can't ensure that a >= (f v).lower.
-         (We don't assume total ordering for generality.)
-        Therefore, we set a = join a (f v).lower. This operation has no effect
-        in terms of submoding, but we have now ensured that a is within the
-        range of f v, and thus a is within the co-domain of f, and thus it's
-        safe to apply f' to a. *)
-    let mlower = mlower obj mv in
-    let mupper = mupper obj mv in
-    if C.le obj a mlower
-    then Ok ()
-    else if not (C.le obj a mupper)
-    then Error mupper
-    else
-      let a = C.join obj a mlower in
-      let f' = C.left_adjoint obj f in
-      let src = C.src obj f in
-      let a' = C.apply src f' a in
-      assert (Result.is_ok (submode_cv ~log src a' v));
-      Ok ()
+         The following (seemingly redundant) several lines prevents that:
+         - If a <= (f v).lower, immediately succeed
+         - If not (a <= (f v).upper), immediately fail
+         - Note that at this point, we still can't ensure that a >= (f v).lower.
+           (We don't assume total ordering for generality.)
+          Therefore, we set a = join a (f v).lower. This operation has no effect
+          in terms of submoding, but we have now ensured that a is within the
+          range of f v, and thus a is within the co-domain of f, and thus it's
+          safe to apply f' to a. *)
+      let mlower = mlower obj mv in
+      let mupper = mupper obj mv in
+      if C.le obj a mlower
+      then Ok None
+      else if not (C.le obj a mupper)
+      then Error mupper
+      else
+        let a = C.join obj a mlower in
+        let f' = C.left_adjoint obj f in
+        let src = C.src obj f in
+        let a' = C.apply src f' a in
+        match submode_cv ~log src a' v with
+        | Ok None -> Ok None
+        | Ok (Some const) -> Ok (Some (C.apply obj f const))
+        | Error _ -> assert false)
+    | Asolvedvar m -> if C.le obj a m then Ok (Some m) else Error m
 
   (** Returns [Ok ()] if success; [Error x] if failed, and [x] is the next best
     (read: strictly higher) guess to replace the constant argument that MIGHT
     succeed. *)
   let rec submode_vc :
-      type a. log:_ -> a C.obj -> a var -> a -> (unit, a) Result.t =
+      type a. log:_ -> a C.obj -> a var -> a -> (a option, a) Result.t =
     fun (type a) ~log (obj : a C.obj) v a' ->
      if C.le obj v.upper a'
-     then Ok ()
+     then Ok None
      else if not (C.le obj v.lower a')
      then Error v.lower
      else (
@@ -372,16 +421,26 @@ module Solver_mono (C : Lattices_mono) = struct
          v.vlower
          |> find_error (fun mu ->
                 let r = submode_mvc ~log obj mu a' in
-                (if Result.is_ok r
-                then
+                (match r with
+                | Ok None ->
                   (* Optimization: update [v.lower] based on [mlower u].*)
                   let mu_lower = mlower obj mu in
                   if not (C.le obj mu_lower v.lower)
-                  then update_lower ~log obj v mu_lower);
+                  then update_lower ~log obj v mu_lower
+                | Ok (Some _) | Error _ -> ());
                 r)
        in
-       if C.le obj v.upper v.lower then set_vlower ~log v [];
-       r)
+       match r with
+       | Ok (ms, mvs) ->
+         set_lower ~log v (joins obj v.lower ms);
+         if C.le obj v.upper v.lower
+         then (
+           set_vlower ~log v [];
+           Ok (Some v.upper))
+         else (
+           set_vlower ~log v mvs;
+           Ok None)
+       | Error _ as e -> e)
 
   and submode_mvc :
         'a 'r.
@@ -389,28 +448,32 @@ module Solver_mono (C : Lattices_mono) = struct
         'a C.obj ->
         ('a, allowed * 'r) morphvar ->
         'a ->
-        (unit, 'a) Result.t =
-   fun ~log obj (Amorphvar (v, f) as mv) a ->
-    (* See [submode_cmv] for why we need the following seemingly redundant
-       lines. *)
-    let mupper = mupper obj mv in
-    let mlower = mlower obj mv in
-    if C.le obj mupper a
-    then Ok ()
-    else if not (C.le obj mlower a)
-    then Error mlower
-    else
-      let a = C.meet obj a mupper in
-      let f' = C.right_adjoint obj f in
-      let src = C.src obj f in
-      let a' = C.apply src f' a in
-      (* If [mlower] was precise, then the check
-         [not (C.le obj (mlower obj mv) a)] should guarantee the following call
-         to return [Ok ()]. However, [mlower] is not precise *)
-      (* not using [Result.map_error] to avoid allocating closure *)
-      match submode_vc ~log src v a' with
-      | Ok () -> Ok ()
-      | Error e -> Error (C.apply obj f e)
+        ('a option, 'a) Result.t =
+   fun ~log obj mv a ->
+    match mv with
+    | Amorphvar (v, f) as mv -> (
+      (* See [submode_cmv] for why we need the following seemingly redundant
+         lines. *)
+      let mupper = mupper obj mv in
+      let mlower = mlower obj mv in
+      if C.le obj mupper a
+      then Ok None
+      else if not (C.le obj mlower a)
+      then Error mlower
+      else
+        let a = C.meet obj a mupper in
+        let f' = C.right_adjoint obj f in
+        let src = C.src obj f in
+        let a' = C.apply src f' a in
+        (* If [mlower] was precise, then the check
+           [not (C.le obj (mlower obj mv) a)] should guarantee the following call
+           to return [Ok ()]. However, [mlower] is not precise *)
+        (* not using [Result.map_error] to avoid allocating closure *)
+        match submode_vc ~log src v a' with
+        | Ok None -> Ok None
+        | Ok (Some m) -> Ok (Some (C.apply obj f m))
+        | Error e -> Error (C.apply obj f e))
+    | Asolvedvar m -> if C.le obj m a then Ok (Some m) else Error m
 
   (** Zap the variable to its lower bound. Returns the [log] of the zapping, in
       case the caller are only interested in the lower bound and wants to
@@ -431,51 +494,72 @@ module Solver_mono (C : Lattices_mono) = struct
       let log = ref [] in
       let r = submode_vc ~log:(Some log) obj v lower in
       match r with
-      | Ok () -> log, lower
+      | Ok _ -> log, lower
       | Error a ->
         undo_changes !log;
         loop (C.join obj a lower)
     in
     loop v.lower
 
-  let zap_to_floor_morphvar_aux dst (Amorphvar (v, f)) =
-    let src = C.src dst f in
-    let log, lower = zap_to_floor_var_aux src v in
-    log, C.apply dst f lower
+  let zap_to_floor_morphvar_aux dst = function
+    | Amorphvar (v, f) ->
+      let src = C.src dst f in
+      let log, lower = zap_to_floor_var_aux src v in
+      log, C.apply dst f lower
+    | Asolvedvar m -> ref [], m
 
   let eq_morphvar :
       type a l0 r0 l1 r1.
       a C.obj -> (a, l0 * r0) morphvar -> (a, l1 * r1) morphvar -> bool =
-   fun dst (Amorphvar (v0, f0)) (Amorphvar (v1, f1)) ->
-    match C.eq_morph dst f0 f1 with None -> false | Some Refl -> v0 == v1
+   fun dst mv0 mv1 ->
+    match mv0, mv1 with
+    | Amorphvar (v0, f0), Amorphvar (v1, f1) -> (
+      match C.eq_morph dst f0 f1 with None -> false | Some Refl -> v0 == v1)
+    | Asolvedvar m0, Asolvedvar m1 -> C.le dst m0 m1 && C.le dst m1 m0
+    | (Amorphvar _ | Asolvedvar _), _ -> false
 
   let exists obj mu mvs =
     if List.exists (fun mv -> eq_morphvar obj mv mu) mvs then true else false
 
-  let submode_mvmv (type a) ~log (dst : a C.obj) (Amorphvar (v, f) as mv)
-      (Amorphvar (u, g) as mu) =
-    if C.le dst (mupper dst mv) (mlower dst mu)
-    then Ok ()
-    else if eq_morphvar dst mv mu
-    then Ok ()
-    else
-      (* The call f v <= g u translates to three steps:
-         1. f v <= g u.upper
-         2. f v.lower <= g u
-         3. adding g' (f v) to the u.vlower, where g' is the left adjoint of g.
-      *)
-      match submode_mvc ~log dst mv (mupper dst mu) with
-      | Error a -> Error (a, mupper dst mu)
-      | Ok () -> (
-        match submode_cmv ~log dst (mlower dst mv) mu with
-        | Error a -> Error (mlower dst mv, a)
-        | Ok () ->
-          let g' = C.left_adjoint dst g in
-          let src = C.src dst g in
-          let g'f = C.compose src g' (C.disallow_right f) in
-          let x = Amorphvar (v, g'f) in
-          if not (exists src x u.vlower) then set_vlower ~log u (x :: u.vlower);
-          Ok ())
+  let submode_mvmv (type a) ~log (dst : a C.obj) mv mu =
+    match mv, mu with
+    | Amorphvar (v, f), Amorphvar (u, g) -> (
+      if C.le dst (mupper dst mv) (mlower dst mu)
+      then Ok (None, None)
+      else if eq_morphvar dst mv mu
+      then Ok (None, None)
+      else
+        (* The call f v <= g u translates to three steps:
+           1. f v <= g u.upper
+           2. f v.lower <= g u
+           3. adding g' (f v) to the u.vlower, where g' is the left adjoint of g.
+        *)
+        match submode_mvc ~log dst mv (mupper dst mu) with
+        | Error a -> Error (a, mupper dst mu)
+        | Ok new_left -> (
+          match submode_cmv ~log dst (mlower dst mv) mu with
+          | Error a -> Error (mlower dst mv, a)
+          | Ok new_right ->
+            let g' = C.left_adjoint dst g in
+            let src = C.src dst g in
+            let g'f = C.compose src g' (C.disallow_right f) in
+            let x = make_morphvar src v g'f in
+            (match x with
+            | Amorphvar _ ->
+              if not (exists src x u.vlower)
+              then set_vlower ~log u (x :: u.vlower)
+            | Asolvedvar m -> update_lower ~log src u m);
+            Ok (new_left, new_right)))
+    | Asolvedvar m, Amorphvar _ -> (
+      match submode_cmv ~log dst m mu with
+      | Ok new_right -> Ok (Some m, new_right)
+      | Error err_right -> Error (m, err_right))
+    | Amorphvar _, Asolvedvar m -> (
+      match submode_mvc ~log dst mv m with
+      | Ok new_left -> Ok (new_left, Some m)
+      | Error err_left -> Error (err_left, m))
+    | Asolvedvar m0, Asolvedvar m1 ->
+      if C.le dst m0 m1 then Ok (Some m0, Some m1) else Error (m0, m1)
 
   let cnt_id = ref 0
 
