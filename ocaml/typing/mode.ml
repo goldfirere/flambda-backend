@@ -614,30 +614,30 @@ module Lattices_mono = struct
         match equal f0 g0, equal f1 g1 with
         | Some Refl, Some Refl -> Some Refl
         | _, _ -> None)
-      | ( ( Id | Proj _ | Max_with_areality | Max_with_linearity | Min_with _
-          | Const_min _ | Const_max _ | Unique_to_linear | Linear_to_unique
-          | Local_to_regional | Locality_as_regionality | Global_to_regional
-          | Regional_to_local | Regional_to_global | Compose _ | Map _ ),
+      | ( ( Id | Proj _ | Max_with_areality | Max_with_linearity
+          | Min_with_areality | Min_with_linearity | Const_min _ | Const_max _
+          | Unique_to_linear | Linear_to_unique | Local_to_regional
+          | Locality_as_regionality | Global_to_regional | Regional_to_local
+          | Regional_to_global | Compose _ | Map _ ),
           _ ) ->
         None
   end)
 
   let eq_morph = Equal_morph.equal
 
-  let rec print_morph :
-      type a b d. b obj -> Format.formatter -> (a, b, d) morph -> unit =
-   fun dst ppf -> function
+  let rec print_morph : type a b d. Format.formatter -> (a, b, d) morph -> unit
+      =
+   fun ppf -> function
     | Id -> Format.fprintf ppf "id"
     | Const_min _ -> Format.fprintf ppf "const_min"
     | Const_max _ -> Format.fprintf ppf "const_max"
     | Proj (_, ax) -> Format.fprintf ppf "proj_%a" Product.print_axis ax
-    | Max_with ax -> Format.fprintf ppf "max_with_%a" Product.print_axis ax
-    | Min_with ax -> Format.fprintf ppf "min_with_%a" Product.print_axis ax
+    | Max_with_areality -> Format.fprintf ppf "max_with_areality"
+    | Max_with_linearity -> Format.fprintf ppf "max_with_linearity"
+    | Min_with_areality -> Format.fprintf ppf "min_with_areality"
+    | Min_with_linearity -> Format.fprintf ppf "min_with_linearity"
     | Map (f0, f1) ->
-      let dst0 = proj_obj Axis0 dst in
-      let dst1 = proj_obj Axis1 dst in
-      Format.fprintf ppf "map(%a,%a)" (print_morph dst0) f0 (print_morph dst1)
-        f1
+      Format.fprintf ppf "map(%a,%a)" print_morph f0 print_morph f1
     | Unique_to_linear -> Format.fprintf ppf "unique_to_linear"
     | Linear_to_unique -> Format.fprintf ppf "linear_to_unique"
     | Local_to_regional -> Format.fprintf ppf "local_to_regional"
@@ -646,8 +646,7 @@ module Lattices_mono = struct
     | Regional_to_global -> Format.fprintf ppf "regional_to_global"
     | Global_to_regional -> Format.fprintf ppf "global_to_regional"
     | Compose (f0, f1) ->
-      let mid = src dst f0 in
-      Format.fprintf ppf "%a ∘ %a" (print_morph dst) f0 (print_morph mid) f1
+      Format.fprintf ppf "%a ∘ %a" print_morph f0 print_morph f1
 
   let id = Id
 
@@ -691,7 +690,8 @@ module Lattices_mono = struct
       f' (g' a)
     | Id -> a
     | Proj (_, ax) -> Product.proj ax a
-    | Max_with ax -> Product.update ax a (max dst)
+    | Max_with_areality -> a, Linearity.max
+    | Max_with_linearity -> max (proj_areality dst), a
     | Min_with ax -> Product.update ax a (min dst)
     | Const_min _ -> min dst
     | Const_max _ -> max dst
