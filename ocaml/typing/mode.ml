@@ -262,47 +262,49 @@ module Lattices = struct
   module Comonadic_with_regionality = Comonadic_with (Regionality)
 
   module Areality_obj = struct
-    type 'a obj =
-      | Locality : Locality.t obj
-      | Regionality : Regionality.t obj
+    type 'a t =
+      | Locality : Locality.t t
+      | Regionality : Regionality.t t
 
-    let print_obj : type a. _ -> a obj -> unit =
+    let print_obj : type a. _ -> a t -> unit =
      fun ppf -> function
       | Locality -> Format.fprintf ppf "Locality"
       | Regionality -> Format.fprintf ppf "Regionality"
 
-    let min : type a. a obj -> a = function
+    let min : type a. a t -> a = function
       | Locality -> Locality.min
       | Regionality -> Regionality.min
 
-    let max : type a. a obj -> a = function
+    let max : type a. a t -> a = function
       | Locality -> Locality.max
       | Regionality -> Regionality.max
 
-    let le : type a. a obj -> a -> a -> bool =
+    let le : type a. a t -> a -> a -> bool =
      fun obj a b ->
       match obj with
       | Locality -> Locality.le a b
       | Regionality -> Regionality.le a b
 
-    let join : type a. a obj -> a -> a -> a =
+    let join : type a. a t -> a -> a -> a =
      fun obj a b ->
       match obj with
       | Locality -> Locality.join a b
       | Regionality -> Regionality.join a b
 
-    let meet : type a. a obj -> a -> a -> a =
+    let meet : type a. a t -> a -> a -> a =
      fun obj a b ->
       match obj with
       | Locality -> Locality.meet a b
       | Regionality -> Regionality.meet a b
 
-    let print : type a. a obj -> _ -> a -> unit = function
+    let print : type a. a t -> _ -> a -> unit = function
       | Locality -> Locality.print
       | Regionality -> Regionality.print
 
     include Magic_equal (struct
-      type ('a, _, 'd) t = 'a obj constraint 'd = 'l * 'r
+      type 'a obj = 'a t
+
+      type nonrec ('a, _, 'd) t = 'a t constraint 'd = 'l * 'r
 
       let equal : type a b. a obj -> b obj -> (a, b) Misc.eq option =
        fun a b ->
@@ -314,11 +316,11 @@ module Lattices = struct
   end
 
   type 'a obj =
-    | Areality : 'a Areality_obj.obj -> 'a obj
+    | Areality : 'a Areality_obj.t -> 'a obj
     (* use the flipped version of uniqueness, so that [unique_to_linear] is monotone *)
     | Uniqueness_op : Uniqueness_op.t obj
     | Linearity : Linearity.t obj
-    | Comonadic_with : 'a Areality_obj.obj -> ('a * Linearity.t) obj
+    | Comonadic_with : 'a Areality_obj.t -> ('a * Linearity.t) obj
 
   let print_obj : type a. _ -> a obj -> unit =
    fun ppf -> function
@@ -408,10 +410,12 @@ module Lattices_mono = struct
         (** The constant morphism that always maps to the minimum *)
     | Const_max : 'a obj -> ('a, 'b, disallowed * 'd) morph
         (** The constant morphism that always maps to the maximum *)
-    | Proj :
-        ('a0, 'a1) Product.t obj * ('a0, 'a1, 'a) Product.axis
-        -> (('a0, 'a1) Product.t, 'a, 'l * 'r) morph
-        (** projection from product to an axis *)
+    | Proj_areality : 'a Areality_obj.t -> ('a and_comonads, 'a, 'l * 'r) morph
+        (** Project the areality component from the comonads *)
+    | Proj_linearity :
+        'a Areality_obj.t
+        -> ('a and_comonads, Linearity.t, 'l * 'r) morph
+        (** Project the linearity component from the comonads *)
     | Max_with_areality : ('a, 'a and_comonads, disallowed * 'r) morph
         (** Combine an areality with maxima along other comonadic axes *)
     | Max_with_linearity : (Linearity.t, 'a and_comonads, disallowed * 'r) morph
@@ -450,7 +454,8 @@ module Lattices_mono = struct
         type a b l r. (a, b, allowed * r) morph -> (a, b, l * r) morph =
       function
       | Id -> Id
-      | Proj (src, ax) -> Proj (src, ax)
+      | Proj_areality area -> Proj_areality area
+      | Proj_linearity area -> Proj_linearity area
       | Min_with_areality -> Min_with_areality
       | Min_with_linearity -> Min_with_linearity
       | Const_min src -> Const_min src
@@ -473,7 +478,8 @@ module Lattices_mono = struct
         type a b l r. (a, b, l * allowed) morph -> (a, b, l * r) morph =
       function
       | Id -> Id
-      | Proj (src, ax) -> Proj (src, ax)
+      | Proj_areality area -> Proj_areality area
+      | Proj_linearity area -> Proj_linearity area
       | Max_with_areality -> Max_with_areality
       | Max_with_linearity -> Max_with_linearity
       | Const_max src -> Const_max src
@@ -496,7 +502,8 @@ module Lattices_mono = struct
         type a b l r. (a, b, l * r) morph -> (a, b, disallowed * r) morph =
       function
       | Id -> Id
-      | Proj (src, ax) -> Proj (src, ax)
+      | Proj_areality area -> Proj_areality area
+      | Proj_linearity area -> Proj_linearity area
       | Min_with_areality -> Min_with_areality
       | Min_with_linearity -> Min_with_linearity
       | Max_with_areality -> Max_with_areality
@@ -523,7 +530,8 @@ module Lattices_mono = struct
         type a b l r. (a, b, l * r) morph -> (a, b, l * disallowed) morph =
       function
       | Id -> Id
-      | Proj (src, ax) -> Proj (src, ax)
+      | Proj_areality area -> Proj_areality area
+      | Proj_linearity area -> Proj_linearity area
       | Min_with_areality -> Min_with_areality
       | Min_with_linearity -> Min_with_linearity
       | Max_with_areality -> Max_with_areality
@@ -547,17 +555,18 @@ module Lattices_mono = struct
         Map (f0, f1)
   end)
 
+  let proj_areality (type area) (dst : area and_comonads obj) =
+    match dst with Comonadic_with a -> a
+
   let rec src : type a b d. b obj -> (a, b, d) morph -> a obj =
    fun dst f ->
-    let areality_src (type area) (dst : area and_comonads obj) =
-      match dst with Comonadic_with a -> a
-    in
     match f with
     | Id -> dst
-    | Proj (src, _) -> src
-    | Max_with_areality -> Areality (areality_src dst)
+    | Proj_areality area -> Comonadic_with area
+    | Proj_linearity area -> Comonadic_with area
+    | Max_with_areality -> Areality (proj_areality dst)
     | Max_with_linearity -> Linearity
-    | Min_with_areality -> Areality (areality_src dst)
+    | Min_with_areality -> Areality (proj_areality dst)
     | Min_with_linearity -> Linearity
     | Const_min src | Const_max src -> src
     | Compose (f, g) ->
@@ -570,7 +579,7 @@ module Lattices_mono = struct
     | Global_to_regional -> Areality Locality
     | Regional_to_local -> Areality Regionality
     | Regional_to_global -> Areality Regionality
-    | Map _ -> Comonadic_with (areality_src dst)
+    | Map _ -> Comonadic_with (proj_areality dst)
 
   module Equal_morph = Magic_equal (struct
     type ('a, 'b, 'd) t = ('a, 'b, 'd) morph constraint 'd = 'l * 'r
@@ -583,12 +592,10 @@ module Lattices_mono = struct
      fun f0 f1 ->
       match f0, f1 with
       | Id, Id -> Some Refl
-      | Proj (src0, ax0), Proj (src1, ax1) -> (
-        match eq_obj src0 src1 with
-        | Some Refl -> (
-          match Product.eq_axis ax0 ax1 with
-          | None -> None
-          | Some Refl -> Some Refl)
+      | Proj_areality _, Proj_areality _ -> Some Refl
+      | Proj_linearity a0, Proj_linearity a1 -> (
+        match Areality_obj.equal a0 a1 with
+        | Some Refl -> Some Refl
         | None -> None)
       | Max_with_areality, Max_with_areality -> Some Refl
       | Max_with_linearity, Max_with_linearity -> Some Refl
@@ -614,11 +621,11 @@ module Lattices_mono = struct
         match equal f0 g0, equal f1 g1 with
         | Some Refl, Some Refl -> Some Refl
         | _, _ -> None)
-      | ( ( Id | Proj _ | Max_with_areality | Max_with_linearity
-          | Min_with_areality | Min_with_linearity | Const_min _ | Const_max _
-          | Unique_to_linear | Linear_to_unique | Local_to_regional
-          | Locality_as_regionality | Global_to_regional | Regional_to_local
-          | Regional_to_global | Compose _ | Map _ ),
+      | ( ( Id | Proj_areality _ | Proj_linearity _ | Max_with_areality
+          | Max_with_linearity | Min_with_areality | Min_with_linearity
+          | Const_min _ | Const_max _ | Unique_to_linear | Linear_to_unique
+          | Local_to_regional | Locality_as_regionality | Global_to_regional
+          | Regional_to_local | Regional_to_global | Compose _ | Map _ ),
           _ ) ->
         None
   end)
@@ -631,7 +638,8 @@ module Lattices_mono = struct
     | Id -> Format.fprintf ppf "id"
     | Const_min _ -> Format.fprintf ppf "const_min"
     | Const_max _ -> Format.fprintf ppf "const_max"
-    | Proj (_, ax) -> Format.fprintf ppf "proj_%a" Product.print_axis ax
+    | Proj_areality _ -> Format.fprintf ppf "prof_areality"
+    | Proj_linearity _ -> Format.fprintf ppf "proj_linearity"
     | Max_with_areality -> Format.fprintf ppf "max_with_areality"
     | Max_with_linearity -> Format.fprintf ppf "max_with_linearity"
     | Min_with_areality -> Format.fprintf ppf "min_with_areality"
@@ -680,6 +688,9 @@ module Lattices_mono = struct
     | Locality.Local -> Regionality.Local
     | Locality.Global -> Regionality.Regional
 
+  let proj_areality (type a) (obj : a and_comonads obj) : a Areality_obj.t =
+    match obj with Comonadic_with area -> area
+
   let rec apply : type a b d. b obj -> (a, b, d) morph -> a -> b =
    fun dst f a ->
     match f with
@@ -689,10 +700,12 @@ module Lattices_mono = struct
       let f' = apply dst f in
       f' (g' a)
     | Id -> a
-    | Proj (_, ax) -> Product.proj ax a
+    | Proj_areality _ -> fst a
+    | Proj_linearity _ -> snd a
     | Max_with_areality -> a, Linearity.max
-    | Max_with_linearity -> max (proj_areality dst), a
-    | Min_with ax -> Product.update ax a (min dst)
+    | Max_with_linearity -> Areality_obj.max (proj_areality dst), a
+    | Min_with_areality -> a, Linearity.min
+    | Min_with_linearity -> Areality_obj.min (proj_areality dst), a
     | Const_min _ -> min dst
     | Const_max _ -> max dst
     | Unique_to_linear -> unique_to_linear a
@@ -703,10 +716,9 @@ module Lattices_mono = struct
     | Regional_to_global -> regional_to_global a
     | Global_to_regional -> global_to_regional a
     | Map (f0, f1) ->
-      let dst0 = proj_obj Axis0 dst in
-      let dst1 = proj_obj Axis1 dst in
+      let area = proj_areality dst in
       let a0, a1 = a in
-      apply dst0 f0 a0, apply dst1 f1 a1
+      apply (Areality area) f0 a0, apply Linearity f1 a1
 
   (** Compose m0 after m1. Returns [Some f] if the composition can be
     represented by [f] instead of [Compose m0 m1]. [None] otherwise. *)
@@ -729,23 +741,24 @@ module Lattices_mono = struct
       | None -> None)
     | Const_min mid, f -> Some (Const_min (src mid f))
     | Const_max mid, f -> Some (Const_max (src mid f))
-    | Proj _, Const_min src -> Some (Const_min src)
-    | Proj _, Const_max src -> Some (Const_max src)
-    | Proj (mid, ax0), Max_with ax1 -> (
-      match Product.eq_axis ax0 ax1 with
-      | None -> Some (Const_max (proj_obj ax1 mid))
-      | Some Refl -> Some Id)
-    | Proj (mid, ax0), Min_with ax1 -> (
-      match Product.eq_axis ax0 ax1 with
-      | None -> Some (Const_min (proj_obj ax1 mid))
-      | Some Refl -> Some Id)
-    | Proj (mid, ax), Map (f0, f1) -> (
-      let src' = src mid m1 in
-      match ax with
-      | Axis0 -> Some (compose dst f0 (Proj (src', Axis0)))
-      | Axis1 -> Some (compose dst f1 (Proj (src', Axis1))))
-    | Max_with _, Const_max src -> Some (Const_max src)
-    | Min_with _, Const_min src -> Some (Const_min src)
+    | (Proj_areality _ | Proj_linearity _), Const_min src ->
+      Some (Const_min src)
+    | (Proj_areality _ | Proj_linearity _), Const_max src ->
+      Some (Const_max src)
+    | Proj_areality _, Max_with_areality -> Some Id
+    | Proj_areality _, Max_with_linearity -> Some (Const_max Linearity)
+    | Proj_linearity area, Max_with_areality -> Some (Const_max (Areality area))
+    | Proj_linearity _, Max_with_linearity -> Some Id
+    | Proj_areality _, Min_with_areality -> Some Id
+    | Proj_areality _, Min_with_linearity -> Some (Const_min Linearity)
+    | Proj_linearity area, Min_with_areality -> Some (Const_min (Areality area))
+    | Proj_linearity _, Min_with_linearity -> Some Id
+    | Proj_areality _, Map (f0, _f1) -> Some (compose dst f0 m0)
+    | Proj_linearity _, Map (_f0, f1) -> Some (compose dst f1 m0)
+    | (Max_with_areality | Max_with_linearity), Const_max src ->
+      Some (Const_max src)
+    | (Min_with_areality | Min_with_linearity), Const_min src ->
+      Some (Const_min src)
     | Unique_to_linear, Const_min src -> Some (Const_min src)
     | Linear_to_unique, Const_min src -> Some (Const_min src)
     | Unique_to_linear, Const_max src -> Some (Const_max src)
@@ -753,9 +766,8 @@ module Lattices_mono = struct
     | Unique_to_linear, Linear_to_unique -> Some Id
     | Linear_to_unique, Unique_to_linear -> Some Id
     | Map (f0, f1), Map (g0, g1) ->
-      let dst0 = proj_obj Axis0 dst in
-      let dst1 = proj_obj Axis1 dst in
-      Some (Map (compose dst0 f0 g0, compose dst1 f1 g1))
+      let dst0 = proj_areality dst in
+      Some (Map (compose (Areality dst0) f0 g0, compose Linearity f1 g1))
     | Regional_to_local, Local_to_regional -> Some Id
     | Regional_to_local, Global_to_regional ->
       Some (Const_max (Areality Locality))
@@ -780,9 +792,11 @@ module Lattices_mono = struct
     | Global_to_regional, Regional_to_global -> None
     | Global_to_regional, Const_min _ -> None
     | Global_to_regional, Const_max src -> Some (Const_max src)
-    | Min_with _, _ -> None
-    | Max_with _, _ -> None
-    | _, Proj _ -> None
+    | ( ( Min_with_areality | Min_with_linearity | Max_with_areality
+        | Max_with_linearity ),
+        _ ) ->
+      None
+    | _, (Proj_areality _ | Proj_linearity _) -> None
     | Map _, _ -> None
 
   and compose :
@@ -797,8 +811,10 @@ module Lattices_mono = struct
    fun dst f ->
     match f with
     | Id -> Id
-    | Proj (_, ax) -> Min_with ax
-    | Max_with ax -> Proj (dst, ax)
+    | Proj_areality _ -> Min_with_areality
+    | Proj_linearity _ -> Min_with_linearity
+    | Max_with_areality -> Proj_areality (proj_areality dst)
+    | Max_with_linearity -> Proj_linearity (proj_areality dst)
     | Compose (f, g) ->
       let mid = src dst f in
       let f' = left_adjoint dst f in
@@ -812,10 +828,9 @@ module Lattices_mono = struct
     | Locality_as_regionality -> Regional_to_local
     | Regional_to_local -> Local_to_regional
     | Map (f0, f1) ->
-      let dst0 = proj_obj Axis0 dst in
-      let dst1 = proj_obj Axis1 dst in
-      let f0' = left_adjoint dst0 f0 in
-      let f1' = left_adjoint dst1 f1 in
+      let dst0 = proj_areality dst in
+      let f0' = left_adjoint (Areality dst0) f0 in
+      let f1' = left_adjoint Linearity f1 in
       Map (f0', f1')
 
   and right_adjoint :
@@ -824,8 +839,10 @@ module Lattices_mono = struct
    fun dst f ->
     match f with
     | Id -> Id
-    | Proj (_, ax) -> Max_with ax
-    | Min_with ax -> Proj (dst, ax)
+    | Proj_areality _ -> Max_with_areality
+    | Proj_linearity _ -> Max_with_linearity
+    | Min_with_areality -> Proj_areality (proj_areality dst)
+    | Min_with_linearity -> Proj_linearity (proj_areality dst)
     | Compose (f, g) ->
       let mid = src dst f in
       let f' = right_adjoint dst f in
@@ -839,19 +856,20 @@ module Lattices_mono = struct
     | Locality_as_regionality -> Regional_to_global
     | Regional_to_global -> Global_to_regional
     | Map (f0, f1) ->
-      let dst0 = proj_obj Axis0 dst in
-      let dst1 = proj_obj Axis1 dst in
-      let f0' = right_adjoint dst0 f0 in
-      let f1' = right_adjoint dst1 f1 in
+      let dst0 = proj_areality dst in
+      let f0' = right_adjoint (Areality dst0) f0 in
+      let f1' = right_adjoint Linearity f1 in
       Map (f0', f1')
 
   (** Helper functions that returns a [Map] that corresponds to lifting *)
-  let lift (type a0 a1 a b0 b1 b d) :
-      (a0, a1, a, b0, b1, b) Product.saxis ->
-      (a, b, d) morph ->
-      ((a0, a1) Product.t, (b0, b1) Product.t, d) morph =
-   fun sax f ->
-    match sax, f with SAxis0, f0 -> Map (f0, Id) | SAxis1, f1 -> Map (Id, f1)
+  let lift_areality :
+      ('a, 'a, 'd) morph -> ('a and_comonads, 'a and_comonads, 'd) morph =
+   fun f -> Map (f, Id)
+
+  let lift_linearity :
+      (Linearity.t, Linearity.t, 'd) morph ->
+      ('a and_comonads, 'a and_comonads, 'd) morph =
+   fun f -> Map (Id, f)
 end
 
 module C = Lattices_mono
@@ -951,7 +969,7 @@ module Locality = struct
 
     module Solver = S.Positive
 
-    let areality = C.Locality
+    let areality : _ C.Areality_obj.t = Locality
 
     let obj = C.Areality areality
   end
@@ -975,7 +993,7 @@ module Regionality = struct
 
     module Solver = S.Positive
 
-    let areality = C.Regionality
+    let areality : _ C.Areality_obj.t = Regionality
 
     let obj = C.Areality areality
   end
@@ -1059,7 +1077,7 @@ module type Areality = sig
   module Obj : sig
     include Obj with type const = Const.t and module Solver = S.Positive
 
-    val areality : Const.t C.areality
+    val areality : Const.t C.Areality_obj.t
   end
 
   type 'd t = (Const.t, 'd) Obj.Solver.mode
