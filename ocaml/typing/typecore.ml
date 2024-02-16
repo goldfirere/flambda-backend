@@ -880,8 +880,10 @@ let mode_annots_from_pat_attrs sp : Alloc.Const.Option.t =
   and linearity =
     if has_once_attr_pat sp then Some Linearity.Const.Once
     else None
+  (* CR externals: No support for user-written externalities *)
+  and externality = None
   in
-  {areality; linearity; uniqueness}
+  {areality; linearity; externality; uniqueness}
 
 let mode_annots_from_exp_attrs exp : Alloc.Const.Option.t =
   let areality =
@@ -893,8 +895,10 @@ let mode_annots_from_exp_attrs exp : Alloc.Const.Option.t =
   and linearity =
     if has_once_attr_exp exp then Some Linearity.Const.Once
     else None
+  (* CR externals: No support for user-written externalities *)
+  and externality = None
   in
-  {areality; linearity; uniqueness}
+  {areality; linearity; externality; uniqueness}
 
 let mode_annots_from_n_ary_function_annotations annots : Alloc.Const.Option.t =
   let areality =
@@ -906,8 +910,10 @@ let mode_annots_from_n_ary_function_annotations annots : Alloc.Const.Option.t =
   and linearity =
     if has_mode_annotation annots Once then Some Linearity.Const.Once
     else None
+  (* CR externals: No support for user-written externalities *)
+  and externality = None
   in
-  {areality; linearity; uniqueness}
+  {areality; linearity; externality; uniqueness}
 
 let apply_mode_annots ~loc ~env ~ty_expected (m : Alloc.Const.Option.t) mode =
   let error axis =
@@ -10074,13 +10080,15 @@ let report_error ~loc env = function
         | `Linearity _ | `Uniqueness _ ->
           sharedness_hint fail_reason submode_reason shared_context
         | `Areality _ ->
-          escaping_hint fail_reason submode_reason closure_context
+           escaping_hint fail_reason submode_reason closure_context
+        | `Externality _ -> []
       in
       Location.errorf ~loc ~sub begin
         match fail_reason with
         | `Areality _ -> "This value escapes its region"
         | `Uniqueness _ -> "Found a shared value where a unique value was expected"
         | `Linearity _ -> "Found a once value where a many value was expected"
+        | `Externality _ -> "Stored a garbage-collected value in an externally-managed block"
         end
   | Local_application_complete (lbl, loc_kind) ->
       let sub =
@@ -10106,14 +10114,15 @@ let report_error ~loc env = function
         "@[This application is complete, but surplus arguments were provided afterwards.@ \
          When passing or calling a local value, extra arguments are passed in a separate application.@]"
   | Param_mode_mismatch (ty, (_, mkind)) ->
-      let mkind =
+      let mkind ppf =
         match mkind with
-        | `Areality _ -> "local"
-        | `Uniqueness _ -> "unique"
-        | `Linearity _ -> "once"
+        | `Areality _ -> Format.fprintf ppf "local"
+        | `Uniqueness _ -> Format.fprintf ppf "unique"
+        | `Linearity _ -> Format.fprintf ppf "once"
+        | `Externality { left; _ } -> Externality.Const.print ppf left
       in
       Location.errorf ~loc
-        "@[This function has a %s parameter, but was expected to have type:@ %a@]"
+        "@[This function has a %t parameter, but was expected to have type:@ %a@]"
         mkind Printtyp.type_expr ty
   | Uncurried_function_escapes e -> begin
       match e with
@@ -10123,7 +10132,10 @@ let report_error ~loc env = function
       | `Uniqueness _ -> assert false
       | `Linearity _ ->
           Location.errorf ~loc "This function when partially applied returns a once value,@ \
-          but expected to be many."
+                                but expected to be many."
+      | `Externality _ ->
+         Location.errorf ~loc "Partially applied functions are garbage collected,@ \
+                               but this one is expected to be external (manually managed)."
     end
   | Local_return_annotation_mismatch _ ->
       Location.errorf ~loc

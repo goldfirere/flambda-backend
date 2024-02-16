@@ -176,6 +176,29 @@ module type S = sig
     val zap_to_legacy : (allowed * 'r) t -> Const.t
   end
 
+  module Externality : sig
+    module Const : sig
+      type t =
+        | External
+        | External64
+        | Internal
+
+      include Lattice with type t := t
+    end
+
+    type error = Const.t Solver.error
+
+    include Common with module Const := Const and type error := error
+
+    val external_ : lr
+
+    val external64 : lr
+
+    val internal : lr
+
+    val zap_to_legacy : ('l * allowed) t -> Const.t
+  end
+
   module Uniqueness : sig
     module Const : sig
       type t =
@@ -210,25 +233,34 @@ module type S = sig
         Common
           with type error =
             [ `Areality of Areality.error
-            | `Linearity of Linearity.error ]
+            | `Linearity of Linearity.error
+            | `Externality of Externality.error ]
 
       val check_const :
-        ('l * 'r) t -> Areality.Const.t option * Linearity.Const.t option
+        ('l * 'r) t ->
+        Areality.Const.t option
+        * Linearity.Const.t option
+        * Externality.Const.t option
 
       val linearity : ('l * 'r) t -> ('l * 'r) Linearity.t
     end
 
     module Const : sig
-      type ('area, 'lin, 'uni) modes =
+      type ('area, 'lin, 'ext, 'uni) modes =
         { areality : 'area;
           linearity : 'lin;
+          externality : 'ext;
           uniqueness : 'uni
         }
 
       include
         Lattice
           with type t =
-            (Areality.Const.t, Linearity.Const.t, Uniqueness.Const.t) modes
+            ( Areality.Const.t,
+              Linearity.Const.t,
+              Externality.Const.t,
+              Uniqueness.Const.t )
+            modes
 
       (** Similar to [Alloc.close_over] but for constants *)
       val close_over : t -> t
@@ -242,6 +274,7 @@ module type S = sig
         type t =
           ( Areality.Const.t option,
             Linearity.Const.t option,
+            Externality.Const.t option,
             Uniqueness.Const.t option )
           modes
 
@@ -254,7 +287,8 @@ module type S = sig
     type error =
       [ `Areality of Areality.error
       | `Uniqueness of Uniqueness.error
-      | `Linearity of Linearity.error ]
+      | `Linearity of Linearity.error
+      | `Externality of Externality.error ]
 
     type 'd t = ('d Monadic.t, 'd Comonadic.t) monadic_comonadic
 
@@ -286,6 +320,8 @@ module type S = sig
 
     val linearity : ('l * 'r) t -> ('l * 'r) Linearity.t
 
+    val externality : ('l * 'r) t -> ('l * 'r) Externality.t
+
     val max_with_uniqueness : ('l * 'r) Uniqueness.t -> (disallowed * 'r) t
 
     val min_with_uniqueness : ('l * 'r) Uniqueness.t -> ('l * disallowed) t
@@ -298,6 +334,10 @@ module type S = sig
 
     val max_with_linearity : ('l * 'r) Linearity.t -> (disallowed * 'r) t
 
+    val min_with_externality : ('l * 'r) Externality.t -> ('l * disallowed) t
+
+    val max_with_externality : ('l * 'r) Externality.t -> (disallowed * 'r) t
+
     val set_areality_min : ('l * 'r) t -> ('l * disallowed) t
 
     val set_areality_max : ('l * 'r) t -> (disallowed * 'r) t
@@ -305,6 +345,10 @@ module type S = sig
     val set_linearity_min : ('l * 'r) t -> ('l * disallowed) t
 
     val set_linearity_max : ('l * 'r) t -> (disallowed * 'r) t
+
+    val set_externality_min : ('l * 'r) t -> ('l * disallowed) t
+
+    val set_externality_max : ('l * 'r) t -> (disallowed * 'r) t
 
     val set_uniqueness_min : ('l * 'r) t -> ('l * disallowed) t
 

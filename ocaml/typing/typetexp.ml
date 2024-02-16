@@ -609,7 +609,9 @@ let get_alloc_mode styp : Alloc.Const.t =
     | Error () ->
       raise (Error(styp.ptyp_loc, Env.empty, Unsupported_extension Unique))
   in
-  {areality; linearity; uniqueness}
+  (* CR externals: no support for user-written externalities yet *)
+  let externality = Externality.Const.Internal in
+  {areality; linearity; externality; uniqueness}
 
 let rec extract_params styp =
   let final styp =
@@ -691,8 +693,10 @@ and transl_type_aux env ~row_context ~aliased ~policy mode styp =
           (* Arrow types cross uniqueness axis. Therefore, when user writes an
           A -> B -> C (to be used as constraint on something), we should make
           (B -> C) shared. A proper way to do this is via modal kinds. *)
+          (* CR layouts v2.8: do it the proper way *)
+          (* Always interpret an unannotated arrow as [Internal] *)
           let acc_mode : Alloc.Const.t
-            = {areality; linearity; uniqueness=Uniqueness.Const.Shared}
+            = {areality; linearity; externality=Internal; uniqueness=Shared}
           in
           let ret_mode =
             match rest with

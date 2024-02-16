@@ -3963,6 +3963,7 @@ let report_lookup_error _loc env ppf = function
         match error with
         | `Areality _ -> "local", "might escape"
         | `Linearity _ -> "once", "is many"
+        | `Externality _ -> "garbage collected", "is manually allocated"
       in
       fprintf ppf
       "@[The value %a is %s, so cannot be used \
