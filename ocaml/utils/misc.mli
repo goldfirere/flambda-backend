@@ -849,6 +849,16 @@ module Magic_number : sig
   val all_kinds : kind list
 end
 
+(** Result of a less-than-or-equal comparison *)
+module Le_result = struct
+  type t =
+    | Equal
+    | Le
+    | Not_le
+
+  val combine : t -> t -> t
+end
+
 (** Propositional equality *)
 type (_, _) eq = Refl : ('a, 'a) eq
 

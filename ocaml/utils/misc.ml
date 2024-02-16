@@ -1379,6 +1379,20 @@ module Magic_number = struct
            | Ok () -> Ok info
 end
 
+module Le_result = struct
+  type t =
+    | Equal
+    | Le
+    | Not_le
+
+  let combine t1 t2 =
+    match sr1, sr2 with
+    | Equal, Equal -> Equal
+    | Equal, Le | Le, Equal | Le, Le -> Le
+    | Not_le, _ | _, Not_le -> Not_le
+end
+
+
 (*********************************************)
 (* Fancy types *)
 

@@ -12,6 +12,8 @@
 (*                                                                        *)
 (**************************************************************************)
 
+open Mode
+
 (* CR layouts v2.8: remove this *)
 module Legacy = struct
   type const =
@@ -74,19 +76,6 @@ module Legacy = struct
         | Bits64 ),
         _ ) ->
       false
-end
-
-module Sub_result = struct
-  type t =
-    | Equal
-    | Sub
-    | Not_sub
-
-  let combine sr1 sr2 =
-    match sr1, sr2 with
-    | Equal, Equal -> Equal
-    | Equal, Sub | Sub, Equal | Sub, Sub -> Sub
-    | Not_sub, _ | _, Not_sub -> Not_sub
 end
 
 (* A *sort* is the information the middle/back ends need to be able to
@@ -399,11 +388,11 @@ module Layout = struct
       | Any, Any -> true
       | (Any | Sort _), _ -> false
 
-    let sub c1 c2 : Sub_result.t =
+    let sub c1 c2 : Misc.Le_result.t =
       match c1, c2 with
       | _ when equal c1 c2 -> Equal
-      | _, Any -> Sub
-      | Any, Sort _ | Sort _, Sort _ -> Not_sub
+      | _, Any -> Le
+      | Any, Sort _ | Sort _, Sort _ -> Not_le
   end
 
   type t =
@@ -423,12 +412,12 @@ module Layout = struct
     | Any, Any -> true
     | (Any | Sort _), _ -> false
 
-  let sub t1 t2 : Sub_result.t =
+  let sub t1 t2 : Misc.Le_result.t =
     match t1, t2 with
     | Any, Any -> Equal
-    | _, Any -> Sub
-    | Any, _ -> Not_sub
-    | Sort s1, Sort s2 -> if Sort.equate s1 s2 then Equal else Not_sub
+    | _, Any -> Le
+    | Any, _ -> Not_le
+    | Sort s1, Sort s2 -> if Sort.equate s1 s2 then Equal else Not_le
 
   let intersection t1 t2 =
     match t1, t2 with
@@ -487,14 +476,14 @@ module Externality = struct
     | Internal, Internal -> true
     | (External | External64 | Internal), _ -> false
 
-  let sub t1 t2 : Sub_result.t =
+  let sub t1 t2 : Misc.Le_result.t =
     match t1, t2 with
     | External, External -> Equal
-    | External, (External64 | Internal) -> Sub
-    | External64, External -> Not_sub
+    | External, (External64 | Internal) -> Le
+    | External64, External -> Not_le
     | External64, External64 -> Equal
-    | External64, Internal -> Sub
-    | Internal, (External | External64) -> Not_sub
+    | External64, Internal -> Le
+    | Internal, (External | External64) -> Not_le
     | Internal, Internal -> Equal
 
   let intersection t1 t2 =
@@ -518,11 +507,14 @@ end
 module Const = struct
   type t =
     { layout : Layout.Const.t;
-      externality : Externality.t
+      locality : Locality.Const.t;
+      linearity : Linearity.Const.t;
+      externality : Externality.Const.t;
+      uniqueness : Uniqueness.Const.t
     }
 
   (* CR layouts v2.8: remove this *)
-  let to_legacy_jkind { layout; externality } : Legacy.const =
+  let to_legacy_jkind { layout; externality; _ } : Legacy.const =
     match layout, externality with
     | Any, _ -> Any
     | Sort Value, Internal -> Value
@@ -537,9 +529,25 @@ module Const = struct
   (* CR layouts v2.8: do a better job here *)
   let to_string t = Legacy.string_of_const (to_legacy_jkind t)
 
-  let sub { layout = lay1; externality = ext1 }
-      { layout = lay2; externality = ext2 } =
-    Sub_result.combine (Layout.Const.sub lay1 lay2) (Externality.sub ext1 ext2)
+  let sub
+      { layout = lay1;
+        locality = loc1;
+        linearity = lin1;
+        externality = ext1;
+        uniqueness = uni1
+      }
+      { layout = lay2;
+        locality = loc2;
+        linearity = lin2;
+        externality = ext2;
+        uniqueness = uni2
+      } =
+    List.fold_left Misc.Le_result.combine
+      (Layout.Const.sub lay1 lay2)
+      [ Locality.Const.le loc1 loc2;
+        Linearity.Const.le lin1 lin2;
+        Externality.Const.le ext1 ext2;
+        Uniqueness.Const.le uni1 uni2 ]
 end
 
 module Desc = struct
@@ -557,47 +565,100 @@ module Desc = struct
      relationship only when they are equal.
      Never does mutation.
      Pre-condition: no filled-in sort variables. *)
-  let sub d1 d2 : Sub_result.t =
+  let sub d1 d2 : Misc.Le_result.t =
     match d1, d2 with
     | Const c1, Const c2 -> Const.sub c1 c2
-    | Var _, Const { layout = Any; externality = Internal } -> Sub
-    | Var v1, Var v2 -> if v1 == v2 then Equal else Not_sub
-    | Const _, Var _ | Var _, Const _ -> Not_sub
+    | Var _, Const { layout = Any; externality = Internal } -> Le
+    | Var v1, Var v2 -> if v1 == v2 then Equal else Not_le
+    | Const _, Var _ | Var _, Const _ -> Not_le
 end
 
 module Jkind_desc = struct
   type t =
     { layout : Layout.t;
-      externality : Externality.t
+      locality : Locality.Const.t;
+      linearity : Linearity.Const.t;
+      externality : Externality.Const.t;
+      uniqueness : Uniqueness.Const.t
     }
 
-  let max = { layout = Layout.max; externality = Externality.max }
+  let max =
+    { layout = Layout.max;
+      locality = Locality.Const.max;
+      linearity = Linearity.Const.max;
+      externality = Externality.Const.max;
+      uniqueness = Uniqueness.Const.max
+    }
 
-  let equate_or_equal ~allow_mutation { layout = lay1; externality = ext1 }
-      { layout = lay2; externality = ext2 } =
+  let equate_or_equal ~allow_mutation
+      { layout = lay1;
+        locality = loc1;
+        linearity = lin1;
+        externality = ext1;
+        uniqueness = uni1
+      }
+      { layout = lay2;
+        locality = loc2;
+        linearity = lin2;
+        externality = ext2;
+        uniqueness = uni2
+      } =
     Layout.equate_or_equal ~allow_mutation lay1 lay2
-    && Externality.equal ext1 ext2
+    && Locality.Const.equal loc1 loc2
+    && Linearity.Const.equal lin1 lin2
+    && Externality.Const.equal ext1 ext2
+    && Uniqueness.Const.equal uni1 uni2
 
-  let sub { layout = layout1; externality = externality1 }
-      { layout = layout2; externality = externality2 } =
-    Sub_result.combine
-      (Layout.sub layout1 layout2)
-      (Externality.sub externality1 externality2)
+  let sub
+      { layout = lay1;
+        locality = loc1;
+        linearity = lin1;
+        externality = ext1;
+        uniqueness = uni1
+      }
+      { layout = lay2;
+        locality = loc2;
+        linearity = lin2;
+        externality = ext2;
+        uniqueness = uni2
+      } =
+    List.fold_left Misc.Le_result.combine (Layout.sub lay1 lay2)
+      [ Locality.Const.less_or_equal loc1 loc2;
+        Linearity.Const.less_or_equal lin1 lin2;
+        Externality.Const.less_or_equal ext1 ext2;
+        Uniqueness.Const.less_or_equal uni1 uni2 ]
 
-  let intersection { layout = lay1; externality = ext1 }
-      { layout = lay2; externality = ext2 } =
+  let intersection
+      { layout = lay1;
+        locality = loc1;
+        linearity = lin1;
+        externality = ext1;
+        uniqueness = uni1
+      }
+      { layout = lay2;
+        locality = loc2;
+        linearity = lin2;
+        externality = ext2;
+        uniqueness = uni2
+      } =
     Option.bind (Layout.intersection lay1 lay2) (fun layout ->
-        Some { layout; externality = Externality.intersection ext1 ext2 })
+        Some
+          { layout;
+            locality = Locality.Const.meet loc1 loc2;
+            linearity = Linearity.Const.meet lin1 lin2;
+            externality = Externality.Const.meet ext1 ext2;
+            uniqeuenss = Uniqueness.Const.meet uni1 uni2
+          })
 
   let of_new_sort_var () =
     let layout, sort = Layout.of_new_sort_var () in
-    { layout; externality = Externality.max }, sort
+    { max with layout }, sort
 
   let any = max
 
-  let value = { layout = Layout.value; externality = Externality.max }
+  let value = { max with layout = Layout.value }
 
-  let void = { layout = Layout.void; externality = Externality.min }
+  let void = { layout = Layout.void; externality = Externality.external_ }
 
   let immediate64 = { layout = Layout.value; externality = External64 }
 
@@ -1439,8 +1500,8 @@ let combine_histories reason lhs rhs =
   if flattened_histories
   then
     match Desc.sub (Jkind_desc.get lhs.jkind) (Jkind_desc.get rhs.jkind) with
-    | Sub -> lhs.history
-    | Not_sub ->
+    | Le -> lhs.history
+    | Not_le ->
       rhs.history
       (* CR layouts: this will be wrong if we ever have a non-trivial meet in the layout lattice *)
     | Equal ->
@@ -1466,14 +1527,13 @@ let check_sub sub super = Jkind_desc.sub sub.jkind super.jkind
 
 let sub sub super =
   match check_sub sub super with
-  | Sub | Equal -> Ok ()
-  | Not_sub -> Error (Violation.of_ (Not_a_subjkind (sub, super)))
+  | Le | Equal -> Ok ()
+  | Not_le -> Error (Violation.of_ (Not_a_subjkind (sub, super)))
 
 let sub_with_history sub super =
   match check_sub sub super with
-  | Sub | Equal ->
-    Ok { sub with history = combine_histories Subjkind sub super }
-  | Not_sub -> Error (Violation.of_ (Not_a_subjkind (sub, super)))
+  | Le | Equal -> Ok { sub with history = combine_histories Subjkind sub super }
+  | Not_le -> Error (Violation.of_ (Not_a_subjkind (sub, super)))
 
 let is_void_defaulting = function
   | { jkind = { layout = Sort s; _ }; _ } -> Sort.is_void_defaulting s
