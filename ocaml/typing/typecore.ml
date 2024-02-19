@@ -798,11 +798,28 @@ let has_poly_constraint spat =
     end
   | _ -> false
 
-let mode_cross_to_min env ty mode =
-  if mode_cross env ty then
-    Value.disallow_right Value.min
-  else
-    Value.disallow_right mode
+(* CR layouts v2.8: use the meet-with-constant morphism when available *)
+(* The approach here works only for 2-element modal axes. *)
+let mode_cross_left env ty mode =
+  let jkind = type_jkind_purely env ty in
+  let upper_bounds = Jkind.get_modal_upper_bounds jkind in
+  let mode = Value.disallow_right mode in
+  let mode =
+    if Locality.Const.equal upper_bounds.locality Locality.Const.min
+    then Value.set_regionality_min mode
+    else mode
+  in
+  let mode =
+    if Linearity.Const.equal upper_bounds.linearity Linearity.Const.min
+    then Value.set_linearity_min mode
+    else mode
+  in
+  let mode =
+    if Uniqueness.Const.equal upper_bounds.uniqueness Uniqueness.Const.min
+    then Value.set_uniqueness_min mode
+    else mode
+  in
+  mode
 
 let expect_mode_cross env ty (expected_mode : expected_mode) =
   if mode_cross env ty then
@@ -2431,7 +2448,7 @@ and type_pat_aux
         pat_env = !env }
   | Ppat_var name ->
       let ty = instance expected_ty in
-      let alloc_mode = mode_cross_to_min !env expected_ty alloc_mode.mode in
+      let alloc_mode = mode_cross_left !env expected_ty alloc_mode.mode in
       let id, uid =
         enter_variable tps loc name alloc_mode ty sp.ppat_attributes
       in
@@ -2470,7 +2487,7 @@ and type_pat_aux
   | Ppat_alias(sq, name) ->
       let q = type_pat tps Value sq expected_ty in
       let ty_var, mode = solve_Ppat_alias ~refine ~mode:alloc_mode.mode env q in
-      let mode = mode_cross_to_min !env expected_ty mode in
+      let mode = mode_cross_left !env expected_ty mode in
       let id, uid =
         enter_variable ~is_as_variable:true tps name.loc name mode ty_var
           sp.ppat_attributes
@@ -5650,7 +5667,7 @@ and type_expect_
           ty_arg
         end ~post:generalize_structure
       in
-      let mode = mode_cross_to_min env ty_arg mode in
+      let mode = mode_cross_left env ty_arg mode in
       let uu = unique_use ~loc ~env mode expected_mode.mode in
       ruem ~mode ~expected_mode {
         exp_desc = Texp_field(record, lid, label, uu, alloc_mode);
@@ -6452,7 +6469,7 @@ and type_ident env ?(recarg=Rejected) lid =
   (* Mode crossing here is needed only because of the strange behaviour of
   [type_let] - it checks the LHS before RHS. Had it checks the RHS before LHS,
   identifiers would be mode crossed when being added to the environment. *)
-  let mode = mode_cross_to_min env desc.val_type mode in
+  let mode = mode_cross_left env desc.val_type mode in
   let is_recarg =
     match get_desc desc.val_type with
     | Tconstr(p, _, _) -> Path.is_constructor_typath p
@@ -7488,7 +7505,7 @@ and type_application env app_loc expected_mode position_and_mode
       let arg_sort = type_sort ~why:Function_argument ty_arg in
       let ap_mode = Locality.disallow_right (Alloc.locality ret_mode) in
       let mode_res =
-        mode_cross_to_min env ty_ret (alloc_as_value ret_mode)
+        mode_cross_left env ty_ret (alloc_as_value ret_mode)
       in
       submode ~loc:app_loc ~env ~reason:Other
         mode_res expected_mode;
@@ -7543,7 +7560,7 @@ and type_application env app_loc expected_mode position_and_mode
       in
       let ap_mode = Locality.disallow_right (Alloc.locality mode_ret) in
       let mode_ret =
-        mode_cross_to_min env ty_ret (alloc_as_value mode_ret)
+        mode_cross_left env ty_ret (alloc_as_value mode_ret)
       in
       submode ~loc:app_loc ~env ~reason:(Application ty_ret)
         mode_ret expected_mode;
