@@ -64,57 +64,6 @@ advertise the fact that the types are represented in four bytes
 way), yet still prevent clients from mixing up IDs from different
 modules or doing arithmetic on IDs.
 
-## Defaults
-
-When inferring the kind of a type, we must consider what we use as the
-default layout. In general, we want make a choice low in the lattice for
-covariant positions and high in the lattice for contravariant positions, as
-these defaults will allow for more expressiveness. That is, if we say
-`type 'a t` (with no `=`), a low-in-the-lattice layout for `t` means that `t`
-can be used in more contexts, while a high-in-the-lattice layout for `'a` means
-that `t` can be applied to more types. With this in mind, we will use the
-following defaults:
-
-```ocaml
-type t : <<here>>                 (* default: non_null_value *)
-type ('a : <<here>>) t            (* default: non_null_value *)
-fun (type (a : <<here>>)) -> ...  (* default: value *)
-let f : ('a : <<here>>). ...      (* default: value *)
-```
-
-Abstract types `t` should have a default layout of `non_null_value`, as this is
-both low in the lattice and also the layout of any type declared with record,
-variant, extensible variant, or object type definition. It thus seems likely
-that the default will work with both usages of `t` and the definition of `t`.
-
-A parameter to an abstract type `'a` in `type 'a t` (ditto the type variables in
-`type ('a, 'b) t`) also defaults to have layout `non_null_value` -- even though
-this choice is low in our lattice. The reason we must do this is to maintain
-backwards compatibility. Consider the following module:
-
-```ocaml
-module M : sig
-  type 'a t
-end = struct
-  type 'a t = 'a
-end
-```
-
-If the default for `'a` were anything different from the default for `t`, this
-definition would not be accepted. This is unfortunate, because our other
-principle of availability is sacrificed in order to maintain backward
-compatibility here: defaulting `'a : non_null_value` means that e.g. `string
-or_null Widget.t` is disallowed for a `Widget` module declared with no kind
-annotations. (This particular choice of default is hard, and may be revisited;
-defaulting `'a : any` is much more compelling here, but we would lose the
-ability to write `M` here without annotations.)
-
-In rigid type variables introduced in function types, we default to `value`, as
-doing so seems like a happy compromise. Going higher in the lattice (i.e. `any`)
-makes functions too hard to define (e.g. `let id : 'a. 'a -> 'a = fun x -> x` is
-rejected), and going lower (i.e. `non_null_value`) makes functions too hard to
-call. This, too, may end up revisited in the light of experience.
-
 ### Recursive unboxed types
 
 The default above for type declarations applies only to fully abstract types;
