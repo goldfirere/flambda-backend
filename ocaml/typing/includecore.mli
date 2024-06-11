@@ -107,7 +107,7 @@ type type_mismatch =
   | Arity
   | Privacy of privacy_mismatch
   | Kind of kind_mismatch
-  | Constraint of Errortrace.equality_error
+  | Constraint of Errortrace.unification_error
   | Manifest of Errortrace.equality_error
   | Private_variant of type_expr * type_expr * private_variant_mismatch
   | Private_object of type_expr * type_expr * private_object_mismatch

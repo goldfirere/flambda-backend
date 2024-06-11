@@ -404,6 +404,12 @@ val subtype: Env.t -> type_expr -> type_expr -> unit -> unit
            enforce and returns a function that enforces this
            constraints. *)
 
+(* CR reisenberg: comment *)
+val includes_type :
+  Env.t -> flexible_params1:type_expr list -> rigid_params2:type_expr list ->
+  invariants1:type_expr list -> invariants2:type_expr list ->
+  (unit, Errortrace.unification_error) Result.t
+
 (* Operations on class signatures *)
 
 val new_class_signature : unit -> class_signature

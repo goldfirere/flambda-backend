@@ -315,7 +315,7 @@ type type_mismatch =
   | Arity
   | Privacy of privacy_mismatch
   | Kind of kind_mismatch
-  | Constraint of Errortrace.equality_error
+  | Constraint of Errortrace.unification_error
   | Manifest of Errortrace.equality_error
   | Private_variant of type_expr * type_expr * private_variant_mismatch
   | Private_object of type_expr * type_expr * private_object_mismatch
@@ -389,6 +389,11 @@ let report_type_inequality env ppf err =
   Printtyp.report_equality_error ppf Type_scheme env err
     (fun ppf -> Format.fprintf ppf "The type")
     (fun ppf -> Format.fprintf ppf "is not equal to the type")
+
+let report_type_malinclusion env ppf err =
+  Printtyp.report_unification_error ppf env err
+    (fun ppf -> Format.fprintf ppf "The type")
+    (fun ppf -> Format.fprintf ppf "is not included within the type")
 
 let report_privacy_mismatch ppf err =
   let singular, item =
@@ -592,7 +597,7 @@ let report_type_mismatch first second decl env ppf err =
          explicit `constraint`s.  Both affect the parameters, hence this choice
          of explanatory text *)
       pr "Their parameters differ:@,";
-      report_type_inequality env ppf err
+      report_type_malinclusion env ppf err
   | Manifest err ->
       report_type_inequality env ppf err
   | Private_variant (_ty1, _ty2, mismatch) ->
@@ -1123,9 +1128,12 @@ let type_declarations ?(equality = false) ~loc env ~mark name
   let err = match (decl1.type_manifest, decl2.type_manifest) with
       (_, None) ->
         begin
-          match Ctype.equal env true decl1.type_params decl2.type_params with
-          | exception Ctype.Equality err -> Some (Constraint err)
-          | () -> None
+          match Ctype.includes_type env
+                  ~flexible_params1:decl1.type_params ~rigid_params2:decl2.type_params
+                  ~invariants1:[] ~invariants2:[]
+          with
+          | Error err -> Some (Constraint err)
+          | Ok () -> None
         end
     | (Some ty1, Some ty2) ->
          type_manifest env ty1 decl1.type_params ty2 decl2.type_params
@@ -1134,9 +1142,12 @@ let type_declarations ?(equality = false) ~loc env ~mark name
         let ty1 =
           Btype.newgenty (Tconstr(path, decl2.type_params, ref Mnil))
         in
-        match Ctype.equal env true decl1.type_params decl2.type_params with
-        | exception Ctype.Equality err -> Some (Constraint err)
-        | () ->
+        match Ctype.includes_type env
+                ~flexible_params1:decl1.type_params ~rigid_params2:decl2.type_params
+                ~invariants1:[] ~invariants2:[]
+        with
+        | Error err -> Some (Constraint err)
+        | Ok () ->
           match Ctype.equal env false [ty1] [ty2] with
           | exception Ctype.Equality err -> Some (Manifest err)
           | () -> None

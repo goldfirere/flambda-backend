@@ -619,19 +619,24 @@ let core env id x =
   | Err.Type_declarations diff ->
       (* Jkind history doesn't offer helpful information in the case
          of a signature mismatch. This part is here to strip it away. *)
-      let strip_jkind_history (err: Errortrace.equality_error) =
+      let strip_jkind_history_elt = function
+        | Errortrace.Unequal_var_jkinds _ ->
+           Errortrace.Unequal_var_jkinds_with_no_history
+        | x -> x
+      in
+      let strip_jkind_history_equality (err: Errortrace.equality_error) =
         Errortrace.equality_error
-          ~trace:(List.map
-            (function
-              | Errortrace.Unequal_var_jkinds _ ->
-                Errortrace.Unequal_var_jkinds_with_no_history
-              | x -> x) err.trace)
+          ~trace:(List.map strip_jkind_history_elt err.trace)
           ~subst:err.subst
+      in
+      let strip_jkind_history_unification (err: Errortrace.unification_error) =
+        Errortrace.unification_error
+          ~trace:(List.map strip_jkind_history_elt err.trace)
       in
       let symptom : Includecore.type_mismatch =
         match diff.symptom with
-        | Manifest err -> Manifest (strip_jkind_history err)
-        | Constraint err -> Constraint (strip_jkind_history err)
+        | Manifest err -> Manifest (strip_jkind_history_equality err)
+        | Constraint err -> Constraint (strip_jkind_history_unification err)
         | symptom -> symptom
       in
       Format.dprintf "@[<v>@[<hv>%s:@;<1 2>%a@ %s@;<1 2>%a@]%a%a%t@]"

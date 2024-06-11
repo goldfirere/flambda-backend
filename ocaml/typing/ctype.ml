@@ -5284,6 +5284,42 @@ let rec equal_private env params1 ty1 params2 ty2 =
       | exception Cannot_expand -> raise err
 
                           (*************************)
+                          (*  Type inclusion       *)
+                          (*************************)
+
+let includes_type env ~flexible_params1 ~rigid_params2 ~invariants1 ~invariants2 =
+  let instance_types params invariants =
+    For_copy.with_scope (fun copy_scope ->
+      let params = List.map (copy ~keep_names:true copy_scope) params in
+      let invariants = List.map (copy ~keep_names:true copy_scope) invariants in
+      params, invariants)
+  in
+
+  if not (List.compare_lengths flexible_params1 rigid_params2 = 0)
+    || not (List.compare_lengths invariants1 invariants2 = 0)
+    then Error (Errortrace.unification_error ~trace:[])
+    (* like the failure case in unify_list *)
+  else
+
+  protect_refs [R (gadt_equations_level, Some !current_level)] begin fun () ->
+  (* level to be used for reify; choice doesn't matter *)
+
+  let env = ref env in
+
+  let flexible_params1, invariants1 = instance_types flexible_params1 invariants1 in
+  let rigid_params2, invariants2 = instance_types rigid_params2 invariants2 in
+
+  List.iter (reify env) rigid_params2;
+
+  try
+    List.iter2 (unify !env) flexible_params1 rigid_params2;
+    List.iter2 (unify !env) invariants1 invariants2;
+    Ok ()
+  with
+    Unify err -> Error err
+  end
+
+                          (*************************)
                           (*  Class type matching  *)
                           (*************************)
 

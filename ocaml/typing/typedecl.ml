@@ -1108,10 +1108,12 @@ let check_coherence env loc dpath decl =
               if List.length args <> List.length decl.type_params
               then Some Includecore.Arity
               else begin
-                match Ctype.equal env false args decl.type_params with
-                | exception Ctype.Equality err ->
-                    Some (Includecore.Constraint err)
-                | () ->
+                match Ctype.includes_type env
+                        ~flexible_params1:args ~rigid_params2:decl.type_params
+                        ~invariants1:[] ~invariants2:[]
+                with
+                | Error err -> Some (Includecore.Constraint err)
+                | Ok () ->
                     Includecore.type_declarations ~loc ~equality:true env
                       ~mark:true
                       (Path.last path)
