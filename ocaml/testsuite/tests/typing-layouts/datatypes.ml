@@ -511,3 +511,28 @@ Error: This type t_any M.t2 should be an instance of type 'a M.t2
          of the definition of t1 at line 3, characters 2-42.
 |}]
 
+(***************************************)
+(* Test 11: Kinds and nominative types *)
+
+type t1 : immediate
+type t2 : value = private t1
+
+[%%expect{|
+type t1 : immediate
+type t2 = private t1
+|}]
+
+let f (x : ('a : immediate)) = x
+let x1 _ = f (assert false : t1)
+
+[%%expect{|
+val f : ('a : immediate). 'a -> 'a = <fun>
+val x1 : 'a -> t1 = <fun>
+|}]
+
+let x2 _ = f (assert false : t2)
+
+[%%expect{|
+val x2 : 'a -> t2 = <fun>
+|}]
+

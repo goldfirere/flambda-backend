@@ -443,3 +443,8 @@ Error: Layout mismatch in final type declaration consistency check.
 (* Test 10: Constraints and parameter kind inference *)
 
 (* Doesn't need layouts_alpha. *)
+
+(***************************************)
+(* Test 11: Kinds and nominative types *)
+
+(* Doesn't need layouts_alpha. *)
