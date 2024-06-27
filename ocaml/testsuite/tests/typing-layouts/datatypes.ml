@@ -533,6 +533,14 @@ val x1 : 'a -> t1 = <fun>
 let x2 _ = f (assert false : t2)
 
 [%%expect{|
-val x2 : 'a -> t2 = <fun>
+Line 1, characters 13-32:
+1 | let x2 _ = f (assert false : t2)
+                 ^^^^^^^^^^^^^^^^^^^
+Error: This expression has type t2 but an expression was expected of type
+         ('a : immediate)
+       The layout of t2 is value, because
+         of the definition of t2 at line 2, characters 0-28.
+       But the layout of t2 must be a sublayout of immediate, because
+         of the definition of f at line 1, characters 6-32.
 |}]
 

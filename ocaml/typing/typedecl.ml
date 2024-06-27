@@ -270,7 +270,7 @@ let enter_type ?abstract_abbrevs rec_flag env sdecl (id, uid) =
       type_kind = Type_abstract abstract_reason;
       type_jkind;
       type_jkind_annotation;
-      type_private = sdecl.ptype_private;
+      type_private = Public; (* look through to the manifest's jkind *)
       type_manifest;
       type_variance = Variance.unknown_signature ~injective:false ~arity;
       type_separability = Types.Separability.default_signature ~arity;
@@ -1094,7 +1094,7 @@ let check_constraints env sdecl (_, decl) =
    manifest, checking that it's a subjkind of [type_jkind], and then replacing
    [type_jkind] with what we computed.
 *)
-let check_coherence env loc dpath decl =
+let check_coherence env loc dpath decl ~user_written_jkind =
   match decl with
     { type_kind = (Type_variant _ | Type_record _| Type_open);
       type_manifest = Some ty } ->
@@ -1132,14 +1132,24 @@ let check_coherence env loc dpath decl =
       type_manifest = Some ty } ->
     let jkind' = Ctype.type_jkind_purely env ty in
     begin match Jkind.sub_with_history jkind' decl.type_jkind with
-    | Ok jkind' -> { decl with type_jkind = jkind' }
+    | Ok jkind' ->
+      begin match decl.type_private with
+      | Private when user_written_jkind -> decl (* new jkind wins *)
+      | _ -> { decl with type_jkind = jkind' } (* use jkind of manifest *)
+      end
     | Error v ->
       raise (Error (loc, Jkind_mismatch_of_type (ty,v)))
     end
   | { type_manifest = None } -> decl
 
 let check_abbrev env sdecl (id, decl) =
-  (id, check_coherence env sdecl.ptype_loc (Path.Pident id) decl)
+  (id, check_coherence env sdecl.ptype_loc (Path.Pident id) decl
+  ~user_written_jkind:
+    (Option.is_some (Jane_syntax.Layouts.of_type_declaration sdecl)))
+
+let check_coherence env loc dpath decl =
+  (* ignoring the result, so the type_jkind of the result is irrelevant *)
+  ignore (check_coherence env loc dpath decl ~user_written_jkind:false)
 
 (* The [update_x_jkinds] functions infer more precise jkinds in the type kind,
    including which fields of a record are void.  This would be hard to do during
@@ -3211,8 +3221,10 @@ let check_recmod_typedecl env loc recmod_ids path decl =
   check_well_founded_decl ~abs_env:env env loc path decl to_check;
   check_regularity ~abs_env:env env loc path decl to_check;
   (* additionally check coherece, as one might build an incoherent signature,
-     and use it to build an incoherent module, cf. #7851 *)
-  ignore (check_coherence env loc path decl)
+     and use it to build an incoherent module, cf. #7851
+     We're not using the updated decl, so it's safe to pass [false] for
+     [user_written_jkind]. *)
+  check_coherence env loc path decl
 
 
 (**** Error report ****)

@@ -2021,10 +2021,9 @@ type unbox_result =
   (* definition not in environment: missing cmi *)
   | Missing of Path.t
 
-(* We use expand_head_opt version of expand_head to get access
-   to the manifest type of private abbreviations. *)
 let unbox_once env ty =
-  let ty = expand_head_opt env ty in
+  (* Use expand_head, respecting jkind annotations on private abbreviations. *)
+  let ty = expand_head env ty in
   match get_desc ty with
   | Tconstr (p, args, _) ->
     begin match Env.find_type p env with

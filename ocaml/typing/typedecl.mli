@@ -63,10 +63,10 @@ val approx_type_decl:
 val check_recmod_typedecl:
     Env.t -> Location.t -> Ident.t list -> Path.t -> type_declaration -> unit
 
-(* Returns an updated decl that may include improved jkind estimates, but it's
-   sound to throw it away. *)
-val check_coherence:
-    Env.t -> Location.t -> Path.t -> type_declaration -> type_declaration
+(* Checks that a manifest of a type declaration, if any, is coherent with its
+   kind. Additionally checks that any jkind annotation on the decl is coherent
+   with its manifest. Does nothing if there is no manifest. *)
+val check_coherence: Env.t -> Location.t -> Path.t -> type_declaration -> unit
 
 (* for fixed types *)
 val is_fixed_type : Parsetree.type_declaration -> bool
