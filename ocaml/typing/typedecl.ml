@@ -1892,7 +1892,7 @@ let check_well_founded_decl ~abs_env env loc path decl to_check =
 
    Note: in the case of a constrained type definition
    [type 'a t = ... constraint 'a = ...], we require
-   that all instances in [...] be equal to the constrainted type.
+   that all instances in [...] be equal to the constrained type.
 *)
 let check_regularity ~abs_env env loc path decl to_check =
   (* to_check is true for potentially mutually recursive paths.
@@ -2154,6 +2154,7 @@ let transl_type_decl env rec_flag sdecl_list =
     decls;
   List.iter (fun (tdecl, _shape) ->
     check_abbrev_regularity ~abs_env new_env id_loc_list to_check tdecl) tdecls;
+
   (* Now that we've ruled out ill-formed types, we can perform the delayed
      jkind checks *)
   List.iter (fun (checks,loc) ->
