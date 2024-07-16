@@ -3907,7 +3907,11 @@ and unify_row_field env fixed1 fixed2 rm1 rm2 l f1 f2 =
          !rigid_variants && (List.length tl1 = 1 || List.length tl2 = 1)) &&
         begin match tl1 @ tl2 with [] -> false
         | t1 :: tl ->
-            if no_arg then raise_unexplained_for Unify;
+          (* CR reisenberg: I removed this next line, but I don't understand it.
+             This needs careful scrutiny. With this line uncommented,
+             the test labeled PR#5927 in typing-misc/polyvars.ml fails
+             in the self-inclusion check.
+            if no_arg then raise_unexplained_for Unify; *)
             Types.changed_row_field_exts [f1;f2] (fun () ->
                 List.iter (unify env t1) tl
               )
