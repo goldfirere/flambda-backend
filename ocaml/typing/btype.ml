@@ -139,7 +139,6 @@ let merge_fixed_explanation fixed1 fixed2 =
   | Some Univar _ as x, _ | _, (Some Univar _ as x) -> x
   | Some Fixed_private as x, _ | _, (Some Fixed_private as x) -> x
   | Some Reified _ as x, _ | _, (Some Reified _ as x) -> x
-  | Some Rigid as x, _ | _, (Some Rigid as x) -> x
   | None, None -> None
 
 

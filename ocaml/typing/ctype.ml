@@ -3907,11 +3907,7 @@ and unify_row_field env fixed1 fixed2 rm1 rm2 l f1 f2 =
          !rigid_variants && (List.length tl1 = 1 || List.length tl2 = 1)) &&
         begin match tl1 @ tl2 with [] -> false
         | t1 :: tl ->
-          (* CR reisenberg: I removed this next line, but I don't understand it.
-             This needs careful scrutiny. With this line uncommented,
-             the test labeled PR#5927 in typing-misc/polyvars.ml fails
-             in the self-inclusion check.
-            if no_arg then raise_unexplained_for Unify; *)
+            if no_arg then raise_unexplained_for Unify;
             Types.changed_row_field_exts [f1;f2] (fun () ->
                 List.iter (unify env t1) tl
               )
@@ -4944,44 +4940,44 @@ module Rigidify = struct
    and check validity after unification *)
 (* Simpler, no? *)
 
-let rec rigidify_rec vars ty =
+type tracker = { mutable vars : (string option * Jkind.t) TypeMap.t
+               ; mutable row_vars : TypeSet.t }
+
+let rec rigidify_rec ~in_row tracker ty =
   if try_mark_node ty then
     begin match get_desc ty with
     | Tvar { name; jkind } ->
-        vars := TypeMap.add ty (name, jkind) !vars
+        if in_row
+        then tracker.row_vars <- TypeSet.add ty tracker.row_vars
+        else tracker.vars <- TypeMap.add ty (name, jkind) tracker.vars
     | Tvariant row ->
-        let Row {more; name; closed} = row_repr row in
-        if is_Tvar more && not (has_fixed_explanation row) then begin
-          let more' = newty2 ~level:(get_level more) (get_desc more) in
-          let row' =
-            create_row ~fixed:(Some Rigid) ~fields:[] ~more:more'
-              ~name ~closed
-          in link_type more (newty2 ~level:(get_level ty) (Tvariant row'))
-        end;
-        iter_row (rigidify_rec vars) row;
+        iter_row (rigidify_rec ~in_row:false tracker) row;
         (* only consider the row variable if the variant is not static *)
         if not (static_row row) then
-          rigidify_rec vars (row_more row)
+          rigidify_rec ~in_row:true tracker (row_more row)
     | _ ->
-        iter_type_expr (rigidify_rec vars) ty
+        iter_type_expr (rigidify_rec ~in_row tracker) ty
     end
 
 type var = { name : string option
            ; original_jkind : Jkind.t
            ; ty : type_expr }
 
-type t = var list
+type t = { vars : var list; row_vars : type_expr list }
 
 (* remember free variables in a type so we can make sure they aren't unified;
    should be paired with a call to [all_distinct_vars_with_original_jkinds]
    later. *)
 let rigidify_list tys =
-  let vars = ref TypeMap.empty in
-  List.iter (rigidify_rec vars) tys;
+  let tracker : tracker = { vars = TypeMap.empty; row_vars = TypeSet.empty } in
+  List.iter (rigidify_rec ~in_row:false tracker) tys;
   List.iter unmark_type tys;
-  List.map (fun (trans_expr, (name, original_jkind)) ->
-             { ty = Transient_expr.type_expr trans_expr; name; original_jkind })
-    (TypeMap.bindings !vars)
+  let vars = List.map (fun (trans_expr, (name, original_jkind)) ->
+                 { ty = Transient_expr.type_expr trans_expr; name; original_jkind })
+               (TypeMap.bindings tracker.vars)
+  in
+  let row_vars = TypeSet.elements tracker.row_vars in
+  { vars; row_vars }
 
 let rigidify ty = rigidify_list [ty]
 
@@ -4996,22 +4992,42 @@ type matches_result =
 
 let all_distinct_vars_with_original_jkinds env vars =
   let tys = ref TypeSet.empty in
-  let folder acc { ty; name; original_jkind } =
+  let var_folder acc { ty; name; original_jkind } =
     match acc with
     | Unification_failure _ | Jkind_mismatch _ -> acc
     | All_good ->
        let ty = expand_head env ty in
-       if TypeSet.mem ty !tys then Unification_failure { name; ty } else begin
-         tys := TypeSet.add ty !tys;
+       if TypeSet.mem ty !tys then Unification_failure { name; ty } else
          match get_desc ty with
          | Tvar { jkind = inferred_jkind } ->
+           tys := TypeSet.add ty !tys;
            if Jkind.equate inferred_jkind original_jkind
            then All_good
            else Jkind_mismatch { original_jkind; inferred_jkind; ty }
-         | _ -> Unification_failure { name; ty }
-       end
+       | _ -> Unification_failure { name; ty }
   in
-  List.fold_left folder All_good vars
+  let row_folder acc ty =
+    let name = None in
+    match acc with
+    | Unification_failure _ | Jkind_mismatch _ -> acc
+    | All_good ->
+       let rec process ty =
+         if TypeSet.mem ty !tys then Unification_failure { name; ty } else
+           match get_desc ty with
+           | Tvar _ ->
+             tys := TypeSet.add ty !tys;
+             All_good
+           | Tvariant row when
+                  row_fields row = [] &&
+                  not (row_closed row) &&
+                  row_fixed row = None ->
+              process (row_more row)
+         | _ -> Unification_failure { name; ty }
+       in
+       process ty
+  in
+  let check_vars = List.fold_left var_folder All_good vars.vars in
+  List.fold_left row_folder check_vars vars.row_vars
 
 end (* Rigidify *)
 

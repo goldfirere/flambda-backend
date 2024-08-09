@@ -691,7 +691,6 @@ and raw_type_desc ppf = function
 and raw_row_fixed ppf = function
 | None -> fprintf ppf "None"
 | Some Types.Fixed_private -> fprintf ppf "Some Fixed_private"
-| Some Types.Rigid -> fprintf ppf "Some Rigid"
 | Some Types.Univar t -> fprintf ppf "Some(Univar(%a))" raw_type t
 | Some Types.Reified p -> fprintf ppf "Some(Reified(%a))" path p
 
@@ -2796,7 +2795,6 @@ let explain_fixed_row pos expl = match expl with
   | Reified p ->
     dprintf "The %a variant type is bound to %t"
       Errortrace.print_pos pos (print_path p)
-  | Rigid -> ignore
 
 let explain_variant (type variety) : variety Errortrace.variant -> _ = function
   (* Common *)
@@ -2818,9 +2816,6 @@ let explain_variant (type variety) : variety Errortrace.variant -> _ = function
         dprintf "@,@[%t,@ %a@]" (explain_fixed_row pos e)
           explain_fixed_row_case k
       )
-  | Errortrace.Fixed_row (_,_, Rigid) ->
-      (* this case never happens *)
-      None
   (* Equality & Moregen *)
   | Errortrace.Presence_not_guaranteed_for (pos, s) -> Some(
       dprintf

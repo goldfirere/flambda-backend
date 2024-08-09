@@ -166,7 +166,6 @@ and fixed_explanation =
   | Univar of type_expr (** The row type was bound to an univar *)
   | Fixed_private (** The row type is private *)
   | Reified of Path.t (** The row was reified *)
-  | Rigid (** The row type was made rigid during constraint verification *)
 
 (** [abbrev_memo] allows one to keep track of different expansions of a type
     alias. This is done for performance purposes.
