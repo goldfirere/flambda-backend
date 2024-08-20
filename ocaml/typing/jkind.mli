@@ -174,27 +174,33 @@ end
 (******************************)
 (* constants *)
 
+(* CR layouts v2.8: [Jkind.Const.t] can likely be removed, replacing its current usages
+   with either [Jane_syntax.Jkind.annotation]s or [Jkind.t]s *)
 module Const : sig
-  (** Constant jkinds are used for user-written annotations *)
+  (** Constant jkinds are used for user-written annotations. The "constant" refers to
+      there being no sort varialbe. However, a [Jkind.Const.t] can still be mutated, as
+      it can contain a reference to a [Types.type_expr] *)
   type t = Types.type_expr Jkind_types.Const.t
 
   val to_out_jkind_const : t -> Outcometree.out_jkind_const
 
   val format : Format.formatter -> t -> unit
 
-  val equal : t -> t -> bool
+  (* Compares two [Jkind.Const.t]s, never doing mutation. If there are any `with`
+     constraints on either, this function will return false. *)
+  val equal_and_no_baggage : t -> t -> bool
 
   (** Gets the layout of a constant jkind. Never does mutation. *)
   val get_layout : t -> Layout.Const.t
 
-  (** Gets the maximum modes for types of this constant jkind. *)
-  val get_modal_upper_bounds : t -> Mode.Alloc.Const.t
-
   (** Gets the maximum mode on the externality axis for types of this constant jkind. *)
-  val get_externality_upper_bound : t -> Externality.t
+  val get_conservative_externality_upper_bound : t -> Externality.t
 
   val of_user_written_annotation :
-    context:History.annotation_context -> Jane_syntax.Jkind.annotation -> t
+    transl_type:(Parsetree.core_type -> Types.type_expr) option ->
+    context:History.annotation_context ->
+    Jane_syntax.Jkind.annotation ->
+    t
 
   (* CR layouts: Remove this once we have a better story for printing with jkind
      abbreviations. *)
@@ -288,6 +294,11 @@ val add_mode_crossing : 'd t -> 'd t
 (** Take an existing [t] and add an ability to cross across the nullability axis. *)
 val add_nullability_crossing : 'd t -> 'd t
 
+(** Take an existing [t] and add baggage (a [with constraint]) to its bounds. If
+    [deep_only] is [true] (which is the default), the baggage is only added along deep
+    axes. *)
+val add_baggage : ?deep_only:bool -> baggage:Types.type_expr -> t -> t
+
 (** Take an existing [t] and add an ability to mode-cross along the portability and
     contention axes, if [from] crosses the respective axes. Return the new jkind,
     along with a boolean of whether illegal crossing was added *)
@@ -322,12 +333,14 @@ val of_const : why:History.creation_reason -> Const.t -> 'd t
 type annotation = Types.type_expr Jkind_types.annotation
 
 val of_annotation :
+  transl_type:(Parsetree.core_type -> Types.type_expr) option ->
   context:History.annotation_context ->
   Jane_syntax.Jkind.annotation ->
   'd t * annotation
 
 val of_annotation_option_default :
   default:'d t ->
+  transl_type:(Parsetree.core_type -> Types.type_expr) option ->
   context:History.annotation_context ->
   Jane_syntax.Jkind.annotation option ->
   'd t * annotation option
@@ -346,6 +359,7 @@ val of_annotation_option_default :
     Raises if a disallowed or unknown jkind is present.
 *)
 val of_type_decl :
+  transl_type:(Parsetree.core_type -> Types.type_expr) ->
   context:History.annotation_context ->
   Parsetree.type_declaration ->
   (jkind_l * annotation * Parsetree.attributes) option
@@ -356,6 +370,7 @@ val of_type_decl :
     Raises if a disallowed or unknown jkind is present.
 *)
 val of_type_decl_default :
+  transl_type:(Parsetree.core_type -> Types.type_expr) ->
   context:History.annotation_context ->
   default:jkind_l ->
   Parsetree.type_declaration ->
@@ -416,10 +431,16 @@ val get_layout : 'd t -> Layout.Const.t option
    [with]-types. *)
 
 (** Gets the maximum modes for types of this jkind. *)
-val get_modal_upper_bounds : 'd t -> Mode.Alloc.Const.t
+val get_modal_upper_bounds :
+  jkind_of_type:(Types.type_expr -> jkind_l option) ->
+  'd t ->
+  Mode.Alloc.Const.t
 
-(** Gets the maximum mode on the externality axis for types of this jkind. *)
-val get_externality_upper_bound : 'd t -> Externality.t
+(** Gets the maximum mode on the externality axis for types of this jkind.
+    [jkind_of_type] fetches the jkind of the given type. If the type is not principally
+    known, it returns [None]. *)
+val get_externality_upper_bound :
+  jkind_of_type:(Types.type_expr -> jkind_l option) -> 'd t -> Externality.t
 
 (** Computes a jkind that is the same as the input but with an updated maximum
     mode for the externality axis *)
@@ -456,14 +477,22 @@ val set_printtyp_path : (Format.formatter -> Path.t -> unit) -> unit
 (** This checks for equality, and sets any variables to make two jkinds
     equal, if possible. e.g. [equate] on a var and [value] will set the
     variable to be [value] *)
-val equate : jkind_lr -> jkind_lr -> bool
+val equate :
+  type_equal:(Types.type_expr -> Types.type_expr -> bool) ->
+  jkind_lr ->
+  jkind_lr ->
+  bool
 
 (** This checks for equality, but has the invariant that it can only be called
     when there is no need for unification; e.g. [equal] on a var and [value]
     will crash.
 
     CR layouts (v1.5): At the moment, this is actually the same as [equate]! *)
-val equal : jkind_lr -> jkind_lr -> bool
+val equal :
+  type_equal:(Types.type_expr -> Types.type_expr -> bool) ->
+  jkind_lr ->
+  jkind_lr ->
+  bool
 
 (** Checks whether two jkinds have a non-empty intersection. Might mutate
     sort variables. *)
@@ -485,9 +514,15 @@ val intersection_or_error :
   jkind_r ->
   (('l * allowed) t, Violation.t) Result.t
 
+val assert_right : t -> unit
+
 (** [sub t1 t2] says whether [t1] is a subjkind of [t2]. Might update
     either [t1] or [t2] to make their layouts equal.*)
-val sub : jkind_l -> jkind_r -> bool
+val sub :
+  type_equal:(Types.type_expr -> Types.type_expr -> bool) ->
+  jkind_l ->
+  jkind_r ->
+  bool
 
 type sub_or_intersect =
   | Sub  (** The first jkind is a subjkind of the second. *)
@@ -496,26 +531,42 @@ type sub_or_intersect =
 
 (** [sub_or_intersect t1 t2] does a subtype check, returning a [sub_or_intersect];
     see comments there for more info. *)
-val sub_or_intersect : jkind_l -> jkind_r -> sub_or_intersect
+val sub_or_intersect :
+  type_equal:(Types.type_expr -> Types.type_expr -> bool) ->
+  jkind_l ->
+  jkind_r ->
+  sub_or_intersect
 
 (** [sub_or_error t1 t2] does a subtype check, returning an appropriate
     [Violation.t] upon failure. *)
-val sub_or_error : jkind_l -> jkind_r -> (unit, Violation.t) result
+val sub_or_error :
+  type_equal:(Types.type_expr -> Types.type_expr -> bool) ->
+  jkind_l ->
+  jkind_r ->
+  (unit, Violation.t) result
 
 (** Like [sub], but returns the subjkind with an updated history.
     Pre-condition: the super jkind must be fully settled; no variables
     which might be filled in later. *)
-val sub_jkind_l : jkind_l -> jkind_l -> (jkind_l, Violation.t) result
+val sub_jkind_l :
+  type_equal:(Types.type_expr -> Types.type_expr -> bool) ->
+  jkind_l ->
+  jkind_l ->
+  (jkind_l, Violation.t) result
 
 (* CR layouts v2.8: This almost certainly has to get rewritten, as l-kinds do
    not support meets. *)
 
 (** Like [intersection_or_error], but between an [l] and an [l], as an [l]. *)
 val intersect_l_l :
+  type_equal:(Types.type_expr -> Types.type_expr -> bool) ->
   reason:History.interact_reason ->
   jkind_l ->
   jkind_l ->
   (jkind_l, Violation.t) result
+
+(* CR reisenberg: comment *)
+val map_type_expr : (Types.type_expr -> Types.type_expr) -> t -> t
 
 (** Checks to see whether a jkind is the maximum jkind. Never does any
     mutation. *)
@@ -528,9 +579,17 @@ val has_layout_any : ('l * allowed) t -> bool
 (* debugging *)
 
 module Debug_printers : sig
-  val t : Format.formatter -> 'd t -> unit
+  val t :
+    (Format.formatter -> Types.type_expr -> unit) ->
+    Format.formatter ->
+    'd t ->
+    unit
 
   module Const : sig
-    val t : Format.formatter -> Const.t -> unit
+    val t :
+      (Format.formatter -> Types.type_expr -> unit) ->
+      Format.formatter ->
+      Const.t ->
+      unit
   end
 end

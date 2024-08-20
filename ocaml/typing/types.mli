@@ -241,7 +241,8 @@ and jkind_lr = (allowed * allowed) jkind    (* the jkind of a variable *)
    function. *)
 (** INTERNAL USE ONLY
     jkind.ml should call this with the definition of Jkind.equal *)
-val set_jkind_equal : (jkind_l -> jkind_l -> bool) -> unit
+val set_jkind_equal :
+  (type_equal:(type_expr -> type_expr -> bool) -> jkind_l -> jkind_l -> bool) -> unit
 
 val is_commu_ok: commutable -> bool
 val commu_ok: commutable
@@ -325,6 +326,9 @@ end
 
 val eq_type: type_expr -> type_expr -> bool
 val compare_type: type_expr -> type_expr -> int
+
+(** Comparison for [type_expr] that always raise. *)
+val eq_type_fail: type_expr -> type_expr -> bool
 
 (** Constructor and accessors for [row_desc] *)
 
@@ -880,10 +884,10 @@ val may_equal_constr :
 (* Equality *)
 
 val equal_record_representation :
-  record_representation -> record_representation -> bool
+  type_equal:(type_expr -> type_expr -> bool) -> record_representation -> record_representation -> bool
 
 val equal_variant_representation :
-  variant_representation -> variant_representation -> bool
+  type_equal:(type_expr -> type_expr -> bool) -> variant_representation -> variant_representation -> bool
 
 type label_description =
   { lbl_name: string;                   (* Short name *)
