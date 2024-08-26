@@ -521,13 +521,6 @@ val package_subtype :
 (* Raises [Incompatible] *)
 val mcomp : Env.t -> type_expr -> type_expr -> unit
 
-val get_unboxed_type_representation :
-  Env.t -> type_expr -> (type_expr, type_expr) result
-    (* [get_unboxed_type_representation] attempts to fully expand the input
-       type_expr, descending through [@@unboxed] types.  May fail in the case of
-       circular types or very deeply nested unboxed types, in which case it
-       returns the most expanded version it was able to compute. *)
-
 val get_unboxed_type_approximation : Env.t -> type_expr -> type_expr
     (* [get_unboxed_type_approximation] does the same thing as
        [get_unboxed_type_representation], but doesn't indicate whether the type
@@ -550,13 +543,14 @@ val type_jkind : Env.t -> type_expr -> jkind
    expansion. *)
 val type_jkind_purely : Env.t -> type_expr -> jkind
 
-(* Find a type's sort (constraining it to be an arbitrary sort variable, if
-   needed) *)
+(* Find a type's sort (if fixed is false: constraining it to be an
+   arbitrary sort variable, if needed) *)
 val type_sort :
   why:Jkind.History.concrete_creation_reason ->
+  fixed:bool ->
   Env.t -> type_expr -> (Jkind.sort, Jkind.Violation.t) result
 
-(* As [type_sort], but constrain the jkind to be non-null.
+(* As [type_sort ~fixed:false], but constrain the jkind to be non-null.
    Used for checking array elements. *)
 val type_legacy_sort :
   why:Jkind.History.concrete_legacy_creation_reason ->
