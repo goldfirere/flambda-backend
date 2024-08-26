@@ -2358,6 +2358,8 @@ let constrain_type_jkind ~fixed env ty jkind =
           change that jkind to be [value]. But we want to do this update by changing
           the type variable, not just by filling in the sort variable: the former
           preserves history (improving error messages), while the latter does not.
+          (If you're readying this in a future where sorts track their own history,
+          then this reason no longer applies; delete this bullet.)
 
           2) Suppose we're unifying ['a : value] with ['a : float64]. This would be possible
           if those two jkinds had an intersection. And so an error message should
@@ -2370,18 +2372,28 @@ let constrain_type_jkind ~fixed env ty jkind =
          Jkind.intersection_or_error ~reason:Tyvar_refinement_intersection ty's_jkind jkind
        in
        Result.map (set_var_jkind ty) jkind_inter
+    (* Handle the [Tpoly] case out here so [Tvar]s wrapped in [Tpoly]s can get the
+       treatment above. *)
+    | Tpoly (t, _) -> loop ~fuel ~expanded:false t ty's_jkind jkind
     | _ ->
     match Jkind.sub_or_intersect ty's_jkind jkind with
     | Sub -> Ok ()
-    | Disjoint -> Error (Jkind.Violation.of_ (Not_a_subjkind (ty's_jkind, jkind)))
+    | Disjoint ->
+       (* Reporting that [ty's_jkind] must be a subjkind of [jkind] is not always right.
+          Suppose we had [type ('a : wprd) t = 'a] and we were checking ['a t] against
+          [value]. Then it would be enough for [word] and [value] to have an intersection,
+          not for one to be a subjkind of another. But getting this reporting correct
+          would require arbitrary amounts of expansion and looking through [@@unboxed]
+          types. So we don't, settling for the slightly worse error message. *)
+       Error (Jkind.Violation.of_ (Not_a_subjkind (ty's_jkind, jkind)))
     | Has_intersection ->
-       if not expanded
-       then
-         let ty = expand_head_opt env ty in
-         loop ~fuel ~expanded:true ty (estimate_type_desc_jkind env (get_desc ty)) jkind
-       else
-         match get_desc ty with
-         | Tconstr _ ->
+       match get_desc ty with
+       | Tconstr _ ->
+          if not expanded
+          then
+            let ty = expand_head_opt env ty in
+            loop ~fuel ~expanded:true ty (estimate_type_desc_jkind env (get_desc ty)) jkind
+          else
             begin match unbox_once env ty with
             | Missing path -> Error (Jkind.Violation.of_ ~missing_cmi:path (Not_a_subjkind (ty's_jkind, jkind)))
             | Final_result _ -> Error (Jkind.Violation.of_ (Not_a_subjkind (ty's_jkind, jkind)))
@@ -2389,26 +2401,25 @@ let constrain_type_jkind ~fixed env ty jkind =
                loop ~fuel:(fuel - 1) ~expanded:false ty
                  (estimate_type_desc_jkind env (get_desc ty)) jkind
             end
-         | Tpoly (t, _) -> loop ~fuel ~expanded:false t ty's_jkind jkind
-         | Tunboxed_tuple ltys ->
-            let num_components = List.length ltys in
-            begin match Jkind.decompose_product ty's_jkind,
-                        Jkind.decompose_product jkind with
-            | Some ty's_jkinds, Some jkinds
-                 when List.length ty's_jkinds = num_components
-                      && List.length jkinds = num_components ->
-               let results =
-                 Misc.Stdlib.List.map3 (fun (_, ty) -> loop ~fuel ~expanded:false ty)
-                   ltys ty's_jkinds jkinds
-               in
-               let module Monad_result = Misc.Stdlib.Monad.Make2(struct
+       | Tunboxed_tuple ltys ->
+          let num_components = List.length ltys in
+          begin match Jkind.decompose_product ty's_jkind,
+                      Jkind.decompose_product jkind with
+          | Some ty's_jkinds, Some jkinds
+               when List.length ty's_jkinds = num_components
+                    && List.length jkinds = num_components ->
+             let results =
+               Misc.Stdlib.List.map3 (fun (_, ty) -> loop ~fuel ~expanded:false ty)
+                 ltys ty's_jkinds jkinds
+             in
+             let module Monad_result = Misc.Stdlib.Monad.Make2(struct
                                            include Result
                                            let return = ok
-                                           end) in
-               Monad_result.all_unit results
-            | _ -> Misc.fatal_error "unboxed tuple jkinds don't line up"
-            end
-         | _ -> Error (Jkind.Violation.of_ (Not_a_subjkind (ty's_jkind, jkind)))
+                                         end) in
+             Monad_result.all_unit results
+          | _ -> Misc.fatal_error "unboxed tuple jkinds don't line up"
+          end
+       | _ -> Error (Jkind.Violation.of_ (Not_a_subjkind (ty's_jkind, jkind)))
   in
   loop ~fuel:100 ~expanded:false ty (estimate_type_desc_jkind env (get_desc ty)) jkind
 
