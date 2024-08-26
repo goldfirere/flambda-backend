@@ -1260,6 +1260,15 @@ let get_externality_upper_bound jk = jk.jkind.externality_upper_bound
 let set_externality_upper_bound jk externality_upper_bound =
   { jk with jkind = { jk.jkind with externality_upper_bound } }
 
+let decompose_product ({ jkind; _ } as jk) =
+  match jkind.layout with
+  | Any -> None
+  | Product layouts -> Some (List.map (fun layout -> { jk with jkind = { jkind with layout } }) layouts)
+  | Sort (Var _) -> None
+  | Sort (Base _) -> None
+  | Sort (Product sorts) ->
+     Some (List.map (fun sort -> { jk with jkind = { jkind with layout = Sort sort } }) sorts)
+
 (*********************************)
 (* pretty printing *)
 
@@ -1795,8 +1804,21 @@ let check_sub sub super = Jkind_desc.sub sub.jkind super.jkind
 
 let sub sub super = Misc.Le_result.is_le (check_sub sub super)
 
+type sub_or_intersect =
+  | Sub
+  | Disjoint
+  | Has_intersection
+
+let sub_or_intersect t1 t2 =
+  if sub t1 t2 then Sub else
+    if has_intersection t1 t2 then Has_intersection else
+      Disjoint
+
+(* CR reisenberg: remove this *)
 let sub_or_error t1 t2 =
-  if sub t1 t2 then Ok () else Error (Violation.of_ (Not_a_subjkind (t1, t2)))
+  match sub_or_intersect t1 t2 with
+  | Sub -> Ok ()
+  | _ -> Error (Violation.of_ (Not_a_subjkind (t1, t2)))
 
 let sub_with_history sub super =
   match check_sub sub super with
