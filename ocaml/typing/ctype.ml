@@ -2066,18 +2066,6 @@ let get_unboxed_type_approximation env ty =
   match get_unboxed_type_representation env ty with
   | Ok ty | Error ty -> ty
 
-(* When computing a jkind, we distinguish a few cases:
-   - Jkind: We computed the jkind, and the type wasn't a variable or an unboxed
-     product.
-   - Var: The type was a var, we return the jkind and the type_expr it was in,
-     in case the caller wants to update it.
-   - Product: The type was an unboxed product, these are the components.
-*)
-type jkind_head =
-  | Jkind of Jkind.t
-  | TyVar of type_expr * Jkind.t
-  | Product of type_expr list
-
 let tvariant_not_immediate row =
   (* if all labels are devoid of arguments, not a pointer *)
   (* CR layouts v5: Polymorphic variants with all void args can probably
@@ -2089,73 +2077,17 @@ let tvariant_not_immediate row =
       | _ -> false)
     (row_fields row)
 
-(* We assume here that [get_unboxed_type_representation] has already been
-   called, if the type is a Tconstr.  This allows for some optimization by
-   callers (e.g., skip expanding if the kind tells them enough).
-
-   Note that this really returns an upper bound, and in particular returns [Any]
-   in some edge cases (when [get_unboxed_type_representation] ran out of fuel,
-   or when the type is a Tconstr that is missing from the Env due to a missing
-   cmi). *)
-let rec estimate_type_jkind_head env ty =
-  let open Jkind in
-  match get_desc ty with
-  | Tconstr(p, _, _) -> begin
-    try
-      Jkind (Env.find_type p env).type_jkind
-    with
-      Not_found -> Jkind (Builtin.any ~why:(Missing_cmi p))
-  end
-  | Tvariant row ->
-      if tvariant_not_immediate row
-      then Jkind (Builtin.value ~why:Polymorphic_variant)
-      else Jkind (Builtin.immediate ~why:Immediate_polymorphic_variant)
-  | Tvar { jkind } when get_level ty = generic_level ->
-    (* Once a Tvar gets generalized with a jkind, it should be considered
-       as fixed (similar to the Tunivar case below).
-
-       This notably prevents [constrain_type_jkind] from changing layout
-       [any] to a sort or changing the externality once the Tvar gets
-       generalized.
-
-       This, however, still allows sort variables to get instantiated. *)
-    Jkind jkind
-  | Tvar { jkind } -> TyVar (ty, jkind)
-  | Tarrow _ -> Jkind for_arrow
-  | Ttuple _ -> Jkind (Builtin.value ~why:Tuple)
-  | Tunboxed_tuple ltys -> Product (List.map snd ltys)
-  | Tobject _ -> Jkind (Builtin.value ~why:Object)
-  | Tfield _ -> Jkind (Builtin.value ~why:Tfield)
-  | Tnil -> Jkind (Builtin.value ~why:Tnil)
-  | (Tlink _ | Tsubst _) -> assert false
-  | Tunivar { jkind } -> Jkind jkind
-  | Tpoly (ty, _) -> estimate_type_jkind_head env ty
-  | Tpackage _ -> Jkind (Builtin.value ~why:First_class_module)
-
-(* We parameterize [estimate_type_jkind] and [jkind_of_result] by a function
-   [expand_components] because some callers want expansion of types and others
+(* We parameterize [estimate_type_jkind] by a function
+   [expand_component] because some callers want expansion of types and others
    don't. *)
-let rec estimate_type_jkind env ~expand_components ty =
-  jkind_of_result env ~expand_components (estimate_type_jkind_head env ty)
-
-and jkind_of_result env ~expand_components jkind_head =
-  match jkind_head with
-  | Jkind l -> l
-  | TyVar (_, l) -> l
-  | Product tys ->
-    Jkind.Builtin.product ~why:Unboxed_tuple
-      (List.map (fun ty ->
-         estimate_type_jkind env ~expand_components (expand_components ty)
-       ) tys)
-
-(* CR reisenberg: Does this really want to operate on [type_desc]? *)
-let rec estimate_type_desc_jkind env = function
+let rec estimate_type_jkind ?(expand_component = Fun.id) env ty =
+  match get_desc ty with
   | Tvar { jkind } -> jkind
   | Tarrow _ -> Jkind.for_arrow
   | Ttuple _ -> Jkind.Builtin.value ~why:Tuple
   | Tunboxed_tuple ltys ->
      Jkind.Builtin.product (List.map (fun (_, ty) ->
-                                estimate_type_desc_jkind env (get_desc ty)) ltys)
+                                estimate_type_jkind env (expand_component ty)) ltys)
        ~why:Unboxed_tuple
   | Tconstr (p, _, _) -> begin
       try
@@ -2172,7 +2104,7 @@ let rec estimate_type_desc_jkind env = function
      then Jkind.Builtin.value ~why:Polymorphic_variant
      else Jkind.Builtin.immediate ~why:Immediate_polymorphic_variant
   | Tunivar { jkind } -> jkind
-  | Tpoly (ty, _) -> estimate_type_desc_jkind env (get_desc ty)
+  | Tpoly (ty, _) -> estimate_type_jkind env ty
   | Tpackage _ -> Jkind.Builtin.value ~why:First_class_module
 
 (**** checking jkind relationships ****)
@@ -2229,7 +2161,7 @@ let constrain_type_jkind ~fixed env ty jkind =
              if not expanded
              then
                let ty = expand_head_opt env ty in
-               loop ~fuel ~expanded:true ty (estimate_type_desc_jkind env (get_desc ty)) jkind
+               loop ~fuel ~expanded:true ty (estimate_type_jkind env ty) jkind
              else
                begin match unbox_once env ty with
                | Missing path -> Error (Jkind.Violation.of_ ~missing_cmi:path
@@ -2238,7 +2170,7 @@ let constrain_type_jkind ~fixed env ty jkind =
                   Error (Jkind.Violation.of_ (Not_a_subjkind (ty's_jkind, jkind)))
                | Stepped ty ->
                   loop ~fuel:(fuel - 1) ~expanded:false ty
-                    (estimate_type_desc_jkind env (get_desc ty)) jkind
+                    (estimate_type_jkind env ty) jkind
                end
           | Tunboxed_tuple ltys ->
              let num_components = List.length ltys in
@@ -2260,7 +2192,7 @@ let constrain_type_jkind ~fixed env ty jkind =
              end
           | _ -> Error (Jkind.Violation.of_ (Not_a_subjkind (ty's_jkind, jkind)))
   in
-  loop ~fuel:100 ~expanded:false ty (estimate_type_desc_jkind env (get_desc ty)) jkind
+  loop ~fuel:100 ~expanded:false ty (estimate_type_jkind env ty) jkind
 
 let type_sort ~why ~fixed env ty =
   let jkind, sort = Jkind.of_new_sort_var ~why in
@@ -2313,7 +2245,7 @@ let constrain_type_jkind_exn env texn ty jkind =
 
 let type_jkind env ty =
   estimate_type_jkind env
-    ~expand_components:(get_unboxed_type_approximation env)
+    ~expand_component:(get_unboxed_type_approximation env)
     (get_unboxed_type_approximation env ty)
 
 let type_jkind_purely env ty =
@@ -2327,9 +2259,9 @@ let type_jkind_purely env ty =
   else
     type_jkind env ty
 
+(* CR reisenberg: Why does this do any expansion? *)
 let estimate_type_jkind env ty =
-  estimate_type_jkind env ~expand_components:(fun x -> x)
-    (get_unboxed_type_approximation env ty)
+  estimate_type_jkind env (get_unboxed_type_approximation env ty)
 
 let type_legacy_sort ~why env ty =
   let jkind, sort = Jkind.of_new_legacy_sort_var ~why in
