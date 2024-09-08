@@ -452,11 +452,12 @@ type sub_or_intersect =
   | Disjoint  (** The two jkinds have no common ground. *)
   | Has_intersection (** The two jkinds have an intersection: try harder. *)
 
-(** [sub_or_error t1 t2] does a subtype check, returning a [sub_or_intersect];
+(** [sub_or_intersect t1 t2] does a subtype check, returning a [sub_or_intersect];
     see comments there for more info. *)
 val sub_or_intersect : t -> t -> sub_or_intersect
 
-(* CR reisenberg: remove this *)
+(** [sub_or_error t1 t2] does a subtype check, returning an appropriate
+    [Violation.t] upon failure. *)
 val sub_or_error : t -> t -> (unit, Violation.t) result
 
 (** Like [sub], but returns the subjkind with an updated history. *)
@@ -468,11 +469,6 @@ val is_max : t -> bool
 
 (** Checks to see whether a jkind has layout any. Never does any mutation. *)
 val has_layout_any : t -> bool
-
-(* CR reisenberg: Remove. *)
-(** Checks whether a jkind's layout is an n-ary product, and returns the jkinds
-    of the components if so.  May update sort variables to make this true. *)
-val is_nary_product : int -> t -> t list option
 
 (*********************************)
 (* debugging *)

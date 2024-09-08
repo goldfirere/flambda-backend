@@ -1822,7 +1822,6 @@ let sub_or_intersect t1 t2 =
     if has_intersection t1 t2 then Has_intersection else
       Disjoint
 
-(* CR reisenberg: remove this *)
 let sub_or_error t1 t2 =
   match sub_or_intersect t1 t2 with
   | Sub -> Ok ()
@@ -1844,27 +1843,6 @@ let is_max jkind = sub Builtin.any_dummy_jkind jkind
 
 let has_layout_any jkind =
   match jkind.jkind.layout with Any -> true | _ -> false
-
-let is_nary_product n t =
-  let components =
-    List.init n (fun _ -> Jkind_types.Layout.Sort (Sort.new_var ()))
-  in
-  let bound =
-    { Jkind_desc.max with layout = Jkind_types.Layout.Product components }
-  in
-  if Misc.Le_result.is_le (Jkind_desc.sub t.jkind bound)
-  then
-    (* CR layouts 7.1: The histories here are wrong (we are giving each
-       component the history of the whole product).  They don't show up in
-       errors, so it's fine for now, but we'll probably need to fix this as
-       part of improving errors around products. A couple options: re-work the
-       relevant bits of [Ctype.type_jkind_sub] to just work on layouts, or
-       introduce product histories. *)
-    Some
-      (List.map
-         (fun l -> { t with jkind = { t.jkind with layout = l } })
-         components)
-  else None
 
 (*********************************)
 (* debugging *)

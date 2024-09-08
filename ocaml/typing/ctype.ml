@@ -2020,11 +2020,10 @@ type unbox_result =
   (* unboxing process made a step: either an unboxing or removal of a [Tpoly] *)
   | Stepped of type_expr
   (* no step to make; we're all done here *)
-  | Final_result of type_expr
+  | Final_result
   (* definition not in environment: missing cmi *)
   | Missing of Path.t
 
-(* CR reisenberg: Probably shouldn't allocate in Final_result case. *)
 let unbox_once env ty =
   match get_desc ty with
   | Tconstr (p, args, _) ->
@@ -2032,30 +2031,27 @@ let unbox_once env ty =
     | exception Not_found -> Missing p
     | decl ->
       begin match find_unboxed_type decl with
-      | None -> Final_result ty
+      | None -> Final_result
       | Some ty2 ->
         let ty2 = match get_desc ty2 with Tpoly (t, _) -> t | _ -> ty2 in
         Stepped (apply env decl.type_params ty2 args)
       end
     end
   | Tpoly (ty, _) -> Stepped ty
-  | _ -> Final_result ty
-
-(* We use expand_head_opt version of expand_head to get access
-   to the manifest type of private abbreviations. *)
-let expand_and_unbox_once env ty =
-  let ty = expand_head_opt env ty in
-  unbox_once env ty
+  | _ -> Final_result
 
 (* We use ty_prev to track the last type for which we found a definition,
    allowing us to return a type for which a definition was found even if
    we eventually bottom out at a missing cmi file, or otherwise. *)
 let rec get_unboxed_type_representation env ty_prev ty fuel =
   if fuel < 0 then Error ty else
-    match expand_and_unbox_once env ty with
+    (* We use expand_head_opt version of expand_head to get access
+       to the manifest type of private abbreviations. *)
+    let ty = expand_head_opt env ty in
+    match unbox_once env ty with
     | Stepped ty2 ->
       get_unboxed_type_representation env ty ty2 (fuel - 1)
-    | Final_result ty2 -> Ok ty2
+    | Final_result -> Ok ty
     | Missing _ -> Ok ty_prev
 
 let get_unboxed_type_representation env ty =
@@ -2113,6 +2109,7 @@ let rec estimate_type_jkind ?(expand_component = Fun.id) env ty =
    then we will update the jkind of type variables to make the check true, if
    possible.  If true, we won't (but will still instantiate sort variables). *)
 let constrain_type_jkind ~fixed env ty jkind =
+  (* The [expanded] argument says whether we've already tried [expand_head_opt]. *)
   let rec loop ~fuel ~expanded ty ty's_jkind jkind =
     if fuel < 0 then Error (Jkind.Violation.of_ (Not_a_subjkind (ty's_jkind, jkind))) else
     match get_desc ty with
@@ -2166,7 +2163,7 @@ let constrain_type_jkind ~fixed env ty jkind =
                begin match unbox_once env ty with
                | Missing path -> Error (Jkind.Violation.of_ ~missing_cmi:path
                                           (Not_a_subjkind (ty's_jkind, jkind)))
-               | Final_result _ ->
+               | Final_result ->
                   Error (Jkind.Violation.of_ (Not_a_subjkind (ty's_jkind, jkind)))
                | Stepped ty ->
                   loop ~fuel:(fuel - 1) ~expanded:false ty
