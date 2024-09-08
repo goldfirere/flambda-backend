@@ -2177,174 +2177,9 @@ let rec estimate_type_desc_jkind env = function
 
 (**** checking jkind relationships ****)
 
-(* This type represents jkind constraints that we weren't able prove yet, but
-   which might succeed either by further expanding the type or by modifying a
-   type variable (in which case the [ty] will be a type variable). *)
-type type_jkind_sub_possible_failure =
-  { estimate : Jkind.t;
-    bound : Jkind.t;
-    ty : type_expr }
-
-type type_jkind_sub_result =
-  | Success
-  | Type_vars of type_jkind_sub_possible_failure list
-  (* [Type_vars] indicates a possible success - the caller should check, and
-     possibly update the variables *)
-  | Missing_cmi of Path.t
-  | Failure of type_jkind_sub_possible_failure
-  (* [Failure] indicates we couldn't verify the constraint.  However, further
-     expansion the type might make it possible to verify. *)
-
-let type_jkind_sub env ty jkind =
-  let jkind_est_of_results prefix_jkinds later_components =
-    (* [jkind_est_of_results] is used when we've reached an error state in the
-       middle of checking a product. In that case, we don't want to continue
-       with any further checks for later components of the product, but we do
-       need to get our best estimate so far of the kinds of those components,
-       because the error shows the product's computed jkind. *)
-    let jkinds =
-      List.rev_append prefix_jkinds
-        (List.map fst later_components)
-    in
-    Jkind.Builtin.product ~why:Unboxed_tuple jkinds
-  in
-
-  (* Every function here returns the best jkind computed for the type or types
-     it is passed, along with whether the constraint check succeeded.
-
-     The "fuel" argument is used because we're duplicating the loop of
-     `get_unboxed_type_representation`, but performing jkind checking at each
-     step.  This allows to check examples like:
-
-       type 'a t = 'a list
-       type s = { lbl : s t } [@@unboxed]
-
-     Here, we want to see [s t] has jkind value, and this only requires
-     expanding once to see [t] is list and [s] is irrelevant.  But calling
-     [get_unboxed_type_representation] itself would otherwise get into a nasty
-     loop trying to also expand [s], and then performing jkind checking to
-     ensure it's a valid argument to [t].  (We believe there are still loops
-     like this that can occur, though, and may need a more principled solution
-     later).  *)
-  let rec expand_and_check_one fuel ty jkind =
-    (* This is an optimization to avoid unboxing if we can tell the constraint
-       is satisfied from the type_kind *)
-    match get_desc ty with
-    | Tconstr(p, _args, _abbrev) ->
-        let jkind_estimate =
-          try (Env.find_type p env).type_jkind
-          with Not_found -> Jkind.Builtin.any ~why:(Missing_cmi p)
-        in
-        if Jkind.sub jkind_estimate jkind
-        then jkind_estimate, Success
-        else if fuel < 0 then
-          jkind_estimate,
-          Failure { estimate = jkind_estimate; bound = jkind; ty }
-        else begin match expand_and_unbox_once env ty with
-          | Final_result ty -> check_one fuel ty jkind
-          | Stepped ty -> expand_and_check_one (fuel - 1) ty jkind
-          | Missing missing_cmi_for ->
-            jkind_estimate, Missing_cmi missing_cmi_for
-        end
-    | Tpoly (ty, _) -> expand_and_check_one fuel ty jkind
-    | _ -> check_one fuel ty jkind
-
-  (* Unlike [expand_and_check_one], this will not expand the type it is passed.
-     But, if that type turns out to be an unboxed product we may end up
-     expanding its components. *)
-  and check_one fuel ty jkind =
-    match estimate_type_jkind_head env ty with
-    | Jkind ty_jkind ->
-      let result =
-        if Jkind.sub ty_jkind jkind then Success else
-          Failure {estimate = ty_jkind; bound = jkind; ty}
-      in
-      ty_jkind, result
-    | TyVar (ty, ty_jkind) ->
-      ty_jkind, Type_vars [{ estimate = ty_jkind; bound = jkind; ty }]
-    | Product component_types as product ->
-      let jkinds =
-        Jkind.is_nary_product (List.length component_types) jkind
-      in
-      match jkinds with
-      | None ->
-        let estimate =
-          jkind_of_result env ~expand_components:(fun x -> x) product
-        in
-        estimate, Failure { estimate; bound = jkind; ty }
-      | Some jkinds ->
-        (* Note: here we "duplicate" the fuel, which may seem like
-           cheating. Fuel counts expansions, and its purpose is to guard against
-           infinitely expanding a recursive type. In a wide product, we many
-           need to expand many types shallowly, and that's fine. *)
-        let results = List.map2 (check_one fuel) component_types jkinds in
-        process_product_results fuel [] [] results
-
-  (* Here, [results] is a list of results from attempting to constrain a product
-     jkind - one for each component. Failures may have occurred just because we
-     haven't expanded the component type enough yet, so we expand and check it
-     again.
-
-     [vars] and [jkind_ests] are accumulators, collecting the [Type_vars] from
-     the component checks and the jkind estimate of each component.
-  *)
-  and process_product_results fuel vars jkind_ests results =
-    match results with
-    | [] ->
-      let jkind =
-        Jkind.Builtin.product ~why:Unboxed_tuple (List.rev jkind_ests)
-      in
-      if vars = [] then jkind, Success else jkind, Type_vars vars
-    | (jkind_est, result) :: results ->
-      (* If the result is failure, we try again with expansion. *)
-      let jkind_est, result =
-        match result with
-        (* CR: We could refactor slightly so that we skip the shortcut check
-           in [expand_and_check_one] here. *)
-        | Failure { bound; ty } -> expand_and_check_one fuel ty bound
-        | Success | Type_vars _ | Missing_cmi _ -> jkind_est, result
-      in
-      let jkind_ests = jkind_est :: jkind_ests in
-      match result with
-      | Success -> process_product_results fuel vars jkind_ests results
-      | Type_vars vars' ->
-        process_product_results fuel (vars' @ vars) jkind_ests results
-      | Failure _ | Missing_cmi _ ->
-        let jkind = jkind_est_of_results jkind_ests results in
-        jkind, result
-  in
-
-  expand_and_check_one 100 ty jkind
-
 (* The ~fixed argument controls what effects this may have on `ty`.  If false,
    then we will update the jkind of type variables to make the check true, if
-   possible.  If true, we won't (but will still instantiate sort variables).
-
-   Precondition: [jkind] is not [any]. This common case is short-circuited
-   before calling this function. (Though the current implementation is still
-   correct on [any].)
-*)
-let _constrain_type_jkind ~fixed env ty jkind =
-  let ty_jkind, result = type_jkind_sub env ty jkind in
-  match result with
-  | Success -> Ok ()
-  | Type_vars tvs ->
-    let constrain_one_var { estimate; bound; ty } =
-      if fixed then Jkind.sub_or_error estimate bound else
-      let jkind_inter =
-        Jkind.intersection_or_error ~reason:Tyvar_refinement_intersection
-          estimate bound
-      in
-      Result.map (set_var_jkind ty) jkind_inter
-    in
-    Misc.Stdlib.List.iter_until_error ~f:constrain_one_var tvs
-  | Missing_cmi missing_cmi ->
-    Error Jkind.(Violation.of_ ~missing_cmi
-      (Not_a_subjkind
-         (History.update_reason ty_jkind (Missing_cmi missing_cmi), jkind)))
-  | Failure _ ->
-    Error (Jkind.Violation.of_ (Not_a_subjkind (ty_jkind, jkind)))
-
+   possible.  If true, we won't (but will still instantiate sort variables). *)
 let constrain_type_jkind ~fixed env ty jkind =
   let rec loop ~fuel ~expanded ty ty's_jkind jkind =
     if fuel < 0 then Error (Jkind.Violation.of_ (Not_a_subjkind (ty's_jkind, jkind))) else
@@ -2397,8 +2232,10 @@ let constrain_type_jkind ~fixed env ty jkind =
                loop ~fuel ~expanded:true ty (estimate_type_desc_jkind env (get_desc ty)) jkind
              else
                begin match unbox_once env ty with
-               | Missing path -> Error (Jkind.Violation.of_ ~missing_cmi:path (Not_a_subjkind (ty's_jkind, jkind)))
-               | Final_result _ -> Error (Jkind.Violation.of_ (Not_a_subjkind (ty's_jkind, jkind)))
+               | Missing path -> Error (Jkind.Violation.of_ ~missing_cmi:path
+                                          (Not_a_subjkind (ty's_jkind, jkind)))
+               | Final_result _ ->
+                  Error (Jkind.Violation.of_ (Not_a_subjkind (ty's_jkind, jkind)))
                | Stepped ty ->
                   loop ~fuel:(fuel - 1) ~expanded:false ty
                     (estimate_type_desc_jkind env (get_desc ty)) jkind
@@ -2424,12 +2261,6 @@ let constrain_type_jkind ~fixed env ty jkind =
           | _ -> Error (Jkind.Violation.of_ (Not_a_subjkind (ty's_jkind, jkind)))
   in
   loop ~fuel:100 ~expanded:false ty (estimate_type_desc_jkind env (get_desc ty)) jkind
-
-let constrain_type_jkind ~fixed env ty jkind =
-  (* An optimization to avoid doing any work if we're checking against
-     any. *)
-  if Jkind.is_max jkind then Ok ()
-  else constrain_type_jkind ~fixed env ty jkind
 
 let type_sort ~why ~fixed env ty =
   let jkind, sort = Jkind.of_new_sort_var ~why in
