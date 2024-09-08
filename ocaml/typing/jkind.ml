@@ -1270,7 +1270,15 @@ let set_externality_upper_bound jk externality_upper_bound =
 let decompose_product ({ jkind; _ } as jk) =
   match jkind.layout with
   | Any -> None
-  | Product layouts -> Some (List.map (fun layout -> { jk with jkind = { jkind with layout } }) layouts)
+  | Product layouts ->
+     (* CR layouts 7.1: The histories here are wrong (we are giving each
+        component the history of the whole product).  They don't show up in
+        errors, so it's fine for now, but we'll probably need to fix this as
+        part of improving errors around products. A couple options: re-work the
+        relevant bits of [Ctype.type_jkind_sub] to just work on layouts, or
+        introduce product histories. *)
+     let update_jkind_layout layout = { jk with jkind = { jkind with layout } } in
+     Some (List.map update_jkind_layout layouts)
   | Sort (Var _) -> None
   | Sort (Base _) -> None
   | Sort (Product sorts) ->
