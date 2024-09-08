@@ -2429,6 +2429,12 @@ let constrain_type_jkind ~fixed env ty jkind =
   if Jkind.is_max jkind then Ok ()
   else constrain_type_jkind ~fixed env ty jkind
 
+let type_sort ~why ~fixed env ty =
+  let jkind, sort = Jkind.of_new_sort_var ~why in
+  match constrain_type_jkind ~fixed env ty jkind with
+  | Ok _ -> Ok sort
+  | Error _ as e -> e
+
 let check_type_jkind env ty jkind =
   constrain_type_jkind ~fixed:true env ty jkind
 
@@ -2491,12 +2497,6 @@ let type_jkind_purely env ty =
 let estimate_type_jkind env ty =
   estimate_type_jkind env ~expand_components:(fun x -> x)
     (get_unboxed_type_approximation env ty)
-
-let type_sort ~why env ty =
-  let jkind, sort = Jkind.of_new_sort_var ~why in
-  match constrain_type_jkind env ty jkind with
-  | Ok _ -> Ok sort
-  | Error _ as e -> e
 
 let type_legacy_sort ~why env ty =
   let jkind, sort = Jkind.of_new_legacy_sort_var ~why in
