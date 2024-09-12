@@ -125,12 +125,12 @@ val transl_simple_type_delayed
 val transl_type_scheme:
         Env.t -> Parsetree.core_type -> Typedtree.core_type
 val transl_type_param:
-  Env.t -> Path.t -> Jkind.t -> Parsetree.core_type -> Typedtree.core_type
+  Env.t -> Path.t -> Jkind.r -> Parsetree.core_type -> Typedtree.core_type
 (* the Path.t above is of the type/class whose param we are processing;
-   the level defaults to the current level. The Jkind.t is the jkind to
+   the level defaults to the current level. The Jkind.r is the jkind to
    use if no annotation is provided. *)
 
-val get_type_param_jkind: Path.t -> Parsetree.core_type -> jkind
+val get_type_param_jkind: Path.t -> Parsetree.core_type -> jkind_r
 val get_type_param_name: Parsetree.core_type -> string option
 
 exception Already_bound
@@ -160,7 +160,7 @@ type error =
   | Invalid_variable_name of string
   | Cannot_quantify of string * cannot_quantify_reason
   | Bad_univar_jkind of
-      { name : string; jkind_info : jkind_info; inferred_jkind : jkind }
+      { name : string; jkind_info : jkind_info; inferred_jkind : jkind_r }
   | Multiple_constraints_on_type of Longident.t
   | Method_mismatch of string * type_expr * type_expr
   | Opened_object of Path.t option

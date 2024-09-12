@@ -205,10 +205,10 @@ let predef_jkind_annotation primitive =
        primitive.jkind, user_written)
     primitive
 
-let option_argument_jkind = Jkind.Builtin.value ~why:(
+let option_argument_jkind : jkind_r = Jkind.Builtin.value ~why:(
   Type_argument {parent_path = path_option; position = 1; arity = 1})
 
-let list_argument_jkind = Jkind.Builtin.value ~why:(
+let list_argument_jkind : jkind_r = Jkind.Builtin.value ~why:(
   Type_argument {parent_path = path_list; position = 1; arity = 1})
 
 let or_null_argument_jkind = Jkind.Builtin.value ~why:(
@@ -388,7 +388,7 @@ let build_initial_env add_type add_extension empty_env =
                                    type_list tvar |> unrestricted]]
            [| Constructor_uniform_value, [| |];
               Constructor_uniform_value,
-                [| list_argument_jkind;
+                [| Jkind.relax_r list_argument_jkind;
                    Jkind.Builtin.value ~why:Boxed_variant;
                 |];
            |] )
@@ -403,7 +403,7 @@ let build_initial_env add_type add_extension empty_env =
        ~kind:(fun tvar ->
          variant [cstr ident_none []; cstr ident_some [unrestricted tvar]]
            [| Constructor_uniform_value, [| |];
-              Constructor_uniform_value, [| option_argument_jkind |];
+              Constructor_uniform_value, [| Jkind.relax_r option_argument_jkind |];
            |])
        ~jkind:(Jkind.Builtin.value ~why:Boxed_variant)
   |> add_type ident_lexing_position

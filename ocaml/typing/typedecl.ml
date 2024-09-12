@@ -265,7 +265,7 @@ let enter_type ?abstract_abbrevs rec_flag env sdecl (id, uid) =
   let type_jkind, type_jkind_annotation, sdecl_attributes =
     Jkind.of_type_decl_default
       ~context:(Type_declaration path)
-      ~default:any
+      ~default:(Jkind.relax_r any)
       sdecl
   in
   let abstract_source, type_manifest =
@@ -1056,7 +1056,7 @@ let rec check_constraints_rec env loc visited ty =
         | Jkind_mismatch { original_jkind; inferred_jkind; ty } ->
           let violation =
             Jkind.Violation.of_
-              (Not_a_subjkind (original_jkind, inferred_jkind))
+              (Not_a_subjkind (Jkind.relax_r original_jkind, inferred_jkind))
           in
           raise (Error(loc, Jkind_mismatch_due_to_bad_inference
                             (ty, violation, Check_constraints)))
@@ -1156,7 +1156,7 @@ let narrow_to_manifest_jkind env loc decl =
   | None -> decl
   | Some ty ->
     let jkind' = Ctype.type_jkind_purely env ty in
-    match Jkind.sub_with_history jkind' decl.type_jkind with
+    match Jkind.sub_jkind_l jkind' decl.type_jkind with
     | Ok jkind' -> { decl with type_jkind = jkind' }
     | Error v ->
       raise (Error (loc, Jkind_mismatch_of_type (ty,v)))
@@ -1170,7 +1170,7 @@ let check_kind_coherence env loc dpath decl =
   | (Type_variant _ | Type_record _ | Type_open), Some ty ->
       if !Clflags.allow_illegal_crossing then begin
         let jkind' = Ctype.type_jkind_purely env ty in
-        begin match Jkind.sub_with_history jkind' decl.type_jkind with
+        begin match Jkind.sub_jkind_l jkind' decl.type_jkind with
         | Ok _ -> ()
         | Error v ->
           raise (Error (loc, Jkind_mismatch_of_type (ty,v)))
@@ -1700,8 +1700,8 @@ let update_decl_jkind env dpath decl =
   (* check that the jkind computed from the kind matches the jkind
      annotation, which was stored in decl.type_jkind *)
   if new_jkind != decl.type_jkind then
-    begin match Jkind.sub_or_error new_jkind decl.type_jkind with
-    | Ok () -> ()
+    begin match Jkind.sub_jkind_l new_jkind decl.type_jkind with
+    | Ok _ -> ()
     | Error err ->
       raise(Error(decl.type_loc, Jkind_mismatch_of_path (dpath,err)))
     end;

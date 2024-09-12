@@ -55,7 +55,7 @@ type cannot_quantify_reason =
    it is original as compared to the inferred jkind after processing
    the body of the type *)
 type jkind_info =
-  { original_jkind : jkind;
+  { original_jkind : jkind_r;
     jkind_annot : Jkind.annotation option;
     defaulted : bool;
   }
@@ -77,7 +77,7 @@ type error =
   | Invalid_variable_name of string
   | Cannot_quantify of string * cannot_quantify_reason
   | Bad_univar_jkind of
-      { name : string; jkind_info : jkind_info; inferred_jkind : jkind }
+      { name : string; jkind_info : jkind_info; inferred_jkind : jkind_r }
   | Multiple_constraints_on_type of Longident.t
   | Method_mismatch of string * type_expr * type_expr
   | Opened_object of Path.t option
@@ -101,7 +101,7 @@ module TyVarEnv : sig
 
   val is_in_scope : string -> bool
 
-  val add : string -> type_expr -> jkind -> unit
+  val add : string -> type_expr -> jkind_r -> unit
   (* add a global type variable to the environment, with the given jkind.
      Precondition: the [type_expr] must be a [Tvar] with the given jkind. *)
 
@@ -137,12 +137,12 @@ module TyVarEnv : sig
     (* common case *)
   val univars_policy : policy
     (* fresh variables are univars (in methods), with representable jkinds *)
-  val new_any_var : Location.t -> Env.t -> Jkind.t -> policy -> type_expr
+  val new_any_var : Location.t -> Env.t -> Jkind.r -> policy -> type_expr
     (* create a new variable to represent a _; fails for fixed policy *)
-  val new_var : ?name:string -> Jkind.t -> policy -> type_expr
+  val new_var : ?name:string -> Jkind.r -> policy -> type_expr
     (* create a new variable according to the given policy *)
 
-  val new_jkind : is_named:bool -> policy -> Jkind.t
+  val new_jkind : is_named:bool -> policy -> Jkind.r
     (* create a new jkind depending on the current policy *)
 
   val add_pre_univar : type_expr -> policy -> unit
@@ -163,7 +163,7 @@ module TyVarEnv : sig
     row_context:type_expr option ref list -> string -> type_expr
     (* look up a local type variable; throws Not_found if it isn't in scope *)
 
-  val lookup_global_jkind : string -> jkind
+  val lookup_global_jkind : string -> jkind_r
     (* look up a global type variable, returning the jkind it was originally
        assigned. Throws [Not_found] if the variable isn't in scope. *)
 
@@ -190,7 +190,7 @@ end = struct
   (* These are the "global" type variables: they were in scope before
      we started processing the current type.
   *)
-  let type_variables = ref (TyVarMap.empty : (type_expr * jkind) TyVarMap.t)
+  let type_variables = ref (TyVarMap.empty : (type_expr * jkind_r) TyVarMap.t)
 
   (* These are variables that have been used in the currently-being-checked
      type, possibly including the variables in [type_variables].
@@ -513,7 +513,7 @@ let valid_tyvar_name name =
   name <> "" && name.[0] <> '_'
 
 let transl_type_param_var env loc attrs name_opt
-      (jkind : jkind) jkind_annot =
+      (jkind : jkind_r) jkind_annot =
   let tvar = Ttyp_var (name_opt, jkind_annot) in
   let name =
     match name_opt with

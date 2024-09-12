@@ -407,7 +407,7 @@ let without_generating_equations uenv f =
 *)
 type jkind_unification_mode =
   | Perform_checks
-  | Delay_checks of (type_expr * Jkind.t) list ref
+  | Delay_checks of (type_expr * Jkind.r) list ref
 
 let lmode = ref Perform_checks
 
@@ -1360,7 +1360,7 @@ let new_local_type ?(loc = Location.none) ?manifest_and_scope origin
     type_params = [];
     type_arity = 0;
     type_kind = Type_abstract origin;
-    type_jkind = jkind;
+    type_jkind = Jkind.relax_r jkind;
     type_jkind_annotation = jkind_annot;
     type_private = Public;
     type_manifest = manifest;
@@ -2105,7 +2105,7 @@ let tvariant_not_immediate row =
    don't. *)
 let rec estimate_type_jkind ~expand_component env ty =
   match get_desc ty with
-  | Tvar { jkind } -> jkind
+  | Tvar { jkind } -> Jkind.relax_r jkind
   | Tarrow _ -> Jkind.for_arrow
   | Ttuple _ -> Jkind.Builtin.value ~why:Tuple
   | Tunboxed_tuple ltys ->
@@ -2127,7 +2127,7 @@ let rec estimate_type_jkind ~expand_component env ty =
      if tvariant_not_immediate row
      then Jkind.Builtin.value ~why:Polymorphic_variant
      else Jkind.Builtin.immediate ~why:Immediate_polymorphic_variant
-  | Tunivar { jkind } -> jkind
+  | Tunivar { jkind } -> Jkind.relax_r jkind
   | Tpoly (ty, _) -> estimate_type_jkind ~expand_component env ty
   | Tpackage _ -> Jkind.Builtin.value ~why:First_class_module
 
@@ -2179,7 +2179,9 @@ let constrain_type_jkind ~fixed env ty jkind =
       Error (Jkind.Violation.of_ (Not_a_subjkind (ty's_jkind, jkind)))
     else
     match get_desc ty with
-    | Tvar _ when not fixed ->
+    (* The [ty's_jkind] we get here is an **r** jkind, necessary for
+       the call to [intersection_or_error]. *)
+    | Tvar { jkind = ty's_jkind } when not fixed ->
        (* Unfixed tyvars are special in at least two ways:
 
           1) Suppose we're processing [type 'a t = 'a list]. The ['a] on the
@@ -2297,6 +2299,8 @@ let check_type_externality env ty ext =
   | Error _ -> false
 
 let check_decl_jkind env decl jkind =
+  (* CR layouts v2.8: This will need to be deeply reimplemented. *)
+  let jkind = Jkind.terrible_relax_l jkind in
   match Jkind.sub_or_error decl.type_jkind jkind with
   | Ok () as ok -> ok
   | Error _ as err ->
@@ -2305,6 +2309,8 @@ let check_decl_jkind env decl jkind =
       | Some ty -> check_type_jkind env ty jkind
 
 let constrain_decl_jkind env decl jkind =
+  (* CR layouts v2.8: This will need to be deeply reimplemented. *)
+  let jkind = Jkind.terrible_relax_l jkind in
   match Jkind.sub_or_error decl.type_jkind jkind with
   | Ok () as ok -> ok
   | Error _ as err ->
@@ -2345,7 +2351,7 @@ let rec intersect_type_jkind ~reason env ty1 jkind2 =
     (* [intersect_type_jkind] is called rarely, so we don't bother with trying
        to avoid this call as in [constrain_type_jkind] *)
     let ty1 = get_unboxed_type_approximation env ty1 in
-    Jkind.intersection_or_error ~reason (estimate_type_jkind env ty1) jkind2
+    Jkind.intersect_l_l ~reason (estimate_type_jkind env ty1) jkind2
 
 (* See comment on [jkind_unification_mode] *)
 let unification_jkind_check env ty jkind =
@@ -2855,7 +2861,9 @@ let reify uenv t =
   let fresh_constr_scope = get_equations_scope uenv in
   let create_fresh_constr lev name jkind =
     let name = match name with Some s -> "$'"^s | _ -> "$" in
-    let decl = new_local_type Definition jkind ~jkind_annot:None in
+    let decl =
+      new_local_type Definition jkind ~jkind_annot:None
+    in
     let env = get_env uenv in
     let new_name =
       (* unique names are needed only for error messages *)
@@ -2971,7 +2979,7 @@ let equivalent_with_nolabels l1 l2 =
 
 (* the [tk] means we're comparing a type against a jkind *)
 let has_jkind_intersection_tk env ty jkind =
-  Jkind.has_intersection (type_jkind env ty) jkind
+  Jkind.has_intersection_l_l (type_jkind env ty) jkind
 
 (* [mcomp] tests if two types are "compatible" -- i.e., if they could ever
    unify.  (This is distinct from [eqtype], which checks if two types *are*
@@ -2988,7 +2996,8 @@ let has_jkind_intersection_tk env ty jkind =
 
 let rec mcomp type_pairs env t1 t2 =
   let check_jkinds ty jkind =
-    if not (has_jkind_intersection_tk env ty jkind) then raise Incompatible
+    if not (has_jkind_intersection_tk env ty (Jkind.relax_r jkind))
+    then raise Incompatible
   in
   if eq_type t1 t2 then () else
   match (get_desc t1, get_desc t2, t1, t2) with
@@ -3124,7 +3133,7 @@ and mcomp_type_decl type_pairs env p1 p2 tl1 tl2 =
     let decl = Env.find_type p1 env in
     let decl' = Env.find_type p2 env in
     let check_jkinds () =
-      if not (Jkind.has_intersection decl.type_jkind decl'.type_jkind)
+      if not (Jkind.has_intersection_l_l decl.type_jkind decl'.type_jkind)
       then raise Incompatible
     in
     if compatible_paths p1 p2 then begin
@@ -3296,7 +3305,7 @@ let add_gadt_equation uenv source destination =
       new_local_type
         ~manifest_and_scope:(destination, expansion_scope)
         type_origin
-        jkind
+        (Jkind.terrible_relax_l jkind)
         ~jkind_annot
     in
     set_env uenv (Env.add_local_constraint source decl env);
@@ -5072,7 +5081,7 @@ let all_distinct_vars env vars =
 
 type matches_result =
   | Unification_failure of Errortrace.unification_error
-  | Jkind_mismatch of { original_jkind : jkind; inferred_jkind : jkind
+  | Jkind_mismatch of { original_jkind : jkind_r; inferred_jkind : jkind_r
                        ; ty : type_expr }
   | All_good
 
@@ -5117,7 +5126,7 @@ let rigidify ty =
 module No_trace = struct
   type matches_result_ =
     | Unification_failure
-    | Jkind_mismatch of { original_jkind : jkind; inferred_jkind : jkind
+    | Jkind_mismatch of { original_jkind : jkind_r; inferred_jkind : jkind_r
                        ; ty : type_expr }
     | All_good
 end

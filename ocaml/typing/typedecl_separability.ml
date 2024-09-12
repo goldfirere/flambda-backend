@@ -484,11 +484,7 @@ let msig_of_external_type env decl =
     Result.is_error (Ctype.check_decl_jkind env decl
                         (Jkind.Builtin.value_or_null ~why:Separability_check))
   in
-  let is_external =
-    match Jkind.get_externality_upper_bound decl.type_jkind with
-    | Internal -> false
-    | External | External64 -> true
-  in
+  let is_external = Jkind.is_definitely_external decl.type_jkind in
   if is_not_value_or_null || is_external then best_msig decl else worst_msig decl
 
 (** [msig_of_context ~decl_loc constructor context] returns the

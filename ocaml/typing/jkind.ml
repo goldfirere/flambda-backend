@@ -1047,7 +1047,19 @@ module Jkind_desc = struct
   end
 end
 
-type t = type_expr Jkind_types.t
+type 'd t = (type_expr, 'd) Jkind_types.t
+
+type l = (allowed * disallowed) t
+
+type r = (disallowed * allowed) t
+
+type lr = (allowed * allowed) t
+
+type packed = Pack : 'd t -> packed [@@unboxed]
+
+let relax_r ({ jkind = { layout = _; _ }; _ } as t) = t
+
+let terrible_relax_l ({ jkind = { layout = _; _ }; _ } as t) = t
 
 let fresh_jkind jkind ~why =
   { jkind; history = Creation why; has_warned = false }
@@ -1243,7 +1255,7 @@ let get t = Jkind_desc.get t.jkind
 
 (* CR layouts: this function is suspect; it seems likely to reisenberg
    that refactoring could get rid of it *)
-let sort_of_jkind (t : t) : sort =
+let sort_of_jkind (t : l) : sort =
   let rec sort_of_layout (t : Layout.t) =
     match t with
     | Any -> Misc.fatal_error "Jkind.sort_of_jkind"
@@ -1288,6 +1300,11 @@ let decompose_product ({ jkind; _ } as jk) =
        introduce product histories. *)
     Some (List.map mk_jkind layouts)
   | Sort s -> deal_with_sort (Sort.get s)
+
+let is_definitely_external jk =
+  match jk.jkind.externality_upper_bound with
+  | Internal -> false
+  | External | External64 -> true
 
 (*********************************)
 (* pretty printing *)
@@ -1649,8 +1666,8 @@ module Violation = struct
   open Format
 
   type violation =
-    | Not_a_subjkind of t * t
-    | No_intersection of t * t
+    | Not_a_subjkind of l * r
+    | No_intersection of r * r
 
   type nonrec t =
     { violation : violation;
@@ -1694,7 +1711,7 @@ module Violation = struct
       | Const _ | Product _ ->
         dprintf "%s a sub%s of %a" verb layout_or_kind format_layout_or_kind k2
     in
-    let k1, k2, fmt_k1, fmt_k2, missing_cmi_option =
+    let Pack k1, k2, fmt_k1, fmt_k2, missing_cmi_option =
       match t with
       | { violation = Not_a_subjkind (k1, k2); missing_cmi } -> (
         let missing_cmi =
@@ -1708,20 +1725,20 @@ module Violation = struct
         in
         match missing_cmi with
         | None ->
-          ( k1,
+          ( Pack k1,
             k2,
             dprintf "%s %a" layout_or_kind format_layout_or_kind k1,
             subjkind_format "is not" k2,
             None )
         | Some p ->
-          ( k1,
+          ( Pack k1,
             k2,
             dprintf "an unknown %s" layout_or_kind,
             subjkind_format "might not be" k2,
             Some p ))
       | { violation = No_intersection (k1, k2); missing_cmi } ->
         assert (Option.is_none missing_cmi);
-        ( k1,
+        ( Pack k1,
           k2,
           dprintf "%s %a" layout_or_kind format_layout_or_kind k1,
           dprintf "does not overlap with %a" format_layout_or_kind k2,
@@ -1774,11 +1791,11 @@ let equate_or_equal ~allow_mutation
   Jkind_desc.equate_or_equal ~allow_mutation jkind1 jkind2
 
 (* CR layouts v2.8: Switch this back to ~allow_mutation:false *)
-let equal = equate_or_equal ~allow_mutation:true
+let equal t1 t2 = equate_or_equal ~allow_mutation:true t1 t2
 
 let () = Types.set_jkind_equal equal
 
-let equate = equate_or_equal ~allow_mutation:true
+let equate t1 t2 = equate_or_equal ~allow_mutation:true t1 t2
 
 (* Not all jkind history reasons are created equal. Some are more helpful than others.
     This function encodes that information.
@@ -1792,7 +1809,7 @@ let score_reason = function
   | Creation (Concrete_creation _ | Concrete_legacy_creation _) -> -1
   | _ -> 0
 
-let combine_histories reason lhs rhs =
+let combine_histories reason (Pack lhs) (Pack rhs) =
   if flattened_histories
   then
     match Desc.sub (Jkind_desc.get lhs.jkind) (Jkind_desc.get rhs.jkind) with
@@ -1807,9 +1824,9 @@ let combine_histories reason lhs rhs =
   else
     Interact
       { reason;
-        lhs_jkind = lhs.jkind;
+        lhs_jkind = Pack lhs.jkind;
         lhs_history = lhs.history;
-        rhs_jkind = rhs.jkind;
+        rhs_jkind = Pack rhs.jkind;
         rhs_history = rhs.history
       }
 
@@ -1822,9 +1839,20 @@ let intersection_or_error ~reason t1 t2 =
   | Some jkind ->
     Ok
       { jkind;
-        history = combine_histories reason t1 t2;
+        history = combine_histories reason (Pack t1) (Pack t2);
         has_warned = t1.has_warned || t2.has_warned
       }
+
+let intersect_l_l ~reason t1 t2 =
+  (* CR layouts v2.8: Do something cleverer here once we have more
+     expressive l-kinds. *)
+  Result.map relax_r
+    (intersection_or_error ~reason (terrible_relax_l t1) (terrible_relax_l t2))
+
+let has_intersection_l_l t1 t2 =
+  (* CR layouts v2.8: Do something cleverer here once we have more
+     expressive l-kinds. *)
+  has_intersection (terrible_relax_l t1) (terrible_relax_l t2)
 
 (* this is hammered on; it must be fast! *)
 let check_sub sub super = Jkind_desc.sub sub.jkind super.jkind
@@ -1848,10 +1876,13 @@ let sub_or_error t1 t2 =
   | Sub -> Ok ()
   | _ -> Error (Violation.of_ (Not_a_subjkind (t1, t2)))
 
-let sub_with_history sub super =
-  match check_sub sub super with
+(* CR layouts v2.8: Rewrite this to do the hard subjkind check from the
+   kind polymorphism design. *)
+let sub_jkind_l sub super =
+  let super = terrible_relax_l super in
+  match check_sub sub (terrible_relax_l super) with
   | Less | Equal ->
-    Ok { sub with history = combine_histories Subjkind sub super }
+    Ok { sub with history = combine_histories Subjkind (Pack sub) (Pack super) }
   | Not_le -> Error (Violation.of_ (Not_a_subjkind (sub, super)))
 
 let is_void_defaulting = function
@@ -2019,7 +2050,13 @@ module Debug_printers = struct
     | Subjkind -> fprintf ppf "Subjkind"
 
   let rec history ppf = function
-    | Interact { reason; lhs_jkind; lhs_history; rhs_jkind; rhs_history } ->
+    | Interact
+        { reason;
+          lhs_jkind = Pack lhs_jkind;
+          lhs_history;
+          rhs_jkind = Pack rhs_jkind;
+          rhs_history
+        } ->
       fprintf ppf
         "Interact {@[reason = %a;@ lhs_jkind = %a;@ lhs_history = %a;@ \
          rhs_jkind = %a;@ rhs_history = %a}@]"
@@ -2027,7 +2064,7 @@ module Debug_printers = struct
         lhs_history Jkind_desc.Debug_printers.t rhs_jkind history rhs_history
     | Creation c -> fprintf ppf "Creation (%a)" creation_reason c
 
-  let t ppf ({ jkind; history = h; has_warned = _ } : t) : unit =
+  let t ppf ({ jkind; history = h; has_warned = _ } : 'd t) : unit =
     fprintf ppf "@[<v 2>{ jkind = %a@,; history = %a }@]"
       Jkind_desc.Debug_printers.t jkind history h
 
