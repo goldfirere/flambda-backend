@@ -2159,7 +2159,7 @@ let constrain_type_jkind ~fixed env ty jkind =
           [list], we'll need to change that jkind to be [value]. But we want to
           do this update by changing the type variable, not just by filling in
           the sort variable: the former preserves history (improving error
-          messages), while the latter does not.  (If you're readying this in a
+          messages), while the latter does not.  (If you're reading this in a
           future where sorts track their own history, then this reason no longer
           applies; delete this bullet.)
 
