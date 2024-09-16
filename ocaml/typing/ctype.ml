@@ -2163,10 +2163,10 @@ let constrain_type_jkind ~fixed env ty jkind =
           future where sorts track their own history, then this reason no longer
           applies; delete this bullet.)
 
-          2) Suppose we're unifying ['a : value] with ['a : float64]. This would
-          be possible if those two jkinds had an intersection. And so an error
-          message should complain about the lack of intersection, not the lack
-          of subjkinding.
+          2) Suppose we're checking whether ['a : value] has jkind float64. This
+          would be possible if those two jkinds had an intersection. And so an
+          error message should complain about the lack of intersection, not the
+          lack of subjkinding.
 
           Because of these reasons, we pull out the unfixed tyvar case and treat
           it first.
