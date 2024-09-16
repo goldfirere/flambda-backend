@@ -2228,10 +2228,11 @@ let constrain_type_jkind ~fixed env ty jkind =
                     (fun (_, ty) -> loop ~fuel ~expanded:false ty)
                     ltys ty's_jkinds jkinds
                 in
-                let module Monad_result = Misc.Stdlib.Monad.Make2(struct
-                                              include Result
-                                              let return = ok
-                                            end) in
+                let module Result = struct
+                  include Result
+                  let return = ok
+                end in
+                let module Monad_result = Misc.Stdlib.Monad.Make2(Result) in
                 Monad_result.all_unit results
              | _ -> Misc.fatal_error "unboxed tuple jkinds don't line up"
              end
