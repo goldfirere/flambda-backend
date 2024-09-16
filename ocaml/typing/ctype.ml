@@ -2226,12 +2226,7 @@ let constrain_type_jkind ~fixed env ty jkind =
                    (fun (_, ty) -> loop ~fuel ~expanded:false ty)
                    ltys ty's_jkinds jkinds
                in
-               let module Result = struct
-                 include Result
-                 let return = ok
-               end in
-               let module Monad_result = Misc.Stdlib.Monad.Make2(Result) in
-               Monad_result.all_unit results
+               Misc.Stdlib.Monad.Result.all_unit results
              in
              begin match Jkind.decompose_product ty's_jkind,
                          Jkind.decompose_product jkind with

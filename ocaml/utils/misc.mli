@@ -303,6 +303,8 @@ module Stdlib : sig
     end
 
     module Make2 (X : Basic2) : S2 with type ('a, 'e) t = ('a, 'e) X.t
+
+    module Result : S2 with type ('a, 'e) t = ('a, 'e) result
   end
 end
 

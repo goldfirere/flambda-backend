@@ -491,6 +491,11 @@ module Stdlib = struct
         let skip = return () in
         List.fold_left (fun _ m -> bind m (fun _ -> skip)) skip ms
     end
+
+    module Result = Make2(struct
+        include Result
+        let return = ok
+      end)
   end
 end
 
