@@ -207,6 +207,7 @@ let enter_type ?abstract_abbrevs rec_flag env sdecl (id, uid) =
   if not needed then env else
   let arity = List.length sdecl.ptype_params in
   let path = Path.Pident id in
+  let any = Jkind.Builtin.any ~why:Initial_typedecl_env in
 
   (* There is some trickiness going on here with the jkind.  It expands on an
      old trick used in the manifest of [decl] below.
@@ -264,12 +265,17 @@ let enter_type ?abstract_abbrevs rec_flag env sdecl (id, uid) =
   let type_jkind, type_jkind_annotation, sdecl_attributes =
     Jkind.of_type_decl_default
       ~context:(Type_declaration path)
-      ~default:(Jkind.Builtin.any ~why:Initial_typedecl_env)
+      ~default:any
       sdecl
   in
   let abstract_source, type_manifest =
     match sdecl.ptype_manifest, abstract_abbrevs with
-    | None, _ | Some _, None -> Definition, Some (Ctype.newvar type_jkind)
+    (* Make a manifest with an unrestricted type variable. This type variable
+       essentially collects constraints that arise from the usage of the
+       type being constructed. Nothing is gained by using the jkind from
+       an annotation here, and doing so with separated left- and right-jkinds
+       is hard to do. *)
+    | None, _ | Some _, None -> Definition, Some (Ctype.newvar any)
     | Some _, Some reason -> reason, None
 in
   let type_params =
