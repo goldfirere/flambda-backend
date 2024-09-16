@@ -2213,27 +2213,36 @@ let constrain_type_jkind ~fixed env ty jkind =
                end
           | Tunboxed_tuple ltys ->
              let num_components = List.length ltys in
+             let recur ty's_jkinds jkinds =
+               (* Note: here we "duplicate" the fuel, which may seem like
+                  cheating. Fuel counts expansions, and its purpose is to guard
+                  against infinitely expanding a recursive type. In a wide
+                  product, we many need to expand many types shallowly, and
+                  that's fine. *)
+               let results =
+                 Misc.Stdlib.List.map3
+                   (fun (_, ty) -> loop ~fuel ~expanded:false ty)
+                   ltys ty's_jkinds jkinds
+               in
+               let module Result = struct
+                 include Result
+                 let return = ok
+               end in
+               let module Monad_result = Misc.Stdlib.Monad.Make2(Result) in
+               Monad_result.all_unit results
+             in
              begin match Jkind.decompose_product ty's_jkind,
                          Jkind.decompose_product jkind with
              | Some ty's_jkinds, Some jkinds
                   when List.length ty's_jkinds = num_components
                        && List.length jkinds = num_components ->
-                  (* Note: here we "duplicate" the fuel, which may seem like
-                     cheating. Fuel counts expansions, and its purpose is to
-                     guard against infinitely expanding a recursive type. In a
-                     wide product, we many need to expand many types shallowly,
-                     and that's fine. *)
-                let results =
-                  Misc.Stdlib.List.map3
-                    (fun (_, ty) -> loop ~fuel ~expanded:false ty)
-                    ltys ty's_jkinds jkinds
-                in
-                let module Result = struct
-                  include Result
-                  let return = ok
-                end in
-                let module Monad_result = Misc.Stdlib.Monad.Make2(Result) in
-                Monad_result.all_unit results
+               recur ty's_jkinds jkinds
+             | Some ty's_jkinds, None
+                  when Jkind.has_layout_any jkind ->
+               (* Even though [jkind] has layout any, it still might have
+                  mode-crossing restrictions, so we recur, just duplicating
+                  the jkind. *)
+               recur ty's_jkinds (List.init num_components (fun _ -> jkind))
              | _ -> Misc.fatal_error "unboxed tuple jkinds don't line up"
              end
           | _ -> Error (Jkind.Violation.of_ (Not_a_subjkind (ty's_jkind, jkind)))

@@ -935,3 +935,34 @@ Error: This expression has type #('a * 'b)
        But the layout of #('a * 'b) must be a sublayout of value
          because the type argument of option has layout value.
 |}]
+
+(******************************)
+(* Test 16: Decomposing [any] *)
+
+type ('a : value) u = U of 'a [@@unboxed]
+type ('a : value) t = #('a u * 'a u)
+
+type ('a : any mod global) needs_any_mod_global
+
+type should_work = int t needs_any_mod_global
+
+[%%expect{|
+type 'a u = U of 'a [@@unboxed]
+type 'a t = #('a u * 'a u)
+type ('a : any mod global) needs_any_mod_global
+type should_work = int t needs_any_mod_global
+|}]
+
+type should_fail = string t needs_any_mod_global
+
+[%%expect{|
+Line 1, characters 19-27:
+1 | type should_fail = string t needs_any_mod_global
+                       ^^^^^^^^
+Error: This type string t = #(string u * string u)
+       should be an instance of type ('a : any mod global)
+       The kind of string t is immutable_data
+         because it is the primitive type string.
+       But the kind of string t must be a subkind of any mod global
+         because of the definition of needs_any_mod_global at line 4, characters 0-47.
+|}]
