@@ -2186,7 +2186,7 @@ let constrain_type_jkind ~fixed env ty jkind =
        | Sub -> Ok ()
        | Disjoint ->
           (* Reporting that [ty's_jkind] must be a subjkind of [jkind] is not
-             always right.  Suppose we had [type ('a : wprd) t = 'a] and we were
+             always right.  Suppose we had [type ('a : word) t = 'a] and we were
              checking ['a t] against [value]. Then it would be enough for [word]
              and [value] to have an intersection, not for one to be a subjkind
              of another. But getting this reporting correct would require
