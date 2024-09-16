@@ -2381,6 +2381,20 @@ Error: Layout mismatch in checking consistency of mutually recursive groups.
        the declaration where this error is reported.
 |}]
 
+type t1 = string t2 as (_ : immediate)
+and ('a : immediate) t2 = 'a
+
+[%%expect{|
+Line 1, characters 10-16:
+1 | type t1 = string t2 as (_ : immediate)
+              ^^^^^^
+Error: This type string should be an instance of type ('a : immediate)
+       The kind of string is immutable_data
+         because it is the primitive type string.
+       But the kind of string must be a subkind of immediate
+         because of the annotation on 'a in the declaration of the type t2.
+|}]
+
 (* This example is unfortunately rejected as a consequence of the fix for the
    above in typedecl. If we ever change that so that the below starts working,
    make sure [t1]'s parameter is immediate! Previously this was allowed and t1's
@@ -2397,13 +2411,21 @@ Error: Layout mismatch in checking consistency of mutually recursive groups.
        clever enough to propagate layouts through variables in different
        declarations. It is also not clever enough to produce a good error
        message, so we'll say this instead:
-         The kind of 'a t2/2 is value
+         The kind of 'a t2 is value
            because it instantiates an unannotated type parameter of t2,
            defaulted to kind value.
-         But the kind of 'a t2/2 must be a subkind of immediate
+         But the kind of 'a t2 must be a subkind of immediate
            because of the annotation on the wildcard _ at line 1, characters 27-36.
        A good next step is to add a layout annotation on a parameter to
        the declaration where this error is reported.
+|}]
+
+type 'a t1 = 'a t2 as (_ : immediate)
+and ('a : immediate) t2 = 'a
+
+[%%expect{|
+type ('a : immediate) t1 = 'a t2
+and ('a : immediate) t2 = 'a
 |}]
 
 (* This one also unfortunately rejected for the same reason. *)
@@ -2419,13 +2441,21 @@ Error: Layout mismatch in checking consistency of mutually recursive groups.
        clever enough to propagate layouts through variables in different
        declarations. It is also not clever enough to produce a good error
        message, so we'll say this instead:
-         The kind of 'a t2/3 is value
+         The kind of 'a t2 is value
            because it instantiates an unannotated type parameter of t2,
            defaulted to kind value.
-         But the kind of 'a t2/3 must be a subkind of immediate
+         But the kind of 'a t2 must be a subkind of immediate
            because of the annotation on the wildcard _ at line 1, characters 25-34.
        A good next step is to add a layout annotation on a parameter to
        the declaration where this error is reported.
+|}]
+
+type t1 = int t2 as (_ : immediate)
+and ('a : immediate) t2 = 'a
+
+[%%expect{|
+type t1 = int t2
+and ('a : immediate) t2 = 'a
 |}]
 
 (**********************************************************************)
