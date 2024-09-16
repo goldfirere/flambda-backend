@@ -164,8 +164,16 @@ let get_unboxed_from_attributes sdecl =
 let make_params env path params =
   TyVarEnv.reset (); (* [transl_type_param] binds type variables *)
   let make_param (sty, v) =
+    (* Our choice for now is that if you want a parameter of jkind any, you have
+       to ask for it with an annotation.  Some restriction here seems necessary
+       for backwards compatibility (e.g., we wouldn't want [type 'a id = 'a] to
+       have jkind any).  But it might be possible to infer [any] in some
+       cases. *)
+    let jkind =
+      Jkind.of_new_legacy_sort ~why:(Unannotated_type_parameter path)
+    in
     try
-      (transl_type_param env path sty, v)
+      (transl_type_param env path jkind sty, v)
     with Already_bound ->
       raise(Error(sty.ptyp_loc, Repeated_parameter))
   in

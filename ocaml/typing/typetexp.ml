@@ -101,8 +101,9 @@ module TyVarEnv : sig
 
   val is_in_scope : string -> bool
 
-  val add : string -> type_expr -> unit
-  (* add a global type variable to the environment *)
+  val add : string -> type_expr -> jkind -> unit
+  (* add a global type variable to the environment, with the given jkind.
+     Precondition: the [type_expr] must be a [Tvar] with the given jkind. *)
 
   val with_local_scope : (unit -> 'a) -> 'a
   (* see mli file *)
@@ -162,9 +163,9 @@ module TyVarEnv : sig
     row_context:type_expr option ref list -> string -> type_expr
     (* look up a local type variable; throws Not_found if it isn't in scope *)
 
-  val lookup_global :
-    string -> type_expr
-    (* look up a global type variable; throws Not_found if it isn't in scope *)
+  val lookup_global_jkind : string -> jkind
+    (* look up a global type variable, returning the jkind it was originally
+       assigned. Throws [Not_found] if the variable isn't in scope. *)
 
   val remember_used : string -> type_expr -> Location.t -> unit
     (* remember that a given name is bound to a given type *)
@@ -189,7 +190,7 @@ end = struct
   (* These are the "global" type variables: they were in scope before
      we started processing the current type.
   *)
-  let type_variables = ref (TyVarMap.empty : type_expr TyVarMap.t)
+  let type_variables = ref (TyVarMap.empty : (type_expr * jkind) TyVarMap.t)
 
   (* These are variables that have been used in the currently-being-checked
      type, possibly including the variables in [type_variables].
@@ -210,9 +211,9 @@ end = struct
   let is_in_scope name =
     TyVarMap.mem name !type_variables
 
-  let add name v =
+  let add name v jkind =
     assert (not_generic v);
-    type_variables := TyVarMap.add name v !type_variables
+    type_variables := TyVarMap.add name (v, jkind) !type_variables
 
   let narrow () =
     (increase_global_level (), !type_variables)
@@ -229,7 +230,10 @@ end = struct
 
   (* throws Not_found if the variable is not in scope *)
   let lookup_global name =
-    TyVarMap.find name !type_variables
+    fst (TyVarMap.find name !type_variables)
+
+  let lookup_global_jkind name =
+    snd (TyVarMap.find name !type_variables)
 
   let get_in_scope_names () =
     let add_name name _ l =
@@ -461,9 +465,10 @@ end = struct
               raise(Error(loc, env,
                           Unbound_type_variable (Pprintast.tyvar_of_name name,
                                                  get_in_scope_names ())));
-            let v2 = new_global_var (Jkind.Builtin.any ~why:Dummy_jkind) in
+            let jkind = Jkind.Builtin.any ~why:Dummy_jkind in
+            let v2 = new_global_var jkind in
             r := (loc, v, v2) :: !r;
-            add name v2)
+            add name v2 jkind)
       !used_variables;
     used_variables := TyVarMap.empty;
     fun () ->
@@ -521,7 +526,7 @@ let transl_type_param_var env loc attrs name_opt
       name
   in
   let ty = new_global_var ~name jkind in
-  Option.iter (fun name -> TyVarEnv.add name ty) name_opt;
+  Option.iter (fun name -> TyVarEnv.add name ty jkind) name_opt;
   { ctyp_desc = tvar; ctyp_type = ty; ctyp_env = env;
     ctyp_loc = loc; ctyp_attributes = attrs }
 
@@ -537,28 +542,23 @@ let transl_type_param_jst env loc attrs path :
   | Jtyp_tuple _ ->
     Misc.fatal_error "non-type-variable in transl_type_param_jst"
 
-let transl_type_param env path styp =
+let transl_type_param env path jkind_default styp =
   let loc = styp.ptyp_loc in
   match Jane_syntax.Core_type.of_ast styp with
   | Some (etyp, attrs) -> transl_type_param_jst env loc attrs path etyp
   | None ->
-  (* Our choice for now is that if you want a parameter of jkind any, you have
-   to ask for it with an annotation.  Some restriction here seems necessary
-   for backwards compatibility (e.g., we wouldn't want [type 'a id = 'a] to
-   have jkind any).  But it might be possible to infer [any] in some cases. *)
-  let jkind = Jkind.of_new_legacy_sort ~why:(Unannotated_type_parameter path) in
   let attrs = styp.ptyp_attributes in
   match styp.ptyp_desc with
-    Ptyp_any -> transl_type_param_var env loc attrs None jkind None
+    Ptyp_any -> transl_type_param_var env loc attrs None jkind_default None
   | Ptyp_var name ->
-    transl_type_param_var env loc attrs (Some name) jkind None
+    transl_type_param_var env loc attrs (Some name) jkind_default None
   | _ -> assert false
 
-let transl_type_param env path styp =
+let transl_type_param env path jkind_default styp =
   (* Currently useless, since type parameters cannot hold attributes
      (but this could easily be lifted in the future). *)
   Builtin_attributes.warning_scope styp.ptyp_attributes
-    (fun () -> transl_type_param env path styp)
+    (fun () -> transl_type_param env path jkind_default styp)
 
 let get_type_param_jkind path styp =
   match Jane_syntax.Core_type.of_ast styp with
@@ -1047,7 +1047,7 @@ and transl_type_var env ~policy ~row_context attrs loc name jkind_annot_opt =
       TyVarEnv.lookup_local ~row_context name
     with Not_found ->
       let jkind =
-        try TyVarEnv.lookup_global name |> estimate_type_jkind env
+        try TyVarEnv.lookup_global_jkind name
         with Not_found -> TyVarEnv.new_jkind ~is_named:true policy
       in
       let ty = TyVarEnv.new_var ~name jkind policy in
