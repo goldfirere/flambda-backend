@@ -2076,7 +2076,7 @@ let tvariant_not_immediate row =
 (* We parameterize [estimate_type_jkind] by a function
    [expand_component] because some callers want expansion of types and others
    don't. *)
-let rec estimate_type_jkind ?(expand_component = Fun.id) env ty =
+let rec estimate_type_jkind ~expand_component env ty =
   match get_desc ty with
   | Tvar { jkind } -> jkind
   | Tarrow _ -> Jkind.for_arrow
@@ -2101,8 +2101,26 @@ let rec estimate_type_jkind ?(expand_component = Fun.id) env ty =
      then Jkind.Builtin.value ~why:Polymorphic_variant
      else Jkind.Builtin.immediate ~why:Immediate_polymorphic_variant
   | Tunivar { jkind } -> jkind
-  | Tpoly (ty, _) -> estimate_type_jkind env ty
+  | Tpoly (ty, _) -> estimate_type_jkind ~expand_component env ty
   | Tpackage _ -> Jkind.Builtin.value ~why:First_class_module
+
+let type_jkind env ty =
+  estimate_type_jkind env
+    ~expand_component:(get_unboxed_type_approximation env)
+    (get_unboxed_type_approximation env ty)
+
+let type_jkind_purely env ty =
+  if !Clflags.principal || Env.has_local_constraints env then
+    (* We snapshot to keep this pure; see the test in [typing-local/crossing.ml]
+       that mentions snapshotting for an example. *)
+    let snap = Btype.snapshot () in
+    let jkind = type_jkind env ty in
+    Btype.backtrack snap;
+    jkind
+  else
+    type_jkind env ty
+
+let estimate_type_jkind = estimate_type_jkind ~expand_component:Fun.id
 
 (**** checking jkind relationships ****)
 
@@ -2269,26 +2287,6 @@ let constrain_type_jkind_exn env texn ty jkind =
   match constrain_type_jkind env ty jkind with
   | Ok _ -> ()
   | Error err -> raise_for texn (Bad_jkind (ty,err))
-
-let type_jkind env ty =
-  estimate_type_jkind env
-    ~expand_component:(get_unboxed_type_approximation env)
-    (get_unboxed_type_approximation env ty)
-
-let type_jkind_purely env ty =
-  if !Clflags.principal || Env.has_local_constraints env then
-    (* We snapshot to keep this pure; see the test in [typing-local/crossing.ml]
-       that mentions snapshotting for an example. *)
-    let snap = Btype.snapshot () in
-    let jkind = type_jkind env ty in
-    Btype.backtrack snap;
-    jkind
-  else
-    type_jkind env ty
-
-(* CR reisenberg: Why does this do any expansion? *)
-let estimate_type_jkind env ty =
-  estimate_type_jkind env (get_unboxed_type_approximation env ty)
 
 let type_legacy_sort ~why env ty =
   let jkind, sort = Jkind.of_new_legacy_sort_var ~why in
