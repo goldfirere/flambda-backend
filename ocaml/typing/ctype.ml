@@ -2016,25 +2016,32 @@ let expand_head_opt env ty =
   try try_expand_head try_expand_safe_opt env ty with Cannot_expand -> ty
 
 
-type unbox_result =
+type type_expr_insides =
   (* unboxing process made a step: either an unboxing or removal of a [Tpoly] *)
   | Stepped of type_expr
+  (* revealed an unboxed record with the given field types *)
+  | Unboxed_record of type_expr list
   (* no step to make; we're all done here *)
   | Final_result
   (* definition not in environment: missing cmi *)
   | Missing of Path.t
 
-let unbox_once env ty =
+let look_inside env ty =
   match get_desc ty with
   | Tconstr (p, args, _) ->
     begin match Env.find_type p env with
     | exception Not_found -> Missing p
     | decl ->
       begin match find_unboxed_type decl with
-      | None -> Final_result
       | Some ty2 ->
         let ty2 = match get_desc ty2 with Tpoly (t, _) -> t | _ -> ty2 in
         Stepped (apply env decl.type_params ty2 args)
+      | None -> match decl.type_kind with
+        (* That [Record_unboxed] is a horrible lie -- it means [@@unboxed],
+           not an unboxed record -- but it's convenient to type check. *)
+        | Type_record (labels, Record_unboxed) ->
+          Unboxed_record (List.map (fun l -> l.ld_type) labels)
+        | _ -> Final_result
       end
     end
   | Tpoly (ty, _) -> Stepped ty
@@ -2048,10 +2055,10 @@ let rec get_unboxed_type_representation env ty_prev ty fuel =
     (* We use expand_head_opt version of expand_head to get access
        to the manifest type of private abbreviations. *)
     let ty = expand_head_opt env ty in
-    match unbox_once env ty with
+    match look_inside env ty with
     | Stepped ty2 ->
       get_unboxed_type_representation env ty ty2 (fuel - 1)
-    | Final_result -> Ok ty
+    | Final_result | Unboxed_record _ -> Ok ty
     | Missing _ -> Ok ty_prev
 
 let get_unboxed_type_representation env ty =
@@ -2197,24 +2204,8 @@ let constrain_type_jkind ~fixed env ty jkind =
              message. *)
           Error (Jkind.Violation.of_ (Not_a_subjkind (ty's_jkind, jkind)))
        | Has_intersection ->
-          match get_desc ty with
-          | Tconstr _ ->
-             if not expanded
-             then
-               let ty = expand_head_opt env ty in
-               loop ~fuel ~expanded:true ty (estimate_type_jkind env ty) jkind
-             else
-               begin match unbox_once env ty with
-               | Missing path -> Error (Jkind.Violation.of_ ~missing_cmi:path
-                                          (Not_a_subjkind (ty's_jkind, jkind)))
-               | Final_result ->
-                  Error (Jkind.Violation.of_ (Not_a_subjkind (ty's_jkind, jkind)))
-               | Stepped ty ->
-                  loop ~fuel:(fuel - 1) ~expanded:false ty
-                    (estimate_type_jkind env ty) jkind
-               end
-          | Tunboxed_tuple ltys ->
-             let num_components = List.length ltys in
+         let product tys =
+             let num_components = List.length tys in
              let recur ty's_jkinds jkinds =
                (* Note: here we "duplicate" the fuel, which may seem like
                   cheating. Fuel counts expansions, and its purpose is to guard
@@ -2223,8 +2214,7 @@ let constrain_type_jkind ~fixed env ty jkind =
                   that's fine. *)
                let results =
                  Misc.Stdlib.List.map3
-                   (fun (_, ty) -> loop ~fuel ~expanded:false ty)
-                   ltys ty's_jkinds jkinds
+                   (loop ~fuel ~expanded:false) tys ty's_jkinds jkinds
                in
                Misc.Stdlib.Monad.Result.all_unit results
              in
@@ -2242,6 +2232,25 @@ let constrain_type_jkind ~fixed env ty jkind =
                recur ty's_jkinds (List.init num_components (fun _ -> jkind))
              | _ -> Misc.fatal_error "unboxed tuple jkinds don't line up"
              end
+         in
+          match get_desc ty with
+          | Tconstr _ ->
+             if not expanded
+             then
+               let ty = expand_head_opt env ty in
+               loop ~fuel ~expanded:true ty (estimate_type_jkind env ty) jkind
+             else
+               begin match look_inside env ty with
+               | Missing path -> Error (Jkind.Violation.of_ ~missing_cmi:path
+                                          (Not_a_subjkind (ty's_jkind, jkind)))
+               | Final_result ->
+                  Error (Jkind.Violation.of_ (Not_a_subjkind (ty's_jkind, jkind)))
+               | Stepped ty ->
+                  loop ~fuel:(fuel - 1) ~expanded:false ty
+                    (estimate_type_jkind env ty) jkind
+               | Unboxed_record tys -> product tys
+               end
+          | Tunboxed_tuple ltys -> product (List.map snd ltys)
           | _ -> Error (Jkind.Violation.of_ (Not_a_subjkind (ty's_jkind, jkind)))
   in
   loop ~fuel:100 ~expanded:false ty (estimate_type_jkind env ty) jkind
