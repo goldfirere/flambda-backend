@@ -831,20 +831,9 @@ let has_poly_constraint spat =
     end
   | _ -> false
 
-(** Mode cross a left mode *)
-let mode_cross_left env ty mode =
-  let mode =
-    if not (is_principal ty) then mode else
-    let jkind = type_jkind_purely env ty in
-    let upper_bounds = Jkind.get_modal_upper_bounds jkind in
-    let upper_bounds = Const.alloc_as_value upper_bounds in
-    Value.meet_const upper_bounds mode
-  in
-  mode |> Value.disallow_right
-
 let actual_mode_cross_left env ty (actual_mode : Env.actual_mode)
   : Env.actual_mode =
-  let mode = mode_cross_left env ty actual_mode.mode in
+  let mode = mode_cross_left_value env ty actual_mode.mode in
   {actual_mode with mode}
 
 (** Mode cross a mode whose monadic fragment is a right mode, and whose comonadic
@@ -2583,7 +2572,9 @@ and type_pat_aux
         pat_env = !!penv }
   | Ppat_var name ->
       let ty = instance expected_ty in
-      let alloc_mode = mode_cross_left !!penv expected_ty alloc_mode.mode in
+      let alloc_mode =
+        mode_cross_left_value !!penv expected_ty alloc_mode.mode
+      in
       let id, uid =
         enter_variable tps loc name alloc_mode ty sp.ppat_attributes
       in
@@ -2622,7 +2613,7 @@ and type_pat_aux
   | Ppat_alias(sq, name) ->
       let q = type_pat tps Value sq expected_ty in
       let ty_var, mode = solve_Ppat_alias ~mode:alloc_mode.mode !!penv q in
-      let mode = mode_cross_left !!penv expected_ty mode in
+      let mode = mode_cross_left_value !!penv expected_ty mode in
       let id, uid =
         enter_variable ~is_as_variable:true tps name.loc name mode ty_var
           sp.ppat_attributes
@@ -5769,14 +5760,14 @@ and type_expect_
         match is_float_boxing with
         | true ->
           let alloc_mode, argument_mode = register_allocation expected_mode in
-          let mode = mode_cross_left env Predef.type_unboxed_float mode in
+          let mode = mode_cross_left_value env Predef.type_unboxed_float mode in
           submode ~loc ~env mode argument_mode;
           let uu =
             unique_use ~loc ~env mode (as_single_mode argument_mode)
           in
           Boxing (alloc_mode, uu)
         | false ->
-          let mode = mode_cross_left env ty_arg mode in
+          let mode = mode_cross_left_value env ty_arg mode in
           submode ~loc ~env mode expected_mode;
           let uu = unique_use ~loc ~env mode (as_single_mode expected_mode) in
           Non_boxing uu
@@ -7686,7 +7677,7 @@ and type_application env app_loc expected_mode position_and_mode
       let arg_sort = type_sort ~why:Function_argument ty_arg in
       let ap_mode = Locality.disallow_right (Alloc.proj (Comonadic Areality) ret_mode) in
       let mode_res =
-        mode_cross_left env ty_ret (alloc_as_value ret_mode)
+        mode_cross_left_value env ty_ret (alloc_as_value ret_mode)
       in
       submode ~loc:app_loc ~env ~reason:Other
         mode_res expected_mode;
@@ -7748,7 +7739,7 @@ and type_application env app_loc expected_mode position_and_mode
       in
       let ap_mode = Locality.disallow_right (Alloc.proj (Comonadic Areality) mode_ret) in
       let mode_ret =
-        mode_cross_left env ty_ret (alloc_as_value mode_ret)
+        mode_cross_left_value env ty_ret (alloc_as_value mode_ret)
       in
       submode ~loc:app_loc ~env ~reason:(Application ty_ret)
         mode_ret expected_mode;

@@ -4676,16 +4676,40 @@ let relevant_pairs pairs v =
   | Contravariant -> pairs.contravariant_pairs
   | Bivariant -> pairs.bivariant_pairs
 
-(* CR layouts v2.8: merge with Typecore.mode_cross_left when [Value] and [Alloc]
-   get unified *)
-let mode_cross_left env ty mode =
-  if not (is_principal ty) then mode else
-  let jkind = type_jkind_purely env ty in
-  let upper_bounds = Jkind.get_modal_upper_bounds jkind in
-  Alloc.meet_const upper_bounds mode
+module Mode_cross (X : sig
+    type 'd t constraint 'd = 'l * 'r
+    type const
+    val from_alloc : Alloc.Const.t -> const
+    val meet_const : const -> 'd t -> 'd t
+  end) = struct
+  let mode_cross_left env ty mode =
+    if not (is_principal ty) then mode else
+    let jkind = type_jkind_purely env ty in
+    let upper_bounds = Jkind.get_modal_upper_bounds jkind in
+    let upper_bounds = X.from_alloc upper_bounds in
+    X.meet_const upper_bounds mode
+end
+[@@inline]
 
-(* CR layouts v2.8: merge with Typecore.expect_mode_cross when [Value] and
-    [Alloc] get unified *)
+module Mode_cross_alloc = Mode_cross(struct
+    type 'd t = 'd Alloc.t
+    type const = Alloc.Const.t
+    let from_alloc = Fun.id
+    let meet_const = Alloc.meet_const
+  end)
+
+let mode_cross_left_alloc = Mode_cross_alloc.mode_cross_left
+
+module Mode_cross_value = Mode_cross(struct
+    type 'd t = 'd Value.t
+    type const = Value.Const.t
+    let from_alloc = Const.alloc_as_value
+    let meet_const = Value.meet_const
+  end)
+
+let mode_cross_left_value env ty mode =
+  Mode_cross_value.mode_cross_left env ty mode |> Value.disallow_right
+
 let mode_cross_right env ty mode =
   if not (is_principal ty) then Alloc.disallow_left mode else
   let jkind = type_jkind_purely env ty in
@@ -5776,7 +5800,7 @@ let rec build_subtype env (visited : transient_expr list)
             let a = mode_cross_right env t1 a in
             build_submode_pos a
           end else begin
-            let a = mode_cross_left env t1 a in
+            let a = mode_cross_left_alloc env t1 a in
             build_submode_neg a
           end
         end else a, Unchanged
@@ -6006,7 +6030,7 @@ let rec subtype_rec env trace t1 t2 cstrs =
             t2 t1
             cstrs
         in
-        let a2 = mode_cross_left env t2 a2 in
+        let a2 = mode_cross_left_alloc env t2 a2 in
          subtype_alloc_mode env trace a2 a1;
         (* RHS mode of arrow types indicates allocation in the parent region
            and is not subject to mode crossing *)

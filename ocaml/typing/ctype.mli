@@ -234,6 +234,10 @@ val instance_prim:
     to have. *)
 val curry_mode : Alloc.Const.t -> Alloc.Const.t -> Alloc.Const.t
 
+(** Allow a left-mode to mode-cross, if the type allows mode-crossing. *)
+val mode_cross_left_value :
+  Env.t -> type_expr -> ('l * 'r) Value.t -> ('l * disallowed) Value.t
+
 val apply:
         ?use_current_level:bool ->
         Env.t -> type_expr list -> type_expr -> type_expr list -> type_expr
