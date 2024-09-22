@@ -4679,11 +4679,7 @@ let relevant_pairs pairs v =
 (* CR layouts v2.8: merge with Typecore.mode_cross_left when [Value] and [Alloc]
    get unified *)
 let mode_cross_left env ty mode =
-  (* CR layouts v2.8: The old check didn't check for principality, and so this
-      one doesn't either. I think it should. But actually test results are bad
-      when checking for principality. Really, I'm surprised that the types here
-      aren't principal. In any case, leaving the check out now; will return and
-      figure this out later. *)
+  if not (is_principal ty) then mode else
   let jkind = type_jkind_purely env ty in
   let upper_bounds = Jkind.get_modal_upper_bounds jkind in
   Alloc.meet_const upper_bounds mode
@@ -4691,8 +4687,7 @@ let mode_cross_left env ty mode =
 (* CR layouts v2.8: merge with Typecore.expect_mode_cross when [Value] and
     [Alloc] get unified *)
 let mode_cross_right env ty mode =
-  (* CR layouts v2.8: This should probably check for principality. See similar
-      comment in [mode_cross_left]. *)
+  if not (is_principal ty) then Alloc.disallow_left mode else
   let jkind = type_jkind_purely env ty in
   let upper_bounds = Jkind.get_modal_upper_bounds jkind in
   Alloc.imply upper_bounds mode
