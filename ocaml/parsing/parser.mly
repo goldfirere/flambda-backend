@@ -13,6 +13,8 @@
 /*                                                                        */
 /**************************************************************************/
 
+/* RAE is making a change */
+
 /* The parser definition */
 
 /* The commands [make list-parse-errors] and [make generate-parse-errors]
