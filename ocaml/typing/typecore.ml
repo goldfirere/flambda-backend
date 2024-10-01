@@ -859,7 +859,10 @@ let mode_cross_left_value env ty mode =
   let mode =
     if not (is_principal ty) then mode else
     let jkind = type_jkind_purely env ty in
-    let upper_bounds = Jkind.get_modal_upper_bounds jkind in
+    let upper_bounds =
+      Jkind.get_modal_upper_bounds ~jkind_of_type:(type_jkind_purely_if_principal env)
+        jkind
+    in
     let upper_bounds = Const.alloc_as_value upper_bounds in
     Value.meet_const upper_bounds mode
   in
@@ -877,7 +880,9 @@ let alloc_mode_cross_to_max_min env ty { monadic; comonadic } =
   let comonadic = Alloc.Comonadic.disallow_right comonadic in
   if not (is_principal ty) then { monadic; comonadic } else
   let jkind = type_jkind_purely env ty in
-  let upper_bounds = Jkind.get_modal_upper_bounds jkind in
+  let upper_bounds =
+    Jkind.get_modal_upper_bounds ~jkind_of_type:(type_jkind_purely_if_principal env) jkind
+  in
   let upper_bounds = Alloc.Const.split upper_bounds in
   let comonadic = Alloc.Comonadic.meet_const upper_bounds.comonadic comonadic in
   let monadic = Alloc.Monadic.imply upper_bounds.monadic monadic in
@@ -889,7 +894,9 @@ let alloc_mode_cross_to_max_min env ty { monadic; comonadic } =
 let expect_mode_cross env ty (expected_mode : expected_mode) =
   if not (is_principal ty) then expected_mode else
   let jkind = type_jkind_purely env ty in
-  let upper_bounds = Jkind.get_modal_upper_bounds jkind in
+  let upper_bounds =
+    Jkind.get_modal_upper_bounds ~jkind_of_type:(type_jkind_purely_if_principal env) jkind
+  in
   let upper_bounds = Const.alloc_as_value upper_bounds in
   mode_morph (Value.imply upper_bounds) expected_mode
 
@@ -8359,7 +8366,7 @@ and type_newtype
   fun env name jkind_annot_opt type_body  ->
   let { txt = name; loc = name_loc } : _ Location.loc = name in
   let jkind, jkind_annot =
-    Jkind.of_annotation_option_default ~context:(Newtype_declaration name)
+    Jkind.of_annotation_option_default ~transl_type:None ~context:(Newtype_declaration name)
       ~default:(Jkind.Builtin.value ~why:Univar) jkind_annot_opt
   in
   let ty =
@@ -8680,7 +8687,7 @@ and type_let ?check ?check_strict ?(force_toplevel = false)
       List.iter
         (fun pv ->
           Ctype.check_and_update_generalized_ty_jkind
-            ~name:pv.pv_id ~loc:pv.pv_loc pv.pv_type)
+            ~name:pv.pv_id ~loc:pv.pv_loc env pv.pv_type)
         pvs;
       List.iter2
         (fun (_, _, expected_ty) (exp, vars) ->
@@ -8709,7 +8716,7 @@ and type_let ?check ?check_strict ?(force_toplevel = false)
           | Tpat_alias(_, id, _, _, _) -> Some id
           | _ -> None in
         Ctype.check_and_update_generalized_ty_jkind
-          ?name:pat_name ~loc:exp.exp_loc exp.exp_type
+          ?name:pat_name ~loc:exp.exp_loc env exp.exp_type
       in
       List.iter2 update_exp_jkind mode_pat_typ_list exp_list;
     end

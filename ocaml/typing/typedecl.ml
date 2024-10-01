@@ -209,6 +209,14 @@ let enter_type ?abstract_abbrevs rec_flag env sdecl (id, uid) =
   let path = Path.Pident id in
   let any = Jkind.Builtin.any ~why:Initial_typedecl_env in
 
+  let type_params =
+    List.map (fun (param, _) ->
+        let name = get_type_param_name param in
+        let jkind = get_type_param_jkind path param in
+        Btype.newgenvar ?name jkind)
+      sdecl.ptype_params
+  in
+
   (* There is some trickiness going on here with the jkind.  It expands on an
      old trick used in the manifest of [decl] below.
 
@@ -264,6 +272,12 @@ let enter_type ?abstract_abbrevs rec_flag env sdecl (id, uid) =
      kind. *)
   let type_jkind, type_jkind_annotation, sdecl_attributes =
     Jkind.of_type_decl_default
+      ~transl_type:(fun ty ->
+        let cty =
+          transl_simple_type ~new_var_jkind:Any env ~closed:true
+            Mode.Alloc.Const.legacy ty
+        in
+        cty.ctyp_type)
       ~context:(Type_declaration path)
       ~default:any
       sdecl
@@ -277,14 +291,8 @@ let enter_type ?abstract_abbrevs rec_flag env sdecl (id, uid) =
        is hard to do. *)
     | None, _ | Some _, None -> Definition, Some (Ctype.newvar any)
     | Some _, Some reason -> reason, None
-in
-  let type_params =
-    List.map (fun (param, _) ->
-        let name = get_type_param_name param in
-        let jkind = get_type_param_jkind path param in
-        Btype.newgenvar ?name jkind)
-      sdecl.ptype_params
   in
+
   let decl =
     { type_params;
       type_arity = arity;
@@ -554,6 +562,7 @@ let make_constructor
               (fun annot ->
                  let const =
                     Jkind.Const.of_user_written_annotation
+                      ~transl_type:None
                       ~context:(Constructor_type_parameter (cstr_path, v.txt))
                       annot
                  in
@@ -789,7 +798,10 @@ let transl_declaration env sdecl (id, uid) =
   in
   verify_unboxed_attr unboxed_attr sdecl;
   let jkind_from_annotation, jkind_annotation, sdecl_attributes =
-    match Jkind.of_type_decl ~context:(Type_declaration path) sdecl with
+    match Jkind.of_type_decl ~transl_type:(fun sty ->
+      let cty = transl_simple_type ~new_var_jkind:Any env ~closed:true Mode.Alloc.Const.legacy sty in
+      cty.ctyp_type
+      ) ~context:(Type_declaration path) sdecl with
     | Some (jkind, jkind_annotation, sdecl_attributes) ->
         Some jkind, Some jkind_annotation, sdecl_attributes
     | None -> None, None, sdecl.ptype_attributes
@@ -1157,7 +1169,8 @@ let narrow_to_manifest_jkind env loc decl =
   | None -> decl
   | Some ty ->
     let jkind' = Ctype.type_jkind_purely env ty in
-    match Jkind.sub_jkind_l jkind' decl.type_jkind with
+    let type_equal ty1 ty2 = Ctype.is_equal env false [ty1] [ty2] in
+    match Jkind.sub_jkind_l ~type_equal jkind' decl.type_jkind with
     | Ok jkind' -> { decl with type_jkind = jkind' }
     | Error v ->
       raise (Error (loc, Jkind_mismatch_of_type (ty,v)))
@@ -1171,7 +1184,8 @@ let check_kind_coherence env loc dpath decl =
   | (Type_variant _ | Type_record _ | Type_open), Some ty ->
       if !Clflags.allow_illegal_crossing then begin
         let jkind' = Ctype.type_jkind_purely env ty in
-        begin match Jkind.sub_jkind_l jkind' decl.type_jkind with
+        let type_equal ty1 ty2 = Ctype.is_equal env false [ty1] [ty2] in
+        begin match Jkind.sub_jkind_l ~type_equal jkind' decl.type_jkind with
         | Ok _ -> ()
         | Error v ->
           raise (Error (loc, Jkind_mismatch_of_type (ty,v)))
@@ -1310,7 +1324,7 @@ module Element_repr = struct
       let const_jkind = Jkind.default_to_value_and_get jkind in
       let sort = Jkind.(Layout.Const.get_sort (Const.get_layout const_jkind)) in
       let externality_upper_bound =
-        Jkind.Const.get_externality_upper_bound const_jkind
+        Jkind.Const.get_conservative_externality_upper_bound const_jkind
       in
       let base = match sort with
         | None ->
@@ -1689,21 +1703,21 @@ let update_decl_jkind env dpath decl =
   (* check that the jkind computed from the kind matches the jkind
      annotation, which was stored in decl.type_jkind *)
   if new_jkind != decl.type_jkind then
+    (let type_equal ty1 ty2 = Ctype.is_equal env false [ty1] [ty2] in
     (* CR layouts v2.8: Consider making a function that doesn't compute
        histories for this use-case, which doesn't need it. *)
-    begin match Jkind.sub_jkind_l new_jkind decl.type_jkind with
+    match Jkind.sub_jkind_l ~type_equal new_jkind decl.type_jkind with
     | Ok _ -> ()
     | Error err ->
-      raise(Error(decl.type_loc, Jkind_mismatch_of_path (dpath,err)))
-    end;
+      raise(Error(decl.type_loc, Jkind_mismatch_of_path (dpath,err))));
   new_decl
 
-let update_decls_jkind_reason decls =
+let update_decls_jkind_reason env decls =
   List.map
     (fun (id, decl) ->
        let update_generalized =
         Ctype.check_and_update_generalized_ty_jkind
-          ~name:id ~loc:decl.type_loc
+          ~name:id ~loc:decl.type_loc env
        in
        List.iter update_generalized decl.type_params;
        Btype.iter_type_expr_kind update_generalized decl.type_kind;
@@ -2300,7 +2314,7 @@ let transl_type_decl env rec_flag sdecl_list =
       |> Typedecl_variance.update_decls env sdecl_list
       |> Typedecl_separability.update_decls env
       |> update_decls_jkind new_env
-      |> update_decls_jkind_reason
+      |> update_decls_jkind_reason new_env
     with
     | Typedecl_variance.Error (loc, err) ->
         raise (Error (loc, Variance err))
@@ -3079,7 +3093,7 @@ let transl_value_decl env loc valdecl =
     Env.enter_value ~mode:Mode.Value.legacy valdecl.pval_name.txt v env
       ~check:(fun s -> Warnings.Unused_value_declaration s)
   in
-  Ctype.check_and_update_generalized_ty_jkind ~name:id ~loc ty;
+  Ctype.check_and_update_generalized_ty_jkind ~name:id ~loc newenv ty;
   let desc =
     {
      val_id = id;
@@ -3318,6 +3332,7 @@ let approx_type_decl sdecl_list =
        let injective = sdecl.ptype_kind <> Ptype_abstract in
        let jkind, jkind_annotation, _sdecl_attributes =
          Jkind.of_type_decl_default
+           ~transl_type:(fun _ -> assert false)
            ~context:(Type_declaration path)
            ~default:(Jkind.Builtin.value ~why:Default_type_jkind)
            sdecl

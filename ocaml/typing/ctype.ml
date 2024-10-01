@@ -1465,6 +1465,13 @@ let instance_parameterized_type ?keep_names sch_args sch =
     (ty_args, ty)
   )
 
+let instance_parameterized_kind args jkind =
+  For_copy.with_scope (fun copy_scope ->
+    let ty_args = List.map (fun t -> copy copy_scope t) args in
+    let jkind = Jkind.map_type_expr (copy copy_scope) jkind in
+    (ty_args, jkind)
+  )
+
 (* [map_kind f kind] maps [f] over all the types in [kind]. [f] must preserve jkinds *)
 let map_kind f = function
   | (Type_abstract _ | Type_open) as k -> k
@@ -1490,6 +1497,7 @@ let instance_declaration decl =
     {decl with type_params = List.map (copy copy_scope) decl.type_params;
      type_manifest = Option.map (copy copy_scope) decl.type_manifest;
      type_kind = map_kind (copy copy_scope) decl.type_kind;
+     type_jkind = Jkind.map_type_expr (copy copy_scope) decl.type_jkind;
     }
   )
 
@@ -1820,6 +1828,21 @@ let subst env level priv abbrev oty params args body =
     undo_abbrev ();
     raise Cannot_subst
 
+
+let jkind_subst env level params args jkind =
+  if List.length params <> List.length args then raise Cannot_subst;
+  let old_level = !current_level in
+  current_level := level;
+  let (params', jkind') = instance_parameterized_kind params jkind in
+  let uenv = Expression {env; in_subst = true} in
+  try
+    List.iter2 (!unify_var' uenv) params' args;
+    current_level := old_level;
+    jkind'
+  with Unify _ ->
+    current_level := old_level;
+    raise Cannot_subst
+
 (* CR layouts: Can we actually just always ignore jkinds in apply/subst?
 
    It seems like almost, but there may be cases where it would forget
@@ -2068,6 +2091,8 @@ let try_expand_safe_opt env ty =
 let expand_head_opt env ty =
   try try_expand_head try_expand_safe_opt env ty with Cannot_expand -> ty
 
+let is_principal ty =
+  not !Clflags.principal || get_level ty = generic_level
 
 type unbox_result =
   (* unboxing process made a step: either an unboxing or removal of a [Tpoly] *)
@@ -2139,12 +2164,14 @@ let rec estimate_type_jkind ~expand_component env ty =
        (List.map (fun (_, ty) ->
           estimate_type_jkind ~expand_component env (expand_component ty)) ltys)
        ~why:Unboxed_tuple
-  | Tconstr (p, _, _) -> begin
-      try
-        (Env.find_type p env).type_jkind
-      with
-        Not_found -> Jkind.Builtin.any ~why:(Missing_cmi p)
-    end
+  | Tconstr (p, _, _) -> begin try
+      let type_decl = Env.find_type p env in
+      let jkind = type_decl.type_jkind in
+      let level = get_level ty in
+      jkind_subst env level type_decl.type_params (assert false (*args*)) jkind
+    with
+    | Cannot_subst | Not_found -> Jkind.Builtin.any ~why:(Missing_cmi p)
+  end
   | Tobject _ -> Jkind.Builtin.value ~why:Object
   | Tfield _ -> Jkind.Builtin.value ~why:Tfield
   | Tnil -> Jkind.Builtin.value ~why:Tnil
@@ -2173,6 +2200,11 @@ let type_jkind_purely env ty =
   else
     type_jkind env ty
 
+let type_jkind_purely_if_principal env ty =
+  match is_principal ty with
+  | true -> Some (type_jkind_purely env ty)
+  | false -> None
+
 let estimate_type_jkind = estimate_type_jkind ~expand_component:Fun.id
 
 (**** checking jkind relationships ****)
@@ -2180,7 +2212,7 @@ let estimate_type_jkind = estimate_type_jkind ~expand_component:Fun.id
 (* The ~fixed argument controls what effects this may have on `ty`.  If false,
    then we will update the jkind of type variables to make the check true, if
    possible.  If true, we won't (but will still instantiate sort variables). *)
-let constrain_type_jkind ~fixed env ty jkind =
+let constrain_type_jkind ~fixed env ~type_equal ty jkind =
   (* The [expanded] argument says whether we've already tried [expand_head_opt].
 
      The "fuel" argument is used because we're duplicating the loop of
@@ -2239,7 +2271,7 @@ let constrain_type_jkind ~fixed env ty jkind =
     | Tpoly (t, _) -> loop ~fuel ~expanded:false t ty's_jkind jkind
 
     | _ ->
-       match Jkind.sub_or_intersect ty's_jkind jkind with
+       match Jkind.sub_or_intersect ~type_equal ty's_jkind jkind with
        | Sub -> Ok ()
        | Disjoint ->
           (* Reporting that [ty's_jkind] must be a subjkind of [jkind] is not
@@ -2303,15 +2335,23 @@ let constrain_type_jkind ~fixed env ty jkind =
 
 let type_sort ~why ~fixed env ty =
   let jkind, sort = Jkind.of_new_sort_var ~why in
-  match constrain_type_jkind ~fixed env ty jkind with
+  match
+    constrain_type_jkind ~fixed env ~type_equal:Types.eq_type_fail ty jkind
+  with
   | Ok _ -> Ok sort
   | Error _ as e -> e
 
+let check_type_jkind_with_baggage env ~type_equal ty jkind =
+  constrain_type_jkind ~fixed:true env ~type_equal ty jkind
+
 let check_type_jkind env ty jkind =
-  constrain_type_jkind ~fixed:true env ty jkind
+  constrain_type_jkind ~fixed:true env ~type_equal:Types.eq_type_fail ty jkind
+
+let constrain_type_jkind_with_baggage env ~type_equal ty jkind =
+  constrain_type_jkind ~fixed:false env ~type_equal ty jkind
 
 let constrain_type_jkind env ty jkind =
-  constrain_type_jkind ~fixed:false env ty jkind
+  constrain_type_jkind ~fixed:false env ~type_equal:Types.eq_type_fail ty jkind
 
 let () =
   Env.constrain_type_jkind := constrain_type_jkind
@@ -2324,33 +2364,13 @@ let check_type_externality env ty ext =
   | Ok () -> true
   | Error _ -> false
 
-let check_decl_jkind env decl jkind =
-  (* CR layouts v2.8: This will need to be deeply reimplemented. *)
-  let jkind = Jkind.terrible_relax_l jkind in
-  match Jkind.sub_or_error decl.type_jkind jkind with
-  | Ok () as ok -> ok
-  | Error _ as err ->
-      match decl.type_manifest with
-      | None -> err
-      | Some ty -> check_type_jkind env ty jkind
-
-let constrain_decl_jkind env decl jkind =
-  (* CR layouts v2.8: This will need to be deeply reimplemented. *)
-  let jkind = Jkind.terrible_relax_l jkind in
-  match Jkind.sub_or_error decl.type_jkind jkind with
-  | Ok () as ok -> ok
-  | Error _ as err ->
-      match decl.type_manifest with
-      | None -> err
-      | Some ty -> constrain_type_jkind env ty jkind
-
-let check_type_jkind_exn env texn ty jkind =
-  match check_type_jkind env ty jkind with
+let check_type_jkind_exn env texn ~type_equal ty jkind =
+  match check_type_jkind_with_baggage env ~type_equal ty jkind with
   | Ok _ -> ()
   | Error err -> raise_for texn (Bad_jkind (ty,err))
 
-let constrain_type_jkind_exn env texn ty jkind =
-  match constrain_type_jkind env ty jkind with
+let constrain_type_jkind_exn env texn ~type_equal ty jkind =
+  match constrain_type_jkind_with_baggage env ~type_equal ty jkind with
   | Ok _ -> ()
   | Error err -> raise_for texn (Bad_jkind (ty,err))
 
@@ -2382,19 +2402,23 @@ let rec intersect_type_jkind ~reason env ty1 jkind2 =
 (* See comment on [jkind_unification_mode] *)
 let unification_jkind_check env ty jkind =
   match !lmode with
-  | Perform_checks -> constrain_type_jkind_exn env Unify ty jkind
+  | Perform_checks -> constrain_type_jkind_exn env Unify ~type_equal:Types.eq_type ty jkind
   | Delay_checks r -> r := (ty,jkind) :: !r
 
-let check_and_update_generalized_ty_jkind ?name ~loc ty =
+let check_and_update_generalized_ty_jkind ?name ~loc env ty =
   let immediacy_check jkind =
+    let externality =
+      Jkind.get_externality_upper_bound
+        ~jkind_of_type:(type_jkind_purely_if_principal env) jkind
+    in
     let is_immediate jkind =
       (* Just check externality and layout, because that's what actually matters
          for upstream code. We check both for a known value and something that
          might turn out later to be value. This is the conservative choice. *)
-      Jkind.(Externality.le (get_externality_upper_bound jkind) External64 &&
-             match get_layout jkind with
+      Jkind.Externality.le externality External64 &&
+             match Jkind.get_layout jkind with
                | Some (Base Value) | None -> true
-               | _ -> false)
+               | _ -> false
     in
     if Language_extension.erasable_extensions_only ()
       && is_immediate jkind && not (Jkind.History.has_warned jkind)
@@ -2433,9 +2457,6 @@ let check_and_update_generalized_ty_jkind ?name ~loc ty =
   in
   inner ty;
   unmark_type ty
-
-let is_principal ty =
-  not !Clflags.principal || get_level ty = generic_level
 
 (* Recursively expand the head of a type.
    Also expand #-types.
@@ -2610,7 +2631,8 @@ let local_non_recursive_abbrev uenv p ty =
    They carry redundant information but are added to save two calls to
    [get_desc] which are usually performed already at the call site. *)
 let unify_univar t1 t2 jkind1 jkind2 pairs =
-  if not (Jkind.equal jkind1 jkind2) then raise Cannot_unify_universal_variables;
+  if not (Jkind.equal ~type_equal:eq_type jkind1 jkind2)
+    then raise Cannot_unify_universal_variables;
   let rec inner t1 t2 = function
     (cl1, cl2) :: rem ->
       let find_univ t cl =
@@ -3175,11 +3197,11 @@ and mcomp_type_decl type_pairs env p1 p2 tl1 tl2 =
     else
       match decl.type_kind, decl'.type_kind with
       | Type_record (lst,r), Type_record (lst',r')
-        when equal_record_representation r r' ->
+        when equal_record_representation ~type_equal:(fun _ _ -> true) r r' ->
           mcomp_list type_pairs env tl1 tl2;
           mcomp_record_description type_pairs env lst lst'
       | Type_variant (v1,r), Type_variant (v2,r')
-        when equal_variant_representation r r' ->
+        when equal_variant_representation ~type_equal:(fun _ _ -> true) r r' ->
           mcomp_list type_pairs env tl1 tl2;
           mcomp_variant_description type_pairs env v1 v2
       | Type_open, Type_open ->
@@ -3290,7 +3312,8 @@ let add_jkind_equation ~reason uenv destination jkind1 =
         begin
           try
             let decl = Env.find_type p env in
-            if not (Jkind.equal (Jkind.terrible_relax_l jkind)
+            if not (Jkind.equal ~type_equal:eq_type
+                                (Jkind.terrible_relax_l jkind)
                                 (Jkind.terrible_relax_l decl.type_jkind))
             then
               let refined_decl = { decl with type_jkind = jkind } in
@@ -4718,7 +4741,10 @@ let mode_cross_left_alloc env ty mode =
   let mode =
     if not (is_principal ty) then mode else
     let jkind = type_jkind_purely env ty in
-    let upper_bounds = Jkind.get_modal_upper_bounds jkind in
+    let upper_bounds =
+      Jkind.get_modal_upper_bounds
+        ~jkind_of_type:(type_jkind_purely_if_principal env) jkind
+    in
     Alloc.meet_const upper_bounds mode
   in
   mode |> Alloc.disallow_right
@@ -4728,7 +4754,10 @@ let mode_cross_left_alloc env ty mode =
 let mode_cross_right env ty mode =
   if not (is_principal ty) then Alloc.disallow_left mode else
   let jkind = type_jkind_purely env ty in
-  let upper_bounds = Jkind.get_modal_upper_bounds jkind in
+  let upper_bounds =
+    Jkind.get_modal_upper_bounds
+      ~jkind_of_type:(type_jkind_purely_if_principal env) jkind
+  in
   Alloc.imply upper_bounds mode
 
 let submode_with_cross env ~is_ret ty l r =
@@ -4774,7 +4803,8 @@ let rec moregen inst_nongen variance type_pairs env t1 t2 =
         occur_for Moregen (Expression {env; in_subst = false}) t1 t2;
         (* use [check], not [constrain], here because [constrain] would be like
         instantiating [t2], which we do not wish to do *)
-        check_type_jkind_exn env Moregen t2 (Jkind.disallow_left jkind);
+        check_type_jkind_exn env Moregen ~type_equal:eq_type t2
+          (Jkind.disallow_left jkind);
         link_type t1 t2
     | (Tconstr (p1, [], _), Tconstr (p2, [], _)) when Path.same p1 p2 ->
         ()
@@ -4792,7 +4822,8 @@ let rec moregen inst_nongen variance type_pairs env t1 t2 =
               update_scope_for Moregen (get_scope t1') t2;
               (* use [check], not [constrain], here because [constrain] would be like
               instantiating [t2], which we do not wish to do *)
-              check_type_jkind_exn env Moregen t2 (Jkind.disallow_left jkind);
+              check_type_jkind_exn env Moregen ~type_equal:eq_type t2
+                (Jkind.disallow_left jkind);
               link_type t1' t2
           | (Tarrow ((l1,a1,r1), t1, u1, _),
              Tarrow ((l2,a2,r2), t2, u2, _)) when
@@ -5150,7 +5181,7 @@ let all_distinct_vars_with_original_jkinds env vars_jkinds =
          tys := TypeSet.add ty !tys;
          match get_desc ty with
          | Tvar { jkind = inferred_jkind } ->
-           if Jkind.equate inferred_jkind original_jkind
+           if Jkind.equate ~type_equal:eq_type inferred_jkind original_jkind
            then All_good
            else Jkind_mismatch { original_jkind; inferred_jkind; ty }
          | _ -> Unification_failure
@@ -5203,7 +5234,7 @@ let eqtype_subst type_pairs subst t1 l1 t2 l2 =
       !subst
   then ()
   else begin
-    if not (Jkind.equal l1 l2)
+    if not (Jkind.equal ~type_equal:eq_type l1 l2)
       then raise_for Equality (Unequal_var_jkinds (t1, l1, t2, l2));
     subst := (t1, t2) :: !subst;
     TypePairs.add type_pairs (t1, t2)
@@ -5445,6 +5476,31 @@ let rec equal_private env params1 ty1 params2 ty2 =
       match try_expand_safe_opt env (expand_head env ty1) with
       | ty1' -> equal_private env params1 ty1' params2 ty2
       | exception Cannot_expand -> raise err
+
+let eq_type_params env ~params0 ty0 ~params1 ty1 =
+  is_equal env true (params0 @ [ty0]) (params1 @ [ty1])
+
+let check_decl_jkind env decl0 params1 jkind1 =
+  let jkind1 = Jkind.terrible_relax_l jkind1 in
+  let params0 = decl0.type_params in
+  let type_equal = eq_type_params env ~params0 ~params1 in
+  match Jkind.sub_or_error ~type_equal decl0.type_jkind jkind1 with
+  | Ok () as ok -> ok
+  | Error _ as err ->
+      match decl0.type_manifest with
+      | None -> err
+      | Some ty -> check_type_jkind_with_baggage env ~type_equal ty jkind1
+
+let constrain_decl_jkind env decl0 params1 jkind1 =
+  let jkind1 = Jkind.terrible_relax_l jkind1 in
+  let params0 = decl0.type_params in
+  let type_equal = eq_type_params env ~params0 ~params1 in
+  match Jkind.sub_or_error ~type_equal decl0.type_jkind jkind1 with
+  | Ok () as ok -> ok
+  | Error _ as err ->
+      match decl0.type_manifest with
+      | None -> err
+      | Some ty -> constrain_type_jkind_with_baggage env ~type_equal ty jkind1
 
                           (*************************)
                           (*  Class type matching  *)

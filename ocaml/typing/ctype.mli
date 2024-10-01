@@ -571,8 +571,12 @@ val type_jkind : Env.t -> type_expr -> jkind_l
    expansion. *)
 val type_jkind_purely : Env.t -> type_expr -> jkind_l
 
-(* Find a type's sort (if fixed is false: constraining it to be an
-   arbitrary sort variable, if needed) *)
+(* Get the jkind of a type, dropping any changes to types caused by
+   expansion. Returns None if the type is not known principally *)
+val type_jkind_purely_if_principal : Env.t -> type_expr -> jkind_l option
+
+(* Find a type's sort (if fixed is false: constraining it to be an arbitrary
+   sort variable, if needed) *)
 val type_sort :
   why:Jkind.History.concrete_creation_reason ->
   fixed:bool ->
@@ -593,14 +597,17 @@ val type_legacy_sort :
    but correct: they are used to implement the module inclusion check, where
    we can be sure that the l-jkind has no undetermined variables. *)
 val check_decl_jkind :
-  Env.t -> type_declaration -> jkind_l -> (unit, Jkind.Violation.t) result
+  Env.t -> type_declaration -> type_expr list -> jkind_l -> (unit, Jkind.Violation.t) result
 val constrain_decl_jkind :
-  Env.t -> type_declaration -> jkind_l -> (unit, Jkind.Violation.t) result
-
+  Env.t -> type_declaration -> type_expr list -> jkind_l -> (unit, Jkind.Violation.t) result
 val check_type_jkind :
   Env.t -> type_expr -> jkind_r -> (unit, Jkind.Violation.t) result
+val check_type_jkind_with_baggage :
+  Env.t ->  type_equal:(type_expr -> type_expr -> bool) -> type_expr -> jkind_r -> (unit, Jkind.Violation.t) result
 val constrain_type_jkind :
   Env.t -> type_expr -> jkind_r -> (unit, Jkind.Violation.t) result
+val constrain_type_jkind_with_baggage :
+  Env.t -> type_equal:(type_expr -> type_expr -> bool) -> type_expr -> jkind_r -> (unit, Jkind.Violation.t) result
 
 (* Check whether a type's externality's upper bound is less than some target.
    Potentially cheaper than just calling [type_jkind], because this can stop
@@ -651,7 +658,7 @@ val check_type_externality : Env.t -> type_expr -> Jkind.Externality.t -> bool
 
    *)
 val check_and_update_generalized_ty_jkind :
-  ?name:Ident.t -> loc:Location.t -> type_expr -> unit
+  ?name:Ident.t -> loc:Location.t -> Env.t -> type_expr -> unit
 
 (* False if running in principal mode and the type is not principal.
    True otherwise. *)
