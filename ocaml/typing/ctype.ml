@@ -2091,6 +2091,8 @@ let try_expand_safe_opt env ty =
 let expand_head_opt env ty =
   try try_expand_head try_expand_safe_opt env ty with Cannot_expand -> ty
 
+let is_principal ty =
+  not !Clflags.principal || get_level ty = generic_level
 
 type unbox_result =
   (* unboxing process made a step: either an unboxing or removal of a [Tpoly] *)
@@ -2166,9 +2168,9 @@ let rec estimate_type_jkind ~expand_component env ty =
       let type_decl = Env.find_type p env in
       let jkind = type_decl.type_jkind in
       let level = get_level ty in
-      jkind_subst env level type_decl.type_params args jkind
+      jkind_subst env level type_decl.type_params (assert false (*args*)) jkind
     with
-    | Cannot_subst | Not_found -> Builtin.any ~why:(Missing_cmi p)
+    | Cannot_subst | Not_found -> Jkind.Builtin.any ~why:(Missing_cmi p)
   end
   | Tobject _ -> Jkind.Builtin.value ~why:Object
   | Tfield _ -> Jkind.Builtin.value ~why:Tfield
@@ -2205,46 +2207,12 @@ let type_jkind_purely_if_principal env ty =
 
 let estimate_type_jkind = estimate_type_jkind ~expand_component:Fun.id
 
-(* Similar to [estimate_type_jkind] but the returned jkind is guaranteed to be
-   a right jkind. *)
-let rec estimate_type_jkind_right env ty =
-  let open Jkind in
-  match get_desc ty with
-  | Tconstr(p, _, _) -> Jkind (Builtin.any ~why:(Missing_cmi p))
-  | Tvariant row ->
-      if tvariant_not_immediate row
-      then Jkind (Builtin.value ~why:Polymorphic_variant)
-      else Jkind (Builtin.immediate ~why:Immediate_polymorphic_variant)
-  | Tvar { jkind } when get_level ty = generic_level ->
-    (* Once a Tvar gets generalized with a jkind, it should be considered
-        as fixed (similar to the Tunivar case below).
-
-        This notably prevents [constrain_type_jkind] from changing layout
-        [any] to a sort or changing the externality once the Tvar gets
-        generalized.
-
-        This, however, still allows sort variables to get instantiated. *)
-    Jkind jkind
-  | Tvar { jkind } -> TyVar (jkind, ty)
-  | Tarrow _ -> Jkind for_arrow
-  | Ttuple _ -> Jkind (Builtin.value ~why:Tuple)
-  | Tobject _ -> Jkind (Builtin.value ~why:Object)
-  | Tfield _ -> Jkind (Builtin.value ~why:Tfield)
-  | Tnil -> Jkind (Builtin.value ~why:Tnil)
-  | (Tlink _ | Tsubst _) -> assert false
-  | Tunivar { jkind } -> Jkind jkind
-  | Tpoly (ty, _) -> estimate_type_jkind_right env ty
-  | Tpackage _ -> Jkind (Builtin.value ~why:First_class_module)
-
-let is_principal ty =
-  not !Clflags.principal || get_level ty = generic_level
-
 (**** checking jkind relationships ****)
 
 (* The ~fixed argument controls what effects this may have on `ty`.  If false,
    then we will update the jkind of type variables to make the check true, if
    possible.  If true, we won't (but will still instantiate sort variables). *)
-let constrain_type_jkind ~fixed env ty jkind =
+let constrain_type_jkind ~fixed env ~type_equal ty jkind =
   (* The [expanded] argument says whether we've already tried [expand_head_opt].
 
      The "fuel" argument is used because we're duplicating the loop of
@@ -2303,7 +2271,7 @@ let constrain_type_jkind ~fixed env ty jkind =
     | Tpoly (t, _) -> loop ~fuel ~expanded:false t ty's_jkind jkind
 
     | _ ->
-       match Jkind.sub_or_intersect ty's_jkind jkind with
+       match Jkind.sub_or_intersect ~type_equal ty's_jkind jkind with
        | Sub -> Ok ()
        | Disjoint ->
           (* Reporting that [ty's_jkind] must be a subjkind of [jkind] is not
@@ -2367,9 +2335,12 @@ let constrain_type_jkind ~fixed env ty jkind =
 
 let type_sort ~why ~fixed env ty =
   let jkind, sort = Jkind.of_new_sort_var ~why in
-  match constrain_type_jkind ~fixed env ty jkind with
+  match
+    constrain_type_jkind ~fixed env ~type_equal:Types.eq_type_fail ty jkind
+  with
   | Ok _ -> Ok sort
   | Error _ as e -> e
+
 let check_type_jkind_with_baggage env ~type_equal ty jkind =
   constrain_type_jkind ~fixed:true env ~type_equal ty jkind
 
@@ -5510,6 +5481,7 @@ let eq_type_params env ~params0 ty0 ~params1 ty1 =
   is_equal env true (params0 @ [ty0]) (params1 @ [ty1])
 
 let check_decl_jkind env decl0 params1 jkind1 =
+  let jkind1 = Jkind.terrible_relax_l jkind1 in
   let params0 = decl0.type_params in
   let type_equal = eq_type_params env ~params0 ~params1 in
   match Jkind.sub_or_error ~type_equal decl0.type_jkind jkind1 with
@@ -5520,6 +5492,7 @@ let check_decl_jkind env decl0 params1 jkind1 =
       | Some ty -> check_type_jkind_with_baggage env ~type_equal ty jkind1
 
 let constrain_decl_jkind env decl0 params1 jkind1 =
+  let jkind1 = Jkind.terrible_relax_l jkind1 in
   let params0 = decl0.type_params in
   let type_equal = eq_type_params env ~params0 ~params1 in
   match Jkind.sub_or_error ~type_equal decl0.type_jkind jkind1 with

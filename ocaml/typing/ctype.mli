@@ -563,8 +563,6 @@ val tvariant_not_immediate : row_desc -> bool
    [type_jkind] if that's needed. *)
 val estimate_type_jkind : Env.t ->  type_expr -> jkind_l
 
-val estimate_type_jkind_right : Env.t ->  type_expr -> jkind
-
 (* Get the jkind of a type, expanding it and looking through [[@@unboxed]]
    types. *)
 val type_jkind : Env.t -> type_expr -> jkind_l
@@ -575,7 +573,7 @@ val type_jkind_purely : Env.t -> type_expr -> jkind_l
 
 (* Get the jkind of a type, dropping any changes to types caused by
    expansion. Returns None if the type is not known principally *)
-val type_jkind_purely_if_principal : Env.t -> type_expr -> jkind option
+val type_jkind_purely_if_principal : Env.t -> type_expr -> jkind_l option
 
 (* Find a type's sort (if fixed is false: constraining it to be an arbitrary
    sort variable, if needed) *)
@@ -599,7 +597,7 @@ val type_legacy_sort :
    but correct: they are used to implement the module inclusion check, where
    we can be sure that the l-jkind has no undetermined variables. *)
 val check_decl_jkind :
-  Env.t -> type_declaration -> type_expr list -> Jkind_l -> (unit, Jkind.Violation.t) result
+  Env.t -> type_declaration -> type_expr list -> jkind_l -> (unit, Jkind.Violation.t) result
 val constrain_decl_jkind :
   Env.t -> type_declaration -> type_expr list -> jkind_l -> (unit, Jkind.Violation.t) result
 val check_type_jkind :

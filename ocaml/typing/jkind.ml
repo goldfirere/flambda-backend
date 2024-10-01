@@ -820,28 +820,29 @@ module Const = struct
     | Immediate -> Builtin.immediate.jkind
     | Immediate64 -> Builtin.immediate64.jkind
 
-  let jkind_of_product_annotations jkinds =
-    let folder (layouts, mode_ub, ext_ub, null_ub)
-        { layout;
-          modes_upper_bounds;
-          externality_upper_bound;
-          nullability_upper_bound
-        } =
-      ( layout :: layouts,
-        Modes.join mode_ub modes_upper_bounds,
-        Externality.join ext_ub externality_upper_bound,
-        Nullability.join null_ub nullability_upper_bound )
-    in
-    let layouts, mode_ub, ext_ub, null_ub =
-      List.fold_left folder
-        ([], Modes.min, Externality.min, Nullability.min)
-        jkinds
-    in
-    { layout = Product (List.rev layouts);
-      modes_upper_bounds = mode_ub;
-      externality_upper_bound = ext_ub;
-      nullability_upper_bound = null_ub
-    }
+  let jkind_of_product_annotations _jkinds = assert false
+  (* CR reisenberg: implement me
+     let folder (layouts, mode_ub, ext_ub, null_ub)
+         { layout;
+           modes_upper_bounds;
+           externality_upper_bound;
+           nullability_upper_bound
+         } =
+       ( layout :: layouts,
+         Modes.join mode_ub modes_upper_bounds,
+         Externality.join ext_ub externality_upper_bound,
+         Nullability.join null_ub nullability_upper_bound )
+     in
+     let layouts, mode_ub, ext_ub, null_ub =
+       List.fold_left folder
+         ([], Modes.min, Externality.min, Nullability.min)
+         jkinds
+     in
+     { layout = Product (List.rev layouts);
+       modes_upper_bounds = mode_ub;
+       externality_upper_bound = ext_ub;
+       nullability_upper_bound = null_ub
+     } *)
 
   let rec of_user_written_annotation_unchecked_level ~transl_type
       (jkind : Jane_syntax.Jkind.t) : t =
@@ -894,29 +895,21 @@ module Const = struct
           }
       in
       { layout = base.layout; upper_bounds }
-          Alloc.Const.meet base.modes_upper_bounds
-            (Alloc.Const.Option.value ~default:Alloc.Const.max parsed_modes);
-        nullability_upper_bound =
-          Nullability.meet base.nullability_upper_bound
-            (Option.value ~default:Nullability.max parsed_modifiers.nullability);
-        externality_upper_bound =
-          Externality.meet base.externality_upper_bound
-            (Option.value ~default:Externality.max parsed_modifiers.externality)
-      }
     | Product ts ->
-      let jkinds = List.map of_user_written_annotation_unchecked_level ts in
+      let jkinds =
+        List.map (of_user_written_annotation_unchecked_level ~transl_type) ts
+      in
       jkind_of_product_annotations jkinds
-    | With (base, type_) ->
+    | With (base, type_) -> (
       let base = of_user_written_annotation_unchecked_level ~transl_type base in
-      begin match transl_type with
+      match transl_type with
       | None -> raise ~loc:type_.ptyp_loc With_on_right
       | Some transl_type ->
-          let type_ = transl_type type_ in
-          { layout = base.layout;
-            upper_bounds =
-              Bounds.add_baggage ~deep_only:true ~baggage:type_ base.upper_bounds
-          }
-      end
+        let type_ = transl_type type_ in
+        { layout = base.layout;
+          upper_bounds =
+            Bounds.add_baggage ~deep_only:true ~baggage:type_ base.upper_bounds
+        })
     | Default | Kind_of _ -> Misc.fatal_error "XXX unimplemented"
 
   (* The [annotation_context] parameter can be used to allow annotations / kinds
@@ -934,7 +927,8 @@ module Const = struct
     | Base Void, _ | Base Value, Maybe_null -> Alpha
     | Product _, _ -> Beta
 
-  let of_user_written_annotation ~transl_type ~context Location.{ loc; txt = annot } =
+  let of_user_written_annotation ~transl_type ~context
+      Location.{ loc; txt = annot } =
     let const = of_user_written_annotation_unchecked_level ~transl_type annot in
     let required_layouts_level = get_required_layouts_level context const in
     if not (Language_extension.is_at_least Layouts required_layouts_level)
@@ -972,7 +966,7 @@ module Desc = struct
     | Var v1, Var v2 -> if v1 == v2 then Equal else Not_le
     | Product ds1, Product ds2 ->
       if List.compare_lengths ds1 ds2 = 0
-      then Misc.Le_result.combine_list (List.map2 sub ds1 ds2)
+      then Misc.Le_result.combine_list (List.map2 (sub ~type_equal) ds1 ds2)
       else Not_le
     | Const _, Product _ | Product _, Const _ | Const _, Var _ | Var _, Const _
       ->
@@ -1073,22 +1067,6 @@ module Jkind_desc = struct
             upper_bounds = Bounds.map2 { f = meet_axis } bounds1 bounds2
           })
 
-  let assert_right { upper_bounds; _ } =
-    let assert_axis (type a) ~axis:_ (bound : a Bound.t) : a Bound.t =
-      match bound with
-      | { baggage = []; _ } -> bound
-      | _ ->
-        Printexc.print_raw_backtrace stderr (Printexc.get_callstack 100);
-        (* Intersection should only ever be called on a left-right or right jkind, so it
-           should be impossible for there to be with constraints here *)
-        Misc.fatal_error
-          "Attempted to intersect two jkinds with non-empty `with` \
-           constraints. If you see this error message, please contact the Jane \
-           Street OCaml Language Team."
-    in
-    let _ = Bounds.map { f = assert_axis } upper_bounds in
-    ()
-
   let map_type_expr f { layout; upper_bounds } =
     let f' (type a) ~axis:_ ({ modifier; baggage } : a Bound.t) : a Bound.t =
       let baggage = List.map f baggage in
@@ -1122,61 +1100,38 @@ module Jkind_desc = struct
        jkinds. This is not great. We should, as part of a broader pass on error
        messages around product kinds, zip them up into some kind of product
        history. *)
-    let folder (layouts, mode_ub, ext_ub, null_ub)
-        { jkind =
-            { layout;
-              modes_upper_bounds;
-              externality_upper_bound;
-              nullability_upper_bound
-            };
-          history = _;
-          has_warned = _
-        } =
-      ( layout :: layouts,
-        Modes.join mode_ub modes_upper_bounds,
-        Externality.join ext_ub externality_upper_bound,
-        Nullability.join null_ub nullability_upper_bound )
+    let folder _ =
+      assert false
+      (* CR reisenberg: implement
+           { jkind =
+               { layout;
+                 modes_upper_bounds;
+                 externality_upper_bound;
+                 nullability_upper_bound
+               };
+             history = _;
+             has_warned = _
+           } =
+         ( layout :: layouts,
+           Modes.join mode_ub modes_upper_bounds,
+           Externality.join ext_ub externality_upper_bound,
+           Nullability.join null_ub nullability_upper_bound ) *)
     in
-    let layouts, mode_ub, ext_ub, null_ub =
-      List.fold_left folder
-        ([], Modes.min, Externality.min, Nullability.min)
-        jkinds
-    in
-    { layout = Product (List.rev layouts);
-      modes_upper_bounds = mode_ub;
-      externality_upper_bound = ext_ub;
-      nullability_upper_bound = null_ub
-    }
+    let layouts, upper_bounds = List.fold_left folder ([], Bounds.min) jkinds in
+    { layout = Product (List.rev layouts); upper_bounds }
 
   (* Post-condition: If the result contains [Var v], then [!v] is [None]. *)
-  let rec get_sort modes_upper_bounds externality_upper_bound
-      nullability_upper_bound s : Desc.t =
+  let rec get_sort upper_bounds s : Desc.t =
     match Sort.get s with
-    | Base b ->
-      Const
-        { layout = Base b;
-          modes_upper_bounds;
-          externality_upper_bound;
-          nullability_upper_bound
-        }
+    | Base b -> Const { layout = Base b; upper_bounds }
     | Var v -> Var v
     | Product sorts ->
-      Desc.Product
-        (List.map
-           (fun x ->
-             get_sort modes_upper_bounds externality_upper_bound
-               nullability_upper_bound x)
-           sorts)
+      Desc.Product (List.map (fun x -> get_sort upper_bounds x) sorts)
 
-  let rec get
-      ({ layout; upper_bounds } as k) : Desc.t =
+  let rec get ({ layout; upper_bounds } as k) : Desc.t =
     match layout with
-    | Any ->
-      Const
-        { layout = Any; upper_bounds }
-    | Sort s ->
-      get_sort modes_upper_bounds externality_upper_bound
-        nullability_upper_bound s
+    | Any -> Const { layout = Any; upper_bounds }
+    | Sort s -> get_sort upper_bounds s
     | Product layouts ->
       Product (List.map (fun layout -> get { k with layout }) layouts)
 
@@ -1315,7 +1270,9 @@ let of_type_decl ~transl_type ~context (decl : Parsetree.type_declaration) =
   let jkind_of_annotation =
     Jane_syntax.Layouts.of_type_declaration decl
     |> Option.map (fun (annot, attrs) ->
-           let t, const = of_annotation ~transl_type:(Some transl_type) ~context annot in
+           let t, const =
+             of_annotation ~transl_type:(Some transl_type) ~context annot
+           in
            t, const, attrs)
   in
   let jkind_of_attribute =
@@ -1345,7 +1302,8 @@ let of_type_decl ~transl_type ~context (decl : Parsetree.type_declaration) =
     raise ~loc:decl.ptype_loc
       (Multiple_jkinds { from_annotation; from_attribute })
 
-let of_type_decl_default ~transl_type ~context ~default (decl : Parsetree.type_declaration) =
+let of_type_decl_default ~transl_type ~context ~default
+    (decl : Parsetree.type_declaration) =
   match of_type_decl ~transl_type ~context decl with
   | Some (t, const, attrs) -> t, Some const, attrs
   | None -> default, None, decl.ptype_attributes
@@ -1374,11 +1332,7 @@ let for_arrow =
 (******************************)
 (* elimination and defaulting *)
 
-let default_to_value_and_get
-    { jkind =
-        { layout; upper_bounds };
-      _
-    } : Const.t =
+let default_to_value_and_get { jkind = { layout; upper_bounds }; _ } : Const.t =
   { layout = Layout.default_to_value_and_get layout; upper_bounds }
 
 let default_to_value t = ignore (default_to_value_and_get t)
@@ -1423,7 +1377,8 @@ let reduce_bound (type a) ~axis ~jkind_of_type bound =
       (* modifier is top so there's no sense in chasing down remaining baggage *)
       modifier
     | { modifier; baggage = hd :: tl } ->
-      if !visited then A.max
+      if !visited
+      then A.max
       else (
         visited := true;
         match jkind_of_type hd with
@@ -1974,11 +1929,13 @@ let equate_or_equal ~allow_mutation ~type_equal
   Jkind_desc.equate_or_equal ~allow_mutation ~type_equal jkind1 jkind2
 
 (* CR layouts v2.8: Switch this back to ~allow_mutation:false *)
-let equal t1 t2 = equate_or_equal ~allow_mutation:true t1 t2
+let equal ~type_equal t1 t2 =
+  equate_or_equal ~allow_mutation:true ~type_equal t1 t2
 
-let () = Types.set_jkind_equal equal
+let () = Types.set_jkind_equal (fun ~type_equal -> equal ~type_equal)
 
-let equate t1 t2 = equate_or_equal ~allow_mutation:true t1 t2
+let equate ~type_equal t1 t2 =
+  equate_or_equal ~allow_mutation:true ~type_equal t1 t2
 
 (* Not all jkind history reasons are created equal. Some are more helpful than others.
     This function encodes that information.
@@ -1995,7 +1952,9 @@ let score_reason = function
 let combine_histories ~type_equal reason (Pack k1) (Pack k2) =
   if flattened_histories
   then
-    match Desc.sub ~type_equal (Jkind_desc.get k1.jkind) (Jkind_desc.get k2.jkind) with
+    match
+      Desc.sub ~type_equal (Jkind_desc.get k1.jkind) (Jkind_desc.get k2.jkind)
+    with
     | Less -> k1.history
     | Not_le ->
       k2.history
@@ -2043,9 +2002,6 @@ let has_intersection_l_l t1 t2 =
      expressive l-kinds. *)
   has_intersection (terrible_relax_l t1) (terrible_relax_l t2)
 
-(* CR reisenberg: remove? *)
-let assert_right t = Jkind_desc.assert_right t.jkind
-
 (* this is hammered on; it must be fast! *)
 let check_sub ~type_equal sub super =
   Jkind_desc.sub ~type_equal sub.jkind super.jkind
@@ -2076,7 +2032,10 @@ let sub_jkind_l ~type_equal sub super =
   let super = terrible_relax_l super in
   match check_sub ~type_equal sub super with
   | Less | Equal ->
-    Ok { sub with history = combine_histories ~type_equal Subjkind (Pack sub) (Pack super) }
+    Ok
+      { sub with
+        history = combine_histories ~type_equal Subjkind (Pack sub) (Pack super)
+      }
   | Not_le -> Error (Violation.of_ (Not_a_subjkind (sub, super)))
 
 let is_void_defaulting = function
@@ -2261,8 +2220,8 @@ module Debug_printers = struct
           history2
         } ->
       fprintf ppf
-        "Interact {@[reason = %a;@ jkind1 = %a;@ history1 = %a;@ \
-         jkind2 = %a;@ history2 = %a}@]"
+        "Interact {@[reason = %a;@ jkind1 = %a;@ history1 = %a;@ jkind2 = %a;@ \
+         history2 = %a}@]"
         interact_reason reason
         (Jkind_desc.Debug_printers.t print_type_expr)
         jkind1 (history print_type_expr) history1
@@ -2270,8 +2229,8 @@ module Debug_printers = struct
         jkind2 (history print_type_expr) history2
     | Creation c -> fprintf ppf "Creation (%a)" creation_reason c
 
-  let t print_type_expr ppf ({ jkind; history = h; has_warned = _ } : 'd t) : unit
-      =
+  let t print_type_expr ppf ({ jkind; history = h; has_warned = _ } : 'd t) :
+      unit =
     fprintf ppf "@[<v 2>{ jkind = %a@,; history = %a }@]"
       (Jkind_desc.Debug_printers.t print_type_expr)
       jkind (history print_type_expr) h

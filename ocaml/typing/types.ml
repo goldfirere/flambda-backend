@@ -108,7 +108,10 @@ and jkind_lr = (allowed * allowed) jkind
    here. When jkind.ml is loaded, it calls set_jkind_equal to fill a ref to the
    function. *)
 (** Corresponds to [Jkind.equal] *)
-let jkind_equal = ref (fun ~type_equal:_ _ _ ->
+let jkind_equal :
+  (type_equal:(type_expr -> type_expr -> bool) ->
+   jkind_l -> jkind_l -> bool) ref =
+  ref (fun ~type_equal:_ _ _ ->
     failwith "jkind_equal should be set by jkind.ml")
 let set_jkind_equal f = jkind_equal := f
 

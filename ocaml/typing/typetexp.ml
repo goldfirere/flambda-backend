@@ -492,13 +492,9 @@ end = struct
        preserve backwards compatibility. But we also need [Any] callsites
        to accept nullable jkinds to allow cases like [type ('a : value_or_null) t = 'a]. *)
     | Any ->
-      let k = Jkind.Builtin.any ~why:(if is_named then Unification_var else Wildcard) in
-      Jkind.assert_right k;
-      k
+      Jkind.Builtin.any ~why:(if is_named then Unification_var else Wildcard)
     | Sort ->
-      let k = Jkind.of_new_legacy_sort ~why:(if is_named then Unification_var else Wildcard) in
-      Jkind.assert_right k;
-      k
+      Jkind.of_new_legacy_sort ~why:(if is_named then Unification_var else Wildcard)
 
   let new_any_var loc env jkind = function
     | { extensibility = Fixed } -> raise(Error(loc, env, No_type_wildcards))

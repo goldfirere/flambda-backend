@@ -297,7 +297,8 @@ val add_nullability_crossing : 'd t -> 'd t
 (** Take an existing [t] and add baggage (a [with constraint]) to its bounds. If
     [deep_only] is [true] (which is the default), the baggage is only added along deep
     axes. *)
-val add_baggage : ?deep_only:bool -> baggage:Types.type_expr -> t -> t
+val add_baggage :
+  ?deep_only:bool -> baggage:Types.type_expr -> jkind_l -> jkind_l
 
 (** Take an existing [t] and add an ability to mode-cross along the portability and
     contention axes, if [from] crosses the respective axes. Return the new jkind,
@@ -514,8 +515,6 @@ val intersection_or_error :
   jkind_r ->
   (('l * allowed) t, Violation.t) Result.t
 
-val assert_right : t -> unit
-
 (** [sub t1 t2] says whether [t1] is a subjkind of [t2]. Might update
     either [t1] or [t2] to make their layouts equal.*)
 val sub :
@@ -559,14 +558,13 @@ val sub_jkind_l :
 
 (** Like [intersection_or_error], but between an [l] and an [l], as an [l]. *)
 val intersect_l_l :
-  type_equal:(Types.type_expr -> Types.type_expr -> bool) ->
   reason:History.interact_reason ->
   jkind_l ->
   jkind_l ->
   (jkind_l, Violation.t) result
 
 (* CR reisenberg: comment *)
-val map_type_expr : (Types.type_expr -> Types.type_expr) -> t -> t
+val map_type_expr : (Types.type_expr -> Types.type_expr) -> jkind_l -> jkind_l
 
 (** Checks to see whether a jkind is the maximum jkind. Never does any
     mutation. *)
