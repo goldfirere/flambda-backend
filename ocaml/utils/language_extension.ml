@@ -1,3 +1,5 @@
+(* RAE *)
+
 include Language_extension_kernel
 
 (* operations we want on every extension level *)
