@@ -536,6 +536,7 @@ type 'type_expr history =
 
 type ('type_expr, 'd) t =
   { jkind : ('type_expr, 'd) Jkind_desc.t;
+    name : Jane_syntax.Jkind.t option;
     history : 'type_expr history;
     has_warned : bool
   }

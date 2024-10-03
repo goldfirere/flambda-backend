@@ -195,68 +195,6 @@ module Const : sig
 
   val of_user_written_annotation :
     context:History.annotation_context -> Jane_syntax.Jkind.annotation -> t
-
-  (* CR layouts: Remove this once we have a better story for printing with jkind
-     abbreviations. *)
-  module Builtin : sig
-    type nonrec t =
-      { jkind : t;
-        name : string
-      }
-
-    (** This jkind is the top of the jkind lattice. All types have jkind [any].
-    But we cannot compile run-time manipulations of values of types with jkind
-    [any]. *)
-    val any : t
-
-    (** [any], except for null pointers. *)
-    val any_non_null : t
-
-    (** Value of types of this jkind are not retained at all at runtime *)
-    val void : t
-
-    (** This is the jkind of normal ocaml values or null pointers *)
-    val value_or_null : t
-
-    (** This is the jkind of normal ocaml values *)
-    val value : t
-
-    (** Immutable values that don't contain functions. *)
-    val immutable_data : t
-
-    (** Mutable values that don't contain functions. *)
-    val mutable_data : t
-
-    (** Values of types of this jkind are immediate on 64-bit platforms; on other
-    platforms, we know nothing other than that it's a value. *)
-    val immediate64 : t
-
-    (** We know for sure that values of types of this jkind are always immediate *)
-    val immediate : t
-
-    (** This is the jkind of unboxed 64-bit floats.  They have sort
-    Float64. Mode-crosses. *)
-    val float64 : t
-
-    (** This is the jkind of unboxed 32-bit floats.  They have sort
-    Float32. Mode-crosses. *)
-    val float32 : t
-
-    (** This is the jkind of unboxed native-sized integers. They have sort
-    Word. Does not mode-cross. *)
-    val word : t
-
-    (** This is the jkind of unboxed 32-bit integers. They have sort Bits32. Does
-    not mode-cross. *)
-    val bits32 : t
-
-    (** This is the jkind of unboxed 64-bit integers. They have sort Bits64. Does
-    not mode-cross. *)
-    val bits64 : t
-
-    (** A list of all Builtin jkinds *)
-    val all : t list
-  end
 end
 
 module Builtin : sig
@@ -280,6 +218,52 @@ module Builtin : sig
       the layouts of the input kinds, and the other components of the kind will
       be the join relevant component of the inputs. *)
   val product : why:History.product_creation_reason -> 'd t list -> 'd t
+
+  (* CR layouts: Remove this once we have a better story for printing with jkind
+     abbreviations. *)
+  module Predef : sig
+    type t =
+      | Any
+          (** This jkind is the top of the jkind lattice. All types have jkind
+          [any].  But we cannot compile run-time manipulations of values of
+          types with jkind [any]. *)
+      | Any_non_null  (** [any], except for null pointers. *)
+      | Void
+          (** Value of types of this jkind are not retained at all at runtime *)
+      | Value_or_null
+          (** This is the jkind of normal ocaml values or null pointers *)
+      | Value  (** This is the jkind of normal ocaml values *)
+      | Immutable_data  (** Immutable values that don't contain functions. *)
+      | Mutable_data  (** Mutable values that don't contain functions. *)
+      | Immediate64
+          (** Values of types of this jkind are immediate on 64-bit platforms; on
+          other platforms, we know nothing other than that it's a value. *)
+      | Immediate
+          (** We know for sure that values of types of this jkind are always
+          immediate *)
+      | Float64
+          (** This is the jkind of unboxed 64-bit floats.  They have sort
+          Float64. Mode-crosses. *)
+      | Float32
+          (** This is the jkind of unboxed 32-bit floats.  They have sort
+          Float32. Mode-crosses. *)
+      | Word
+          (** This is the jkind of unboxed native-sized integers. They have sort
+          Word. Does not mode-cross. *)
+      | Bits32
+          (** This is the jkind of unboxed 32-bit integers. They have sort
+          Bits32. Does not mode-cross. *)
+      | Bits64
+          (** This is the jkind of unboxed 64-bit integers. They have sort
+          Bits64. Does not mode-cross. *)
+
+    (** A list of all Builtin jkinds *)
+    val all : t list
+
+    val to_jkind : ident:Ident.t -> t -> jkind_lr
+
+    val to_jkind_with_reason : why:History.creation_reason -> t -> jkind_lr
+  end
 end
 
 (** Take an existing [t] and add an ability to mode-cross along all the axes. *)

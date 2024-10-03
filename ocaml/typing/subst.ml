@@ -83,9 +83,11 @@ type additional_action_config =
 let with_additional_action =
   (* Memoize the built-in jkinds *)
   let builtins =
-    Jkind.Const.Builtin.all
-    |> List.map (fun (builtin : Jkind.Const.Builtin.t) ->
-          builtin.jkind, Jkind.of_const builtin.jkind ~why:Jkind.History.Imported)
+    Jkind.Builtin.Predef.all
+    |> List.map (fun (builtin : Jkind.Builtin.Predef.t) ->
+          builtin,
+          Jkind.Builtin.Predef.to_jkind_with_reason builtin
+            ~why:Jkind.History.Imported)
   in
   fun (config : additional_action_config) s ->
   (* CR layouts: it would be better to put all this stuff outside this

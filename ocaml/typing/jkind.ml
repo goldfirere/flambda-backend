@@ -347,196 +347,6 @@ module Const = struct
         Externality.less_or_equal ext1 ext2;
         Nullability.less_or_equal null1 null2 ]
 
-  let of_layout ~mode_crossing ~nullability layout =
-    let modes_upper_bounds, externality_upper_bound =
-      match mode_crossing with
-      | true -> Modes.min, Externality.min
-      | false -> Modes.max, Externality.max
-    in
-    { layout;
-      modes_upper_bounds;
-      externality_upper_bound;
-      nullability_upper_bound = nullability
-    }
-
-  module Builtin = struct
-    type nonrec t =
-      { jkind : t;
-        name : string
-      }
-
-    let any =
-      { jkind = of_layout Any ~mode_crossing:false ~nullability:Maybe_null;
-        name = "any"
-      }
-
-    let any_non_null =
-      { jkind = of_layout Any ~mode_crossing:false ~nullability:Non_null;
-        name = "any_non_null"
-      }
-
-    let value_or_null =
-      { jkind =
-          of_layout (Base Value) ~mode_crossing:false ~nullability:Maybe_null;
-        name = "value_or_null"
-      }
-
-    let value =
-      { jkind =
-          of_layout (Base Value) ~mode_crossing:false ~nullability:Non_null;
-        name = "value"
-      }
-
-    let immutable_data =
-      { jkind =
-          { layout = Base Value;
-            modes_upper_bounds =
-              { linearity = Linearity.Const.min;
-                contention = Contention.Const.min;
-                portability = Portability.Const.min;
-                uniqueness = Uniqueness.Const.max;
-                areality = Locality.Const.max
-              };
-            externality_upper_bound = Externality.max;
-            nullability_upper_bound = Nullability.Non_null
-          };
-        name = "immutable_data"
-      }
-
-    let mutable_data =
-      { jkind =
-          { layout = Base Value;
-            modes_upper_bounds =
-              { linearity = Linearity.Const.min;
-                contention = Contention.Const.max;
-                portability = Portability.Const.min;
-                uniqueness = Uniqueness.Const.max;
-                areality = Locality.Const.max
-              };
-            externality_upper_bound = Externality.max;
-            nullability_upper_bound = Nullability.Non_null
-          };
-        name = "mutable_data"
-      }
-
-    (* CR layouts v3: change to [or_null] when separability is implemented. *)
-    let void =
-      { jkind = of_layout (Base Void) ~mode_crossing:false ~nullability:Non_null;
-        name = "void"
-      }
-
-    let immediate =
-      { jkind = of_layout (Base Value) ~mode_crossing:true ~nullability:Non_null;
-        name = "immediate"
-      }
-
-    (* [immediate64] describes types that are stored directly (no indirection)
-       on 64-bit platforms but indirectly on 32-bit platforms. The key question:
-       along which modes should a [immediate64] cross? As of today, all of them,
-       but the reasoning for each is independent and somewhat subtle:
-
-       * Locality: This is fine, because we do not have stack-allocation on
-       32-bit platforms. Thus mode-crossing is sound at any type on 32-bit,
-       including immediate64 types.
-
-       * Linearity: This is fine, because linearity matters only for function
-       types, and an immediate64 cannot be a function type and cannot store
-       one either.
-
-       * Uniqueness: This is fine, because uniqueness matters only for
-       in-place update, and no record supporting in-place update is an
-       immediate64. ([@@unboxed] records do not support in-place update.)
-
-       * Syncness: This is fine, because syncness matters only for function
-       types, and an immediate64 cannot be a function type and cannot store
-       one either.
-
-       * Contention: This is fine, because contention matters only for
-       types with mutable fields, and an immediate64 does not have immutable
-       fields.
-
-       In practice, the functor that creates immediate64s,
-       [Stdlib.Sys.Immediate64.Make], will require these conditions on its
-       argument. But the arguments that we expect here will have no trouble
-       meeting the conditions.
-    *)
-    let immediate64 =
-      { jkind = { immediate.jkind with externality_upper_bound = External64 };
-        name = "immediate64"
-      }
-
-    (* CR layouts v2.8: This should not mode cross, but we need syntax for mode
-       crossing first *)
-    (* CR layouts v3: change to [Maybe_null] when separability is implemented. *)
-    let float64 =
-      { jkind =
-          of_layout (Base Float64) ~mode_crossing:true ~nullability:Non_null;
-        name = "float64"
-      }
-
-    (* CR layouts v2.8: This should not mode cross, but we need syntax for mode
-       crossing first *)
-    (* CR layouts v3: change to [Maybe_null] when separability is implemented. *)
-    let float32 =
-      { jkind =
-          of_layout (Base Float32) ~mode_crossing:true ~nullability:Non_null;
-        name = "float32"
-      }
-
-    (* CR layouts v3: change to [Maybe_null] when separability is implemented. *)
-    let word =
-      { jkind = of_layout (Base Word) ~mode_crossing:false ~nullability:Non_null;
-        name = "word"
-      }
-
-    (* CR layouts v3: change to [Maybe_null] when separability is implemented. *)
-    let bits32 =
-      { jkind =
-          of_layout (Base Bits32) ~mode_crossing:false ~nullability:Non_null;
-        name = "bits32"
-      }
-
-    (* CR layouts v3: change to [Maybe_null] when separability is implemented. *)
-    let bits64 =
-      { jkind =
-          of_layout (Base Bits64) ~mode_crossing:false ~nullability:Non_null;
-        name = "bits64"
-      }
-
-    let all =
-      [ any;
-        any_non_null;
-        value_or_null;
-        value;
-        immutable_data;
-        mutable_data;
-        void;
-        immediate;
-        immediate64;
-        float64;
-        float32;
-        word;
-        bits32;
-        bits64 ]
-
-    (* CR layouts v3.0: remove this hack once [or_null] is out of [Alpha]. *)
-    let all_non_null =
-      [ any;
-        { any_non_null with name = "any" };
-        { value_or_null with name = "value" };
-        value;
-        immutable_data;
-        mutable_data;
-        void;
-        immediate;
-        immediate64;
-        float64;
-        float32;
-        word;
-        bits32;
-        bits64 ]
-  end
-
   module To_out_jkind_const : sig
     (** Convert a [t] into a [Outcometree.out_jkind_const].
         The jkind is written in terms of the built-in jkind that requires the least amount
@@ -1069,8 +879,12 @@ end)
 
 let terrible_relax_l ({ jkind = { layout = _; _ }; _ } as t) = t
 
-let fresh_jkind jkind ~why =
-  { jkind; history = Creation why; has_warned = false }
+let fresh_jkind jkind ~why ~name =
+  { jkind; name; history = Creation why; has_warned = false }
+
+let fresh_abbrev_jkind jkind ~why ~abbrev =
+  let name = Abbreviation (Location.mknoloc abbrev) in
+  fresh_jkind jkind ~why ~name
 
 (******************************)
 (* constants *)
@@ -1111,6 +925,188 @@ module Builtin = struct
 
   let product ~why ts =
     fresh_jkind (Jkind_desc.product ts) ~why:(Product_creation why)
+
+  module Predef = struct
+    type t =
+      | Any
+      | Any_non_null
+      | Void
+      | Value_or_null
+      | Value
+      | Immutable_data
+      | Mutable_data
+      | Immediate64
+      | Immediate
+      | Float64
+      | Float32
+      | Word
+      | Bits32
+      | Bits64
+
+    let to_jkind ~ident =
+      let why = Primitive ident in
+      let build_jkind ~layout ~mode_crossing ~nullability =
+        let modes_upper_bounds, externality_upper_bound =
+          match mode_crossing with
+          | true -> Modes.min, Externality.min
+          | false -> Modes.max, Externality.max
+        in
+        { layout = Layout.of_const layout;
+          modes_upper_bounds;
+          externality_upper_bound;
+          nullability_upper_bound = nullability
+        }
+      in
+      let of_layout ~mode_crossing ~nullability layout ~abbrev =
+        fresh_jkind_abbrev
+          (build_jkind ~layout ~mode_crossing ~nullability)
+          ~why ~abbrev:name
+      in
+      function
+      | Any ->
+        of_layout Any ~mode_crossing:false ~nullability:Maybe_null ~abbrev:"any"
+      | Any_non_null ->
+        of_layout Any ~mode_crossing:false ~nullability:Non_null
+          ~abbrev:"any_non_null"
+      | Value_or_null ->
+        of_layout (Base Value) ~mode_crossing:false ~nullability:Maybe_null
+          ~abbrev:"value_or_null"
+      | Value ->
+        of_layout (Base Value) ~mode_crossing:false ~nullability:Non_null
+          ~abbrev:"value"
+      | Immutable_data ->
+        fresh_jkind_abbrev
+          { layout = Base Value;
+            modes_upper_bounds =
+              { linearity = Linearity.Const.min;
+                contention = Contention.Const.min;
+                portability = Portability.Const.min;
+                uniqueness = Uniqueness.Const.max;
+                areality = Locality.Const.max
+              };
+            externality_upper_bound = Externality.max;
+            nullability_upper_bound = Nullability.Non_null
+          }
+          ~why ~abbrev:"immutable_data"
+      | Mutable_data ->
+        fresh_jkind_abbrev
+          { layout = Base Value;
+            modes_upper_bounds =
+              { linearity = Linearity.Const.min;
+                contention = Contention.Const.max;
+                portability = Portability.Const.min;
+                uniqueness = Uniqueness.Const.max;
+                areality = Locality.Const.max
+              };
+            externality_upper_bound = Externality.max;
+            nullability_upper_bound = Nullability.Non_null
+          }
+          ~why ~abbrev:"mutable_data"
+        (* CR layouts v3: change to [or_null] when separability is implemented. *)
+      | Void ->
+        of_layout (Base Void) ~mode_crossing:false ~nullability:Non_null
+          ~abbrev:"void"
+      | Immediate ->
+        of_layout (Base Value) ~mode_crossing:true ~nullability:Non_null
+          ~abbrev:"immediate"
+      (* [immediate64] describes types that are stored directly (no indirection)
+         on 64-bit platforms but indirectly on 32-bit platforms. The key question:
+         along which modes should a [immediate64] cross? As of today, all of them,
+         but the reasoning for each is independent and somewhat subtle:
+
+         * Locality: This is fine, because we do not have stack-allocation on
+         32-bit platforms. Thus mode-crossing is sound at any type on 32-bit,
+         including immediate64 types.
+
+         * Linearity: This is fine, because linearity matters only for function
+         types, and an immediate64 cannot be a function type and cannot store
+         one either.
+
+         * Uniqueness: This is fine, because uniqueness matters only for
+         in-place update, and no record supporting in-place update is an
+         immediate64. ([@@unboxed] records do not support in-place update.)
+
+         * Syncness: This is fine, because syncness matters only for function
+         types, and an immediate64 cannot be a function type and cannot store
+         one either.
+
+         * Contention: This is fine, because contention matters only for
+         types with mutable fields, and an immediate64 does not have immutable
+         fields.
+
+         In practice, the functor that creates immediate64s,
+         [Stdlib.Sys.Immediate64.Make], will require these conditions on its
+         argument. But the arguments that we expect here will have no trouble
+         meeting the conditions.
+      *)
+      | Immediate64 ->
+        fresh_jkind_abbrev
+          { (build_jkind ~layout:(Base Value) ~mode_crossing:true
+               ~nullability:Non_null)
+            with
+            externality_upper_bound = External64
+          }
+          ~why ~abbrev:"immediate64"
+        (* CR layouts v2.8: This should not mode cross, but we need syntax for mode
+           crossing first *)
+        (* CR layouts v3: change to [Maybe_null] when separability is implemented. *)
+      | Float64 ->
+        of_layout (Base Float64) ~mode_crossing:true ~nullability:Non_null
+          ~abbrev:"float64"
+      (* CR layouts v2.8: This should not mode cross, but we need syntax for mode
+         crossing first *)
+      (* CR layouts v3: change to [Maybe_null] when separability is implemented. *)
+      | Float32 ->
+        of_layout (Base Float32) ~mode_crossing:true ~nullability:Non_null
+          ~abbrev:"float32"
+      (* CR layouts v3: change to [Maybe_null] when separability is implemented. *)
+      | Word ->
+        of_layout (Base Word) ~mode_crossing:false ~nullability:Non_null
+          ~abbrev:"word"
+      (* CR layouts v3: change to [Maybe_null] when separability is implemented. *)
+      | Bits32 ->
+        of_layout (Base Bits32) ~mode_crossing:false ~nullability:Non_null
+          ~abbrev:"bits32"
+      (* CR layouts v3: change to [Maybe_null] when separability is implemented. *)
+      | Bits64 ->
+        of_layout (Base Bits64) ~mode_crossing:false ~nullability:Non_null
+          ~abbrev:"bits64"
+
+    let all =
+      [ Any;
+        Any_non_null;
+        Value_or_null;
+        Value;
+        Immutable_data;
+        Mutable_data;
+        Void;
+        Immediate;
+        Immediate64;
+        Float64;
+        Float32;
+        Word;
+        Bits32;
+        Bits64 ]
+
+    (* CR layouts v3.0: remove this hack once [or_null] is out of [Alpha]. *)
+    (* CR reisenberg: Restore this end behavior *)
+    (*
+    let all_non_null =
+      [ Any;
+        { any_non_null with name = "any" };
+        { value_or_null with name = "value" };
+        value;
+        immutable_data;
+        mutable_data;
+        void;
+        immediate;
+        immediate64;
+        float64;
+        float32;
+        word;
+        bits32;
+        bits64 ] *)
+  end
 end
 
 let add_mode_crossing t =
