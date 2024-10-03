@@ -503,16 +503,20 @@ module Layout = struct
   end
 end
 
-module Modes = Mode.Alloc.Const
-
-module Jkind_desc = struct
-  type ('type_expr, 'd) t =
-    { layout : Layout.t;
-      modes_upper_bounds : Modes.t;
+module Layout_and_axes = struct
+  type 'layout t =
+    { layout : 'layout;
+      modes_upper_bounds : Mode.Alloc.Const.t;
       externality_upper_bound : Jkind_axis.Externality.t;
       nullability_upper_bound : Jkind_axis.Nullability.t
     }
+end
+
+module Jkind_desc = struct
+  type ('type_expr, +'d) t =
+    | Desc of Layout.t Layout_and_axes.t
     constraint 'd = 'l * 'r
+  [@@unboxed]
 
   type 'type_expr packed = Pack : ('type_expr, 'd) t -> 'type_expr packed
   [@@unboxed]
@@ -542,12 +546,7 @@ type ('type_expr, 'd) t =
   }
 
 module Const = struct
-  type 'type_expr t =
-    { layout : Layout.Const.t;
-      modes_upper_bounds : Modes.t;
-      externality_upper_bound : Jkind_axis.Externality.t;
-      nullability_upper_bound : Jkind_axis.Nullability.t
-    }
+  type 'type_expr t = Layout.Const.t Layout_and_axes.t
 end
 
 type 'type_expr annotation = 'type_expr Const.t * Jane_syntax.Jkind.annotation

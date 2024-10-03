@@ -262,7 +262,7 @@ let enter_type ?abstract_abbrevs rec_flag env sdecl (id, uid) =
      jkind of the variable put in manifests here is updated when constraints
      are checked and then unified with the real manifest and checked against the
      kind. *)
-  let type_jkind, type_jkind_annotation, sdecl_attributes =
+  let type_jkind, sdecl_attributes =
     Jkind.of_type_decl_default
       ~context:(Type_declaration path)
       ~default:any
@@ -290,7 +290,6 @@ in
       type_arity = arity;
       type_kind = Type_abstract abstract_source;
       type_jkind;
-      type_jkind_annotation;
       type_private = sdecl.ptype_private;
       type_manifest;
       type_variance = Variance.unknown_signature ~injective:false ~arity;
@@ -965,7 +964,6 @@ let transl_declaration env sdecl (id, uid) =
         type_arity = arity;
         type_kind = kind;
         type_jkind = jkind;
-        type_jkind_annotation = jkind_annotation;
         type_private = sdecl.ptype_private;
         type_manifest = man;
         type_variance = Variance.unknown_signature ~injective:false ~arity;
@@ -3175,21 +3173,19 @@ let transl_with_constraint id ?fixed_row_path ~sig_env ~sig_decl ~outer_env
   if arity_ok && not sig_decl_abstract
   && sdecl.ptype_private = Private then
     Location.deprecated loc "spurious use of private";
-  let type_kind, type_unboxed_default, type_jkind, type_jkind_annotation =
+  let type_kind, type_unboxed_default, type_jkind =
     if arity_ok then
       sig_decl.type_kind,
       sig_decl.type_unboxed_default,
-      sig_decl.type_jkind,
-      sig_decl.type_jkind_annotation
+      sig_decl.type_jkind
     else
-      Type_abstract Definition, false, sig_decl.type_jkind, None
+      Type_abstract Definition, false, sig_decl.type_jkind
   in
   let new_sig_decl =
     { type_params = params;
       type_arity = arity;
       type_kind;
       type_jkind;
-      type_jkind_annotation;
       type_private = priv;
       type_manifest = Some man;
       type_variance = [];
@@ -3229,7 +3225,6 @@ let transl_with_constraint id ?fixed_row_path ~sig_env ~sig_decl ~outer_env
       type_arity = new_sig_decl.type_arity;
       type_kind = new_sig_decl.type_kind;
       type_jkind = new_sig_decl.type_jkind;
-      type_jkind_annotation = new_sig_decl.type_jkind_annotation;
       type_private = new_sig_decl.type_private;
       type_manifest = new_sig_decl.type_manifest;
       type_unboxed_default = new_sig_decl.type_unboxed_default;
@@ -3254,7 +3249,7 @@ let transl_with_constraint id ?fixed_row_path ~sig_env ~sig_decl ~outer_env
     typ_kind = Ttype_abstract;
     typ_private = sdecl.ptype_private;
     typ_attributes = sdecl.ptype_attributes;
-    typ_jkind_annotation = Option.map snd type_jkind_annotation;
+    typ_jkind_annotation = Jkind.get_annotation;
   }
   end
   ~post:(fun ttyp -> generalize_decl ttyp.typ_type)
@@ -3270,7 +3265,6 @@ let transl_package_constraint ~loc ty =
     (* There is no reason to calculate an accurate jkind here.  This typedecl
        will be thrown away once it is used for the package constraint inclusion
        check, and that check will expand the manifest as needed. *)
-    type_jkind_annotation = None;
     type_private = Public;
     type_manifest = Some ty;
     type_variance = [];
@@ -3294,7 +3288,6 @@ let abstract_type_decl ~injective ~jkind ~jkind_annotation ~params =
       type_arity = arity;
       type_kind = Type_abstract Definition;
       type_jkind = jkind;
-      type_jkind_annotation = jkind_annotation;
       type_private = Public;
       type_manifest = None;
       type_variance = Variance.unknown_signature ~injective ~arity;

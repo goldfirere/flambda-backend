@@ -1387,7 +1387,6 @@ let new_local_type ?(loc = Location.none) ?manifest_and_scope origin
     type_arity = 0;
     type_kind = Type_abstract origin;
     type_jkind = Jkind.disallow_right jkind;
-    type_jkind_annotation = jkind_annot;
     type_private = Public;
     type_manifest = manifest;
     type_variance = [];
@@ -3271,7 +3270,7 @@ let jkind_of_abstract_type_declaration env p =
        nice to eliminate the duplication, but is seems tricky to do so without
        complicating unify3. *)
     let typ = Env.find_type p env in
-    typ.type_jkind, typ.type_jkind_annotation
+    typ.type_jkind
   with
     Not_found -> assert false
 
@@ -6638,7 +6637,6 @@ let nondep_type_decl env mid is_covariant decl =
       type_arity = decl.type_arity;
       type_kind = tk;
       type_jkind = decl.type_jkind;
-      type_jkind_annotation = decl.type_jkind_annotation;
       type_manifest = tm;
       type_private = priv;
       type_variance = decl.type_variance;

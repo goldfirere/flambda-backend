@@ -190,21 +190,6 @@ and ident_some = ident_create "Some"
 and ident_null = ident_create "Null"
 and ident_this = ident_create "This"
 
-let predef_jkind_annotation primitive =
-  Option.map
-    (fun (primitive : Jkind.Const.Builtin.t) ->
-       (* This is a bit of a hack: we're trying to figure out what a user
-          could have written on a predef type declaration to give it the
-          right kind. But this hack is OK as its result is just used in
-          printing/untypeast.
-       *)
-       let user_written : _ Location.loc =
-         Jane_syntax.Jkind.(Abbreviation (Const.mk primitive.name Location.none))
-         |> Location.mknoloc
-       in
-       primitive.jkind, user_written)
-    primitive
-
 let option_argument_jkind = Jkind.Builtin.value ~why:(
   Type_argument {parent_path = path_option; position = 1; arity = 1})
 
@@ -229,7 +214,6 @@ let mk_add_type add_type
      type_arity = 0;
      type_kind = kind;
      type_jkind = jkind;
-     type_jkind_annotation = predef_jkind_annotation jkind_annotation;
      type_loc = Location.none;
      type_private = Asttypes.Public;
      type_manifest = manifest;
@@ -264,7 +248,6 @@ let mk_add_type1 add_type type_ident
       type_arity = 1;
       type_kind = kind param;
       type_jkind = jkind;
-      type_jkind_annotation = predef_jkind_annotation jkind_annotation;
       type_loc = Location.none;
       type_private = Asttypes.Public;
       type_manifest = None;

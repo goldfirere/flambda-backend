@@ -1935,18 +1935,14 @@ let tree_of_type_decl id decl =
   in
   (* The algorithm for setting [lay] here is described as Case (C1) in
      Note [When to print jkind annotations] *)
-  let is_value =
-    match decl.type_jkind_annotation with
-    | Some (jkind, _) -> Jkind.Const.equal jkind Jkind.Const.Builtin.value.jkind
-    | None -> false
-  in
+  let is_value = Jkind.has_value_annotation decl.type_jkind in
   let jkind_annotation = match ty, unboxed, is_value, decl.type_has_illegal_crossings with
     | (Otyp_abstract, _, false, _) | (_, true, _, _) | (_, _, _, true) ->
         (* The two cases of (C1) from the Note correspond to Otyp_abstract.
            Anything but the default must be user-written, so we print the
            user-written annotation. *)
         (* type_has_illegal_crossings corresponds to C1.3 *)
-        decl.type_jkind_annotation
+        Jkind.get_annotation decl.type_jkind
     | _ -> None (* other cases have no jkind annotation *)
   in
     { otype_name = name;
@@ -2388,7 +2384,6 @@ let dummy =
     type_arity = 0;
     type_kind = Type_abstract Definition;
     type_jkind = Jkind.Builtin.any ~why:Dummy_jkind;
-    type_jkind_annotation = None;
     type_private = Public;
     type_manifest = None;
     type_variance = [];

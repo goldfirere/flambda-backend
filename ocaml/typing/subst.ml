@@ -106,18 +106,21 @@ let with_additional_action =
     | Prepare_for_saving ->
         let rec prepare_desc : type l r. _ -> _ -> (l * r) Jkind.t =
          fun loc : (Jkind.Desc.t -> _) -> function
-          | Const const ->
-            let builtin =
-              List.find_opt (fun (builtin, _) -> Jkind.Const.equal const builtin) builtins
+          | Predef predef ->
+              let builtin =
+                List.find_opt (fun (builtin, _) ->
+                  Jkind.Builtin.Predef.equal predef builtin)
+                  builtins
             in
             begin match builtin with
-            | Some (__, jkind) -> jkind
-            | None -> Jkind.of_const const ~why:Jkind.History.Imported
+            | Some (_, jkind) -> jkind
+            | None -> Misc.fatal_errorf
+                        "Jkind.Builtin.Predef.all isn't all of them: %a"
+                        Jkind.Builtin.Predef.format predef
             end
-          | Var _ -> raise(Error (loc, Unconstrained_jkind_variable))
-          | Product descs ->
-            Jkind.Builtin.product ~why:Unboxed_tuple
-              (List.map (prepare_desc loc) descs)
+          | Const (const, name) ->
+            Jkind.of_const const ~why:Jkind.History.Imported ~name
+          | Non_const _ -> raise(Error (loc, Unconstrained_jkind_variable))
         in
         let prepare_jkind loc lay : _ Jkind.t =
           prepare_desc loc (Jkind.get lay)
@@ -565,7 +568,6 @@ let type_declaration' copy_scope s decl =
         | Duplicate_variables | No_action -> decl.type_jkind
       end;
     (* CR layouts v10: Apply the substitution here, too *)
-    type_jkind_annotation = decl.type_jkind_annotation;
     type_private = decl.type_private;
     type_variance = decl.type_variance;
     type_separability = decl.type_separability;

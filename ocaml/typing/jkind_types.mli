@@ -119,17 +119,23 @@ module Layout : sig
   end
 end
 
+module Layout_and_axes : sig
+  type 'layout t =
+    { layout : 'layout;
+      modes_upper_bounds : Mode.Alloc.Const.t;
+      externality_upper_bound : Jkind_axis.Externality.t;
+      nullability_upper_bound : Jkind_axis.Nullability.t
+    }
+end
+
 module Jkind_desc : sig
   (* We need the variance annotation here to allow [any_dummy_jkind] to be
      polymorphic in its allowances. Otherwise the value restriction bites.
      Sigh. *)
   type ('type_expr, +'d) t =
-    { layout : Layout.t;
-      modes_upper_bounds : Mode.Alloc.Const.t;
-      externality_upper_bound : Jkind_axis.Externality.t;
-      nullability_upper_bound : Jkind_axis.Nullability.t
-    }
+    | Desc of Layout.t Layout_and_axes.t
     constraint 'd = 'l * 'r
+  [@@unboxed]
 
   type 'type_expr packed = Pack : ('type_expr, 'd) t -> 'type_expr packed
   [@@unboxed]
@@ -154,12 +160,7 @@ type ('type_expr, +'d) t =
 
 (** CR layouts v2.8: remove this when printing is improved *)
 module Const : sig
-  type 'type_expr t =
-    { layout : Layout.Const.t;
-      modes_upper_bounds : Mode.Alloc.Const.t;
-      externality_upper_bound : Jkind_axis.Externality.t;
-      nullability_upper_bound : Jkind_axis.Nullability.t
-    }
+  type 'type_expr t = Layout.Const.t Layout_and_axes.t
 end
 
 (** CR layouts v2.8: remove this when printing is improved *)

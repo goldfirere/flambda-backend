@@ -257,6 +257,10 @@ module Builtin : sig
           (** This is the jkind of unboxed 64-bit integers. They have sort
           Bits64. Does not mode-cross. *)
 
+    val equal : t -> t -> bool
+
+    val format : Format.formatter -> t -> unit
+
     (** A list of all Builtin jkinds *)
     val all : t list
 
@@ -361,10 +365,12 @@ val for_arrow : jkind_l
 
 module Desc : sig
   (** The description of a jkind, used as a return type from [get]. *)
-  type t =
-    | Const of Const.t
-    | Var of Sort.var
-    | Product of t list
+  type nonrec t =
+    | Predef of Builtin.Predef.t
+    | Const of
+        Layout.Const.t Jkind_types.Layout_and_axes.t
+        * Jane_syntax.Jkind.annotation option
+    | Non_const of packed
 
   val format : Format.formatter -> t -> unit
 end
