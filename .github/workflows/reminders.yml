@@ -1,0 +1,54 @@
+name: Reminders
+
+on:
+  pull_request:
+    paths:
+      - 'ocaml/parsing/parser.mly'
+      - 'ocaml/utils/language_extension.ml'
+
+jobs:
+  remind:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    strategy:
+      matrix:
+        file:
+          - path: 'ocaml/parsing/parser.mly'
+            name: 'Parser change'
+            message: |
+              - [ ] test `parsetree/source_jane_street.ml` is updated
+
+              This test should have examples of every new bit of syntax you are adding. Feel free to just check the box if your PR does not actually change the syntax (because it is refactoring the parser, say)."
+          - path: 'ocaml/utils/language_extension.ml'
+            name: 'Change to language extensions'
+            message: |
+              - [ ] documentation in `ocaml/jane/doc/extensions` is updated, if making a feature stable. (If this patch does not make something stable, just tick the box.)
+
+              The documentation there gets automatically published internally when we release the compiler. You may also want to update the tests to acknowledge any new stability of extensions.
+              
+    steps:
+      - name: Create PR Comment
+        if: contains(github.event.pull_request.changed_files, matrix.file.path)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          REPO=${{ github.repository }}
+          PR_NUMBER=${{ github.event.pull_request.number }}
+          COMMENT=$(cat <<EOF
+          ## ${{ matrix.file.name }} checklist
+
+          This PR modifies `${{ matrix.file.path }}`. Please ensure:
+
+          ${{ matrix.file.message }}
+          EOF
+          )
+
+          # Check if comment already exists
+          if ! gh pr view $PR_NUMBER --json comments -q '.comments[].body' --repo $REPO | grep -q "${{ matrix.file.name }} checklist"; then
+            gh pr comment $PR_NUMBER --body "$COMMENT" --repo $REPO
+            echo "Comment for ${{ matrix.file.path }} added successfully."
+          else
+            echo "Comment for ${{ matrix.file.path }} already exists. Skipping."
+          fi
+
