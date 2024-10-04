@@ -1175,6 +1175,11 @@ let type_manifest env ty1 ty2 priv2 kind2 =
    reify instead of rigidify. But rigidify seems simpler, given that it does not
    need to extend the env.)
 
+   (Perhaps surprisingly, rigidify does not actually make things rigid. Instead,
+   it remembers the variables free in a type and then can check after a
+   unification to see whether any of them changed. This check is Step 6 in this
+   Note.)
+
    4. Unify the type parameters of decl1 and decl2. This unification can fail
    only by a jkind problem: anything else would have been caught by the equality
    check in Step 1. An outright jkind problem will raise [Unify], and this gets

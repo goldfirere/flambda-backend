@@ -5063,6 +5063,10 @@ let eqtype_subst type_pairs subst t1 k1 t2 k2 ~do_jkind_check =
     TypePairs.add type_pairs (t1, t2)
   end
 
+(* Curious about [do_jkind_check]? See Note [Contravariance of type parameter
+   jkinds] in Includecore. It applies only to the outermost types; the jkinds of
+   types further down in the tree are unrelated to the jkinds further out, so we
+   do not propagate this parameter through recursive calls. *)
 let rec eqtype rename type_pairs subst env ~do_jkind_check t1 t2 =
   let check_phys_eq t1 t2 =
     not rename && eq_type t1 t2

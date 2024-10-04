@@ -2239,7 +2239,6 @@ end
 [%%expect{|
 module M9 : sig type 'a t = K of ('a -> 'a) end
 |}]
-(* CR layouts: This one should be fine to accept *)
 
 (*****************************************************)
 (* Test 38: Ensure Univar unification checks layouts *)
