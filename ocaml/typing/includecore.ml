@@ -1112,19 +1112,7 @@ let type_manifest env ty1 ty2 priv2 kind2 =
       in
       match
         if is_private_abbrev_2 then
-          let rec equal_private ty1_expanded =
-            try
-              Ctype.equal env false [ty1_expanded] [ty2]
-            with
-            | Ctype.Equality _ as err ->
-              match
-                Ctype.try_expand_safe_opt env
-                  (Ctype.expand_head env ty1_expanded)
-              with
-              | ty1_expanded' -> equal_private ty1_expanded'
-              | exception Ctype.Cannot_expand -> raise err
-          in
-          equal_private ty1
+          Ctype.equal_private env ty1 ty2
         else
           Ctype.equal env false [ty1] [ty2]
       with

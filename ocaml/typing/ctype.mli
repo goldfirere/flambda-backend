@@ -385,12 +385,10 @@ val equal: ?do_jkind_check:bool ->
            checks whether the parameterized types
            [/\x1.../\xn.tau] and [/\y1.../\yn.sigma] are equivalent. *)
 val is_equal : Env.t -> bool -> type_expr list -> type_expr list -> bool
-val equal_private :
-        Env.t -> type_expr list -> type_expr ->
-        type_expr list -> type_expr -> unit
-(* [equal_private env t1 params1 t2 params2] checks that [t1::params1]
-   equals [t2::params2] but it is allowed to expand [t1] if it is a
-   private abbreviations. *)
+val equal_private : Env.t -> type_expr -> type_expr -> unit
+(* [equal_private env t1 t2] checks that [t1] equals [t2] but it is allowed to
+   expand [t1] if it is a private abbreviation. No renaming is allowed, but
+   jkinds are checked. *)
 
 val match_class_declarations:
         Env.t -> type_expr list -> class_type -> type_expr list ->

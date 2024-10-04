@@ -5147,7 +5147,7 @@ let rec eqtype rename type_pairs subst env ~do_jkind_check t1 t2 =
 
 and eqtype_list_same_length
       rename type_pairs subst env tl1 tl2 ~do_jkind_check =
-  List.iter2 (eqtype rename type_pairs subst env ~do_jkind_check) tl1 t2
+  List.iter2 (eqtype rename type_pairs subst env ~do_jkind_check) tl1 tl2
 
 and eqtype_list rename type_pairs subst env tl1 tl2 ~do_jkind_check =
   if List.length tl1 <> List.length tl2 then
@@ -5320,14 +5320,13 @@ let is_equal env rename tyl1 tyl2 =
   | () -> true
   | exception Equality _ -> false
 
-let rec equal_private env params1 ty1 params2 ty2 =
-  match
-    equal ~do_jkind_check:false env true (params1 @ [ty1]) (params2 @ [ty2])
+let rec equal_private env ty1 ty2 =
+  try
+    equal env false [ty1] [ty2]
   with
-  | () -> ()
-  | exception (Equality _ as err) ->
+  | Equality _ as err ->
       match try_expand_safe_opt env (expand_head env ty1) with
-      | ty1' -> equal_private env params1 ty1' params2 ty2
+      | ty1' -> equal_private env ty1' ty2
       | exception Cannot_expand -> raise err
 
                           (*************************)
