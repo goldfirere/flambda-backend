@@ -5106,7 +5106,7 @@ let rec eqtype rename type_pairs subst env ~do_jkind_check t1 t2 =
                 labeled_tl2
           | (Tconstr (p1, tl1, _), Tconstr (p2, tl2, _))
                 when Path.same p1 p2 ->
-              eqtype_list rename type_pairs subst env tl1 tl2
+              eqtype_list_same_length rename type_pairs subst env tl1 tl2
                 ~do_jkind_check:true
           | (Tpackage (p1, fl1), Tpackage (p2, fl2)) ->
               begin try
@@ -5141,10 +5141,14 @@ let rec eqtype rename type_pairs subst env ~do_jkind_check t1 t2 =
   with Equality_trace trace ->
     raise_trace_for Equality (Diff {got = t1; expected = t2} :: trace)
 
+and eqtype_list_same_length
+      rename type_pairs subst env tl1 tl2 ~do_jkind_check =
+  List.iter2 (eqtype rename type_pairs subst env ~do_jkind_check) tl1 t2
+
 and eqtype_list rename type_pairs subst env tl1 tl2 ~do_jkind_check =
   if List.length tl1 <> List.length tl2 then
     raise_unexplained_for Equality;
-  List.iter2 (eqtype rename type_pairs subst env ~do_jkind_check) tl1 tl2
+  eqtype_list_same_length rename type_pairs subst env ~do_jkind_check tl1 tl2
 
 and eqtype_labeled_list rename type_pairs subst env labeled_tl1 labeled_tl2 =
   if not (Int.equal (List.length labeled_tl1) (List.length labeled_tl2)) then
@@ -5283,20 +5287,26 @@ and eqtype_alloc_mode m1 m2 =
   unify_alloc_mode_for Equality m1 m2
 
 (* Must empty univar_pairs first *)
-let eqtype_list rename type_pairs subst env tl1 tl2 ~do_jkind_check =
+let eqtype_list_same_length
+      rename type_pairs subst env tl1 tl2 ~do_jkind_check =
   univar_pairs := [];
   let snap = Btype.snapshot () in
   Misc.try_finally
     ~always:(fun () -> backtrack snap)
-    (fun () -> eqtype_list rename type_pairs subst env tl1 tl2 ~do_jkind_check)
+    (fun () ->
+       eqtype_list_same_length rename type_pairs subst env
+         tl1 tl2 ~do_jkind_check)
 
 let eqtype rename type_pairs subst env t1 t2 =
   eqtype_list ~do_jkind_check:true rename type_pairs subst env [t1] [t2]
 
 (* Two modes: with or without renaming of variables *)
 let equal ?(do_jkind_check = true) env rename tyl1 tyl2 =
+  if List.length tyl1 <> List.length tyl2 then
+    raise_unexplained_for Equality;
+  if List.for_all2 eq_type tyl1 tyl2 then () else
   let subst = ref [] in
-  try eqtype_list ~do_jkind_check rename (TypePairs.create 11)
+  try eqtype_list_same_length ~do_jkind_check rename (TypePairs.create 11)
         subst env tyl1 tyl2
   with Equality_trace trace ->
     raise (Equality (expand_to_equality_error env trace !subst))
