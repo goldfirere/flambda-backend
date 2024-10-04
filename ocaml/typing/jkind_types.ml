@@ -510,6 +510,8 @@ module Layout_and_axes = struct
       externality_upper_bound : Jkind_axis.Externality.t;
       nullability_upper_bound : Jkind_axis.Nullability.t
     }
+
+  let map ({ layout; _ } as t) ~f = { t with layout = f layout }
 end
 
 module Jkind_desc = struct

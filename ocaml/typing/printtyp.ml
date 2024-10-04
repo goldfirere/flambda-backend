@@ -1329,18 +1329,15 @@ let out_jkind_of_user_jkind (jkind : Jane_syntax.Jkind.annotation) =
   in
   Ojkind_const (out_jkind_const_of_user_jkind jkind.txt)
 
-let out_jkind_of_const_jkind jkind =
-  Ojkind_const (Jkind.Const.to_out_jkind_const jkind)
+let rec out_jkind_of_desc = function
+  | Const jkind -> Ojkind_const (Jkind_printtyp.to_out_jkind_const jkind)
+  | Var v -> Ojkind_var (Jkind.Sort.Var.name v)
+  | Product jkinds ->
+    Ojkind_product (List.map desc_to_out_jkind jkinds)
 
 (* returns None for [value], according to (C2.1) from
    Note [When to print jkind annotations] *)
 let out_jkind_option_of_jkind jkind =
-  let rec desc_to_out_jkind : Jkind.Desc.t -> out_jkind = function
-    | Const jkind -> out_jkind_of_const_jkind jkind
-    | Var v -> Ojkind_var (Jkind.Sort.Var.name v)
-    | Product jkinds ->
-      Ojkind_product (List.map desc_to_out_jkind jkinds)
-  in
   let desc = Jkind.get jkind in
   let elide =
     match desc with
@@ -1353,7 +1350,7 @@ let out_jkind_option_of_jkind jkind =
       not !Clflags.verbose_types
     | Product _ -> false
   in
-  if elide then None else Some (desc_to_out_jkind desc)
+  if elide then None else Some (out_jkind_of_desc desc)
 
 let alias_nongen_row mode px ty =
     match get_desc ty with
@@ -2723,13 +2720,7 @@ let trees_of_type_expansion'
     if var_jkinds then
       match get_desc ty with
       | Tvar { jkind; _ } | Tunivar { jkind; _ } ->
-          let rec okind_of_desc : Jkind.Desc.t -> _ = function
-            | Const clay -> out_jkind_of_const_jkind clay
-            | Var v      -> Ojkind_var (Jkind.Sort.Var.name v)
-            | Product ds ->
-              Ojkind_product (List.map okind_of_desc ds)
-          in
-          let okind = okind_of_desc (Jkind.get jkind) in
+          let okind = out_jkind_of_desc (Jkind.get jkind) in
           Otyp_jkind_annot (out, okind)
       | _ ->
           out

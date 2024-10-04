@@ -205,7 +205,9 @@
   includemod_errorprinter
   typemode
   jkind_axis
+  jkind_printtyp
   typetexp
+  jkind_typetexp
   patterns
   printpat
   parmatch
@@ -480,7 +482,9 @@
   (includemod.mli as compiler-libs/includemod.mli)
   (typemode.mli as compiler-libs/typemode.mli)
   (jkind_axis.mli as compiler-libs/jkind_axis.mli)
+  (jkind_printtyp.mli as compiler-libs/jkind_printtyp.mli)
   (typetexp.mli as compiler-libs/typetexp.mli)
+  (jkind_typetexp.mli as compiler-libs/jkind_typetexp.mli)
   (printpat.mli as compiler-libs/printpat.mli)
   (parmatch.mli as compiler-libs/parmatch.mli)
   (stypes.mli as compiler-libs/stypes.mli)

@@ -297,11 +297,12 @@ end
 let raise ~loc err = raise (Error.User_error (loc, err))
 
 module Const = struct
+  open Layout_and_axes
   open Jkind_types.Const
 
   type t = const
 
-  let max =
+  let max : t =
     { layout = Layout.Const.max;
       modes_upper_bounds = Modes.max;
       externality_upper_bound = Externality.max;
@@ -346,265 +347,6 @@ module Const = struct
         Modes.less_or_equal modes1 modes2;
         Externality.less_or_equal ext1 ext2;
         Nullability.less_or_equal null1 null2 ]
-
-  module To_out_jkind_const : sig
-    (** Convert a [t] into a [Outcometree.out_jkind_const].
-        The jkind is written in terms of the built-in jkind that requires the least amount
-        of modes after the mod. For example,
-        [value mod global many unique portable uncontended external_ non_null] could be
-        written in terms of [value] (as it appears above), or in terms of [immediate]
-        (which would just be [immediate]). Since the latter requires less modes to be
-        printed, it is chosen. *)
-    val convert : allow_null:bool -> t -> Outcometree.out_jkind_const
-  end = struct
-    type printable_jkind =
-      { base : string;
-        modal_bounds : string list
-      }
-
-    module Bounds = struct
-      type t =
-        { alloc_bounds : Alloc.Const.t;
-          externality_bound : Externality.t;
-          nullability_bound : Nullability.t
-        }
-
-      let of_jkind jkind =
-        { alloc_bounds = jkind.modes_upper_bounds;
-          externality_bound = jkind.externality_upper_bound;
-          nullability_bound = jkind.nullability_upper_bound
-        }
-    end
-
-    let get_modal_bound ~le ~print ~base actual =
-      match le actual base with
-      | true -> (
-        match le base actual with
-        | true -> `Valid None
-        | false -> `Valid (Some (Format.asprintf "%a" print actual)))
-      | false -> `Invalid
-
-    let get_modal_bounds ~(base : Bounds.t) (actual : Bounds.t) =
-      [ get_modal_bound ~le:Locality.Const.le ~print:Locality.Const.print
-          ~base:base.alloc_bounds.areality actual.alloc_bounds.areality;
-        get_modal_bound ~le:Uniqueness.Const.le ~print:Uniqueness.Const.print
-          ~base:base.alloc_bounds.uniqueness actual.alloc_bounds.uniqueness;
-        get_modal_bound ~le:Linearity.Const.le ~print:Linearity.Const.print
-          ~base:base.alloc_bounds.linearity actual.alloc_bounds.linearity;
-        get_modal_bound ~le:Contention.Const.le ~print:Contention.Const.print
-          ~base:base.alloc_bounds.contention actual.alloc_bounds.contention;
-        get_modal_bound ~le:Portability.Const.le ~print:Portability.Const.print
-          ~base:base.alloc_bounds.portability actual.alloc_bounds.portability;
-        get_modal_bound ~le:Externality.le ~print:Externality.print
-          ~base:base.externality_bound actual.externality_bound;
-        get_modal_bound ~le:Nullability.le ~print:Nullability.print
-          ~base:base.nullability_bound actual.nullability_bound ]
-      |> List.rev
-      |> List.fold_left
-           (fun acc mode ->
-             match acc, mode with
-             | _, `Invalid | None, _ -> None
-             | acc, `Valid None -> acc
-             | Some acc, `Valid (Some mode) -> Some (mode :: acc))
-           (Some [])
-
-    (** Write [actual] in terms of [base] *)
-    let convert_with_base ~(base : Builtin.t) actual =
-      let matching_layouts =
-        Layout.Const.equal base.jkind.layout actual.layout
-      in
-      let modal_bounds =
-        get_modal_bounds
-          ~base:(Bounds.of_jkind base.jkind)
-          (Bounds.of_jkind actual)
-      in
-      match matching_layouts, modal_bounds with
-      | true, Some modal_bounds -> Some { base = base.name; modal_bounds }
-      | false, _ | _, None -> None
-
-    (** Select the out_jkind_const with the least number of modal bounds to print *)
-    let rec select_simplest = function
-      | a :: b :: tl ->
-        let simpler =
-          if List.length a.modal_bounds < List.length b.modal_bounds
-          then a
-          else b
-        in
-        select_simplest (simpler :: tl)
-      | [out] -> Some out
-      | [] -> None
-
-    let convert ~allow_null jkind =
-      (* For each primitive jkind, we try to print the jkind in terms of it (this is
-         possible if the primitive is a subjkind of it). We then choose the "simplest". The
-           "simplest" is taken to mean the one with the least number of modes that need to
-         follow the [mod]. *)
-      let simplest =
-        (* CR layouts v3.0: remove this hack once [or_null] is out of [Alpha]. *)
-        (if allow_null then Builtin.all else Builtin.all_non_null)
-        |> List.filter_map (fun base -> convert_with_base ~base jkind)
-        |> select_simplest
-      in
-      let printable_jkind =
-        match simplest with
-        | Some simplest -> simplest
-        | None -> (
-          (* CR layouts v2.8: sometimes there is no valid way to build a jkind from a
-             built-in abbreviation. For now, we just pretend that the layout name is a valid
-             jkind abbreviation whose modal bounds are all max, even though this is a
-             lie. *)
-          let out_jkind_verbose =
-            convert_with_base
-              ~base:
-                { jkind =
-                    { layout = jkind.layout;
-                      modes_upper_bounds = Modes.max;
-                      externality_upper_bound = Externality.max;
-                      nullability_upper_bound = Nullability.Non_null
-                    };
-                  name = Layout.Const.to_string jkind.layout
-                }
-              jkind
-          in
-          match out_jkind_verbose with
-          | Some out_jkind -> out_jkind
-          | None ->
-            (* If we fail, try again with nullable jkinds. *)
-            let out_jkind_verbose =
-              convert_with_base
-                ~base:
-                  { jkind =
-                      { layout = jkind.layout;
-                        modes_upper_bounds = Modes.max;
-                        externality_upper_bound = Externality.max;
-                        nullability_upper_bound = Nullability.max
-                      };
-                    name = Layout.Const.to_string jkind.layout
-                  }
-                jkind
-            in
-            (* convert_with_base is guaranteed to succeed since the layout matches and the
-                 modal bounds are all max *)
-            Option.get out_jkind_verbose)
-      in
-      match printable_jkind with
-      | { base; modal_bounds = _ :: _ as modal_bounds } ->
-        Outcometree.Ojkind_const_mod
-          (Ojkind_const_abbreviation base, modal_bounds)
-      | { base; modal_bounds = [] } ->
-        Outcometree.Ojkind_const_abbreviation base
-  end
-
-  let to_out_jkind_const jkind =
-    let allow_null = Language_extension.(is_at_least Layouts Alpha) in
-    To_out_jkind_const.convert ~allow_null jkind
-
-  let format ppf jkind = to_out_jkind_const jkind |> !Oprint.out_jkind_const ppf
-
-  let format_no_hiding ppf jkind =
-    To_out_jkind_const.convert ~allow_null:true jkind
-    |> !Oprint.out_jkind_const ppf
-
-  let of_attribute : Builtin_attributes.jkind_attribute -> t = function
-    | Immediate -> Builtin.immediate.jkind
-    | Immediate64 -> Builtin.immediate64.jkind
-
-  let jkind_of_product_annotations jkinds =
-    let folder (layouts, mode_ub, ext_ub, null_ub)
-        { layout;
-          modes_upper_bounds;
-          externality_upper_bound;
-          nullability_upper_bound
-        } =
-      ( layout :: layouts,
-        Modes.join mode_ub modes_upper_bounds,
-        Externality.join ext_ub externality_upper_bound,
-        Nullability.join null_ub nullability_upper_bound )
-    in
-    let layouts, mode_ub, ext_ub, null_ub =
-      List.fold_left folder
-        ([], Modes.min, Externality.min, Nullability.min)
-        jkinds
-    in
-    { layout = Product (List.rev layouts);
-      modes_upper_bounds = mode_ub;
-      externality_upper_bound = ext_ub;
-      nullability_upper_bound = null_ub
-    }
-
-  let rec of_user_written_annotation_unchecked_level
-      (jkind : Jane_syntax.Jkind.t) : t =
-    match jkind with
-    | Abbreviation { txt = name; loc } -> (
-      (* CR layouts v2.8: move this to predef *)
-      match name with
-      (* CR layouts v3.0: remove this hack once non-null jkinds are out of alpha.
-         It is confusing, but preserves backwards compatibility for arrays. *)
-      | "any" when Language_extension.(is_at_least Layouts Alpha) ->
-        Builtin.any.jkind
-      | "any" -> Builtin.any_non_null.jkind
-      | "any_non_null" -> Builtin.any_non_null.jkind
-      | "value_or_null" -> Builtin.value_or_null.jkind
-      | "value" -> Builtin.value.jkind
-      | "void" -> Builtin.void.jkind
-      | "immediate64" -> Builtin.immediate64.jkind
-      | "immediate" -> Builtin.immediate.jkind
-      | "float64" -> Builtin.float64.jkind
-      | "float32" -> Builtin.float32.jkind
-      | "word" -> Builtin.word.jkind
-      | "bits32" -> Builtin.bits32.jkind
-      | "bits64" -> Builtin.bits64.jkind
-      | _ -> raise ~loc (Unknown_jkind jkind))
-    | Mod (jkind, modifiers) ->
-      let base = of_user_written_annotation_unchecked_level jkind in
-      (* for each mode, lower the corresponding modal bound to be that mode *)
-      let parsed_modifiers = Typemode.transl_modifier_annots modifiers in
-      let parsed_modes : Alloc.Const.Option.t =
-        { areality = parsed_modifiers.locality;
-          linearity = parsed_modifiers.linearity;
-          uniqueness = parsed_modifiers.uniqueness;
-          portability = parsed_modifiers.portability;
-          contention = parsed_modifiers.contention
-        }
-      in
-      { layout = base.layout;
-        modes_upper_bounds =
-          Alloc.Const.meet base.modes_upper_bounds
-            (Alloc.Const.Option.value ~default:Alloc.Const.max parsed_modes);
-        nullability_upper_bound =
-          Nullability.meet base.nullability_upper_bound
-            (Option.value ~default:Nullability.max parsed_modifiers.nullability);
-        externality_upper_bound =
-          Externality.meet base.externality_upper_bound
-            (Option.value ~default:Externality.max parsed_modifiers.externality)
-      }
-    | Product ts ->
-      let jkinds = List.map of_user_written_annotation_unchecked_level ts in
-      jkind_of_product_annotations jkinds
-    | Default | With _ | Kind_of _ -> Misc.fatal_error "XXX unimplemented"
-
-  (* The [annotation_context] parameter can be used to allow annotations / kinds
-     in different contexts to be enabled with different extension settings.
-     At some points in time, we will not care about the context, and so this
-     parameter might effectively be unused.
-  *)
-  (* CR layouts: When everything is stable, remove this function. *)
-  let get_required_layouts_level (_context : History.annotation_context)
-      (jkind : t) : Language_extension.maturity =
-    match jkind.layout, jkind.nullability_upper_bound with
-    | (Base (Float64 | Float32 | Word | Bits32 | Bits64) | Any), _
-    | Base Value, Non_null ->
-      Stable
-    | Base Void, _ | Base Value, Maybe_null -> Alpha
-    | Product _, _ -> Beta
-
-  let of_user_written_annotation ~context Location.{ loc; txt = annot } =
-    let const = of_user_written_annotation_unchecked_level annot in
-    let required_layouts_level = get_required_layouts_level context const in
-    if not (Language_extension.is_at_least Layouts required_layouts_level)
-    then
-      raise ~loc (Insufficient_level { jkind = const; required_layouts_level });
-    const
 end
 
 module Desc = struct
@@ -612,18 +354,6 @@ module Desc = struct
     | Const of Const.t
     | Var of Sort.var
     | Product of t list
-
-  let format ppf =
-    let rec pp_element ~nested ppf =
-      let open Format in
-      function
-      | Const c -> fprintf ppf "%a" Const.format c
-      | Var v -> fprintf ppf "%s" (Sort.Var.name v)
-      | Product ts ->
-        let pp_sep ppf () = Format.fprintf ppf "@ & " in
-        Misc.pp_nested_list ~nested ~pp_element ~pp_sep ppf ts
-    in
-    pp_element ~nested:false ppf
 
   (* considers sort variables < Any. Two sort variables are in a [sub]
      relationship only when they are equal.
@@ -645,6 +375,7 @@ module Desc = struct
 end
 
 module Jkind_desc = struct
+  open Jkind_types.Layout_and_axes
   open Jkind_types.Jkind_desc
 
   let of_const
@@ -658,12 +389,6 @@ module Jkind_desc = struct
       modes_upper_bounds;
       externality_upper_bound;
       nullability_upper_bound
-    }
-
-  let add_mode_crossing t =
-    { t with
-      modes_upper_bounds = Modes.min;
-      externality_upper_bound = Externality.min
     }
 
   let add_nullability_crossing t =
@@ -926,6 +651,8 @@ module Builtin = struct
   let product ~why ts =
     fresh_jkind (Jkind_desc.product ts) ~why:(Product_creation why)
 
+  (* CR layouts v2.8: Move this stuff to predef.ml once we have kind
+     abbreviations. *)
   module Predef = struct
     type t =
       | Any
@@ -943,39 +670,35 @@ module Builtin = struct
       | Bits32
       | Bits64
 
-    let to_jkind ~ident =
-      let why = Primitive ident in
-      let build_jkind ~layout ~mode_crossing ~nullability =
+    type abbrev = { const : Const.t; abbrev : string }
+
+    let to_abbrev : t -> abbrev =
+      let build_const layout ~mode_crossing ~nullability =
         let modes_upper_bounds, externality_upper_bound =
           match mode_crossing with
           | true -> Modes.min, Externality.min
           | false -> Modes.max, Externality.max
         in
-        { layout = Layout.of_const layout;
+        { layout;
           modes_upper_bounds;
           externality_upper_bound;
           nullability_upper_bound = nullability
         }
       in
-      let of_layout ~mode_crossing ~nullability layout ~abbrev =
-        fresh_jkind_abbrev
-          (build_jkind ~layout ~mode_crossing ~nullability)
-          ~why ~abbrev:name
-      in
+      let of_const const ~abbrev = { const; abbrev } in
       function
       | Any ->
-        of_layout Any ~mode_crossing:false ~nullability:Maybe_null ~abbrev:"any"
+        of_const (build_const Any ~mode_crossing:false ~nullability:Maybe_null) ~abbrev:"any"
       | Any_non_null ->
-        of_layout Any ~mode_crossing:false ~nullability:Non_null
-          ~abbrev:"any_non_null"
+        of_const (build_const Any ~mode_crossing:false ~nullability:Non_null) ~abbrev:"any_non_null"
       | Value_or_null ->
-        of_layout (Base Value) ~mode_crossing:false ~nullability:Maybe_null
+        of_const (build_const (Base Value) ~mode_crossing:false ~nullability:Maybe_null)
           ~abbrev:"value_or_null"
       | Value ->
-        of_layout (Base Value) ~mode_crossing:false ~nullability:Non_null
+        of_const (build_const (Base Value) ~mode_crossing:false ~nullability:Non_null)
           ~abbrev:"value"
       | Immutable_data ->
-        fresh_jkind_abbrev
+         of_const
           { layout = Base Value;
             modes_upper_bounds =
               { linearity = Linearity.Const.min;
@@ -987,9 +710,9 @@ module Builtin = struct
             externality_upper_bound = Externality.max;
             nullability_upper_bound = Nullability.Non_null
           }
-          ~why ~abbrev:"immutable_data"
+          ~abbrev:"immutable_data"
       | Mutable_data ->
-        fresh_jkind_abbrev
+        of_const
           { layout = Base Value;
             modes_upper_bounds =
               { linearity = Linearity.Const.min;
@@ -1001,13 +724,13 @@ module Builtin = struct
             externality_upper_bound = Externality.max;
             nullability_upper_bound = Nullability.Non_null
           }
-          ~why ~abbrev:"mutable_data"
+          ~abbrev:"mutable_data"
         (* CR layouts v3: change to [or_null] when separability is implemented. *)
       | Void ->
-        of_layout (Base Void) ~mode_crossing:false ~nullability:Non_null
+        of_const (build_const (Base Void) ~mode_crossing:false ~nullability:Non_null)
           ~abbrev:"void"
       | Immediate ->
-        of_layout (Base Value) ~mode_crossing:true ~nullability:Non_null
+        of_const (build_const (Base Value) ~mode_crossing:true ~nullability:Non_null)
           ~abbrev:"immediate"
       (* [immediate64] describes types that are stored directly (no indirection)
          on 64-bit platforms but indirectly on 32-bit platforms. The key question:
@@ -1040,37 +763,38 @@ module Builtin = struct
          meeting the conditions.
       *)
       | Immediate64 ->
-        fresh_jkind_abbrev
-          { (build_jkind ~layout:(Base Value) ~mode_crossing:true
+         of_const
+          { (build_const (Base Value) ~mode_crossing:true
                ~nullability:Non_null)
             with
             externality_upper_bound = External64
           }
-          ~why ~abbrev:"immediate64"
-        (* CR layouts v2.8: This should not mode cross, but we need syntax for mode
-           crossing first *)
+          ~abbrev:"immediate64"
         (* CR layouts v3: change to [Maybe_null] when separability is implemented. *)
       | Float64 ->
-        of_layout (Base Float64) ~mode_crossing:true ~nullability:Non_null
+        of_const (build_const (Base Float64) ~mode_crossing:true ~nullability:Non_null)
           ~abbrev:"float64"
-      (* CR layouts v2.8: This should not mode cross, but we need syntax for mode
-         crossing first *)
       (* CR layouts v3: change to [Maybe_null] when separability is implemented. *)
       | Float32 ->
-        of_layout (Base Float32) ~mode_crossing:true ~nullability:Non_null
+        of_const (build_const (Base Float32) ~mode_crossing:true ~nullability:Non_null)
           ~abbrev:"float32"
       (* CR layouts v3: change to [Maybe_null] when separability is implemented. *)
       | Word ->
-        of_layout (Base Word) ~mode_crossing:false ~nullability:Non_null
+        of_const (build_const (Base Word) ~mode_crossing:true ~nullability:Non_null)
           ~abbrev:"word"
       (* CR layouts v3: change to [Maybe_null] when separability is implemented. *)
       | Bits32 ->
-        of_layout (Base Bits32) ~mode_crossing:false ~nullability:Non_null
+        of_const (build_const (Base Bits32) ~mode_crossing:true ~nullability:Non_null)
           ~abbrev:"bits32"
       (* CR layouts v3: change to [Maybe_null] when separability is implemented. *)
       | Bits64 ->
-        of_layout (Base Bits64) ~mode_crossing:false ~nullability:Non_null
+        of_const (build_const (Base Bits64) ~mode_crossing:true ~nullability:Non_null)
           ~abbrev:"bits64"
+
+    let to_jkind t ~ident =
+      let { const; abbrev } = to_abbrev t in
+      let why = Primitive ident in
+      fresh_abbrev_jkind (Layout_and_axes.map Layout.of_const const) ~why ~abbrev
 
     let all =
       [ Any;
@@ -1109,9 +833,6 @@ module Builtin = struct
   end
 end
 
-let add_mode_crossing t =
-  { t with jkind = Jkind_desc.add_mode_crossing t.jkind }
-
 let add_nullability_crossing t =
   { t with jkind = Jkind_desc.add_nullability_crossing t.jkind }
 
@@ -1136,7 +857,7 @@ let of_new_legacy_sort_var ~why =
 
 let of_new_legacy_sort ~why = fst (of_new_legacy_sort_var ~why)
 
-let of_const ~why
+let of_const ~why ~name
     ({ layout;
        modes_upper_bounds;
        externality_upper_bound;
@@ -1149,66 +870,13 @@ let of_const ~why
         externality_upper_bound;
         nullability_upper_bound
       };
+    name;
     history = Creation why;
     has_warned = false
   }
 
 let of_annotated_const ~context ~const ~const_loc =
   of_const ~why:(Annotated (context, const_loc)) const
-
-let of_annotation ~context (annot : _ Location.loc) =
-  let const = Const.of_user_written_annotation ~context annot in
-  let jkind = of_annotated_const ~const ~const_loc:annot.loc ~context in
-  jkind, (const, annot)
-
-let of_annotation_option_default ~default ~context =
-  Option.fold ~none:(default, None) ~some:(fun annot ->
-      let t, annot = of_annotation ~context annot in
-      t, Some annot)
-
-let of_attribute ~context
-    (attribute : Builtin_attributes.jkind_attribute Location.loc) =
-  let const = Const.of_attribute attribute.txt in
-  of_annotated_const ~context ~const ~const_loc:attribute.loc, const
-
-let of_type_decl ~context (decl : Parsetree.type_declaration) =
-  let jkind_of_annotation =
-    Jane_syntax.Layouts.of_type_declaration decl
-    |> Option.map (fun (annot, attrs) ->
-           let t, const = of_annotation ~context annot in
-           t, const, attrs)
-  in
-  let jkind_of_attribute =
-    Builtin_attributes.jkind decl.ptype_attributes
-    |> Option.map (fun attr ->
-           let t, const = of_attribute ~context attr in
-           (* This is a bit of a lie: the "annotation" here is being
-              forged based on the jkind attribute. But: the jkind
-              annotation is just used in printing/untypeast, and the
-              all strings valid to use as a jkind attribute are
-              valid (and equivalent) to write as an annotation, so
-              this lie is harmless.
-           *)
-           let annot =
-             Location.map
-               (fun attr ->
-                 let name = Builtin_attributes.jkind_attribute_to_string attr in
-                 Jane_syntax.Jkind.(Abbreviation (Const.mk name Location.none)))
-               attr
-           in
-           t, (const, annot), decl.ptype_attributes)
-  in
-  match jkind_of_annotation, jkind_of_attribute with
-  | None, None -> None
-  | (Some _ as x), None | None, (Some _ as x) -> x
-  | Some (_, (from_annotation, _), _), Some (_, (from_attribute, _), _) ->
-    raise ~loc:decl.ptype_loc
-      (Multiple_jkinds { from_annotation; from_attribute })
-
-let of_type_decl_default ~context ~default (decl : Parsetree.type_declaration) =
-  match of_type_decl ~context decl with
-  | Some (t, const, attrs) -> t, Some const, attrs
-  | None -> default, None, decl.ptype_attributes
 
 let for_boxed_record ~all_void =
   if all_void

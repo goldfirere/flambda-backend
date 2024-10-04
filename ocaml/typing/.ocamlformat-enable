@@ -17,3 +17,7 @@ jkind_axis.mli
 jkind_axis.ml
 allowance.mli
 allowance.ml
+jkind_printtyp.ml
+jkind_printtyp.mli
+jkind_typetexp.ml
+jkind_typetexp.mli

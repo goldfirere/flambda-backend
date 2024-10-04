@@ -126,6 +126,8 @@ module Layout_and_axes : sig
       externality_upper_bound : Jkind_axis.Externality.t;
       nullability_upper_bound : Jkind_axis.Nullability.t
     }
+
+  val map : 'a t -> f:('a -> 'b) -> 'b t
 end
 
 module Jkind_desc : sig

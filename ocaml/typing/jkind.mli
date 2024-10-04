@@ -73,6 +73,8 @@ module Layout : sig
     val get_sort : t -> Sort.Const.t option
 
     val to_string : t -> string
+
+    val equal : t -> t -> bool
   end
 end
 
@@ -97,6 +99,11 @@ end
     than an r-jkind.
 *)
 type +'d t = (Types.type_expr, 'd) Jkind_types.t
+
+(* This next synonym is just because [t] gets shadowed below, but
+   OCaml doesn't allow us to use a destructive substitution because of
+   constraints. *)
+type 'd jkind = 'd t
 
 type jkind_l := Types.jkind_l
 
@@ -178,8 +185,6 @@ module Const : sig
   (** Constant jkinds are used for user-written annotations *)
   type t = Types.type_expr Jkind_types.Const.t
 
-  val to_out_jkind_const : t -> Outcometree.out_jkind_const
-
   val format : Format.formatter -> t -> unit
 
   val equal : t -> t -> bool
@@ -257,21 +262,28 @@ module Builtin : sig
           (** This is the jkind of unboxed 64-bit integers. They have sort
           Bits64. Does not mode-cross. *)
 
+    type abbrev = { const : Const.t; abbrev : string }
+
     val equal : t -> t -> bool
 
     val format : Format.formatter -> t -> unit
 
-    (** A list of all Builtin jkinds *)
+    (** A list of all predefined jkinds *)
     val all : t list
 
-    val to_jkind : ident:Ident.t -> t -> jkind_lr
+    (** All predefined jkind constants *)
+    val all_consts : Const.t list
 
-    val to_jkind_with_reason : why:History.creation_reason -> t -> jkind_lr
+    (** All predefined jkind constants (but without mentioning "or_null") *)
+    val all_consts_non_null : Const.t list
+
+    val to_abbrev : t -> abbrev
+
+    val to_jkind : ident:Ident.t -> t -> 'd jkind
+
+    val to_jkind_with_reason : why:History.creation_reason -> t -> 'd jkind
   end
 end
-
-(** Take an existing [t] and add an ability to mode-cross along all the axes. *)
-val add_mode_crossing : 'd t -> 'd t
 
 (** Take an existing [t] and add an ability to cross across the nullability axis. *)
 val add_nullability_crossing : 'd t -> 'd t
@@ -302,7 +314,7 @@ val of_new_legacy_sort_var :
     Defaulting the sort variable produces exactly [value].  *)
 val of_new_legacy_sort : why:History.concrete_legacy_creation_reason -> 'd t
 
-val of_const : why:History.creation_reason -> Const.t -> 'd t
+val of_const : why:History.creation_reason -> name:Jane_syntax.Jkind.annotation option -> Const.t -> 'd t
 
 (* CR layouts v2.8: remove this when printing is improved *)
 
