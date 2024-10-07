@@ -597,7 +597,7 @@ let report_type_mismatch first second decl env ppf err =
   | Manifest err ->
       report_type_inequality env ppf err
   | Parameter_jkind (ty, v) ->
-      pr "The kinds of their parameters differ:@,";
+      pr "The problem is in the kinds of a parameter:@,";
       Jkind.Violation.report_with_offender
         ~offender:(fun pp -> Printtyp.type_expr pp ty) ppf v
   | Private_variant (_ty1, _ty2, mismatch) ->
@@ -1216,10 +1216,11 @@ let type_declarations ?(equality = false) ~loc env ~mark name
     name;
   if decl1.type_arity <> decl2.type_arity then Some Arity else
   (* Step 1 from the Note *)
-  let err = match Ctype.equal ~do_jkind_check:false env true
-                    decl1.type_params decl2.type_params with
-  | exception Ctype.Equality err -> Some (Constraint err)
-  | () -> None
+  let err =
+    match Ctype.equal ~do_jkind_check:false env true
+            decl1.type_params decl2.type_params with
+    | exception Ctype.Equality err -> Some (Constraint err)
+    | () -> None
   in
   if err <> None then err else
   (* Step 2 from the Note *)
@@ -1234,8 +1235,8 @@ let type_declarations ?(equality = false) ~loc env ~mark name
     with
       | exception Ctype.Unify err ->
         let get_jkind_violation = function
-        | Errortrace.Bad_jkind (ty, v) -> Some (Parameter_jkind (ty, v))
-        | _ -> None
+          | Errortrace.Bad_jkind (ty, v) -> Some (Parameter_jkind (ty, v))
+          | _ -> None
         in
         begin match List.find_map get_jkind_violation err.trace with
         | Some _ as err -> err
