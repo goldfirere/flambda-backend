@@ -2059,7 +2059,7 @@ Error: Signature mismatch:
          type 'a t = 'a
        is not included in
          type ('a : any) t = 'a
-       The kinds of their parameters differ:
+       The problem is in the kinds of a parameter:
        The layout of 'a is any, because
          of the definition of t at line 2, characters 2-24.
        But the layout of 'a must be a sublayout of value, because
@@ -2086,7 +2086,7 @@ Error: Signature mismatch:
          type 'a t = 'a -> 'a
        is not included in
          type ('a : any) t = 'a -> 'a
-       The kinds of their parameters differ:
+       The problem is in the kinds of a parameter:
        The layout of 'a is any, because
          of the definition of t at line 2, characters 2-30.
        But the layout of 'a must be a sublayout of value, because
@@ -2223,7 +2223,7 @@ Error: Signature mismatch:
          type 'a t = K of ('a -> 'a)
        is not included in
          type ('a : any) t = K of ('a -> 'a)
-       The kinds of their parameters differ:
+       The problem is in the kinds of a parameter:
        The layout of 'a is any, because
          of the definition of t at line 2, characters 2-37.
        But the layout of 'a must be a sublayout of value, because

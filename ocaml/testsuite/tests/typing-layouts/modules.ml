@@ -732,7 +732,7 @@ Error: Signature mismatch:
          type 'a t
        is not included in
          type ('a : any) t
-       The kinds of their parameters differ:
+       The problem is in the kinds of a parameter:
        The layout of 'a is any, because
          of the definition of t at line 2, characters 2-19.
        But the layout of 'a must be a sublayout of value, because
@@ -770,7 +770,7 @@ Error: Signature mismatch:
          type 'a t = 'a
        is not included in
          type ('a : any) t
-       The kinds of their parameters differ:
+       The problem is in the kinds of a parameter:
        The layout of 'a is any, because
          of the definition of t at line 2, characters 2-19.
        But the layout of 'a must be a sublayout of value, because
@@ -833,7 +833,7 @@ Error: Signature mismatch:
          type 'a t = 'a
        is not included in
          type ('a : any) t = 'a
-       The kinds of their parameters differ:
+       The problem is in the kinds of a parameter:
        The layout of 'a is any, because
          of the definition of t at line 2, characters 2-24.
        But the layout of 'a must be a sublayout of value, because
@@ -875,7 +875,7 @@ Error: Signature mismatch:
          type 'a t2 = 'a t
        is not included in
          type ('a : any) t2
-       The kinds of their parameters differ:
+       The problem is in the kinds of a parameter:
        The layout of 'a is any, because
          of the definition of t2 at line 2, characters 2-20.
        But the layout of 'a must be a sublayout of value, because
@@ -912,7 +912,7 @@ Error: Signature mismatch:
          type 'a t = Mk of ('a -> 'a)
        is not included in
          type ('a : any) t = Mk of ('a -> 'a)
-       The kinds of their parameters differ:
+       The problem is in the kinds of a parameter:
        The layout of 'a is any, because
          of the definition of t at line 2, characters 2-38.
        But the layout of 'a must be a sublayout of value, because
@@ -949,7 +949,7 @@ Error: Signature mismatch:
          type 'a t = { x : 'a -> 'a; }
        is not included in
          type ('a : any) t = { x : 'a -> 'a; }
-       The kinds of their parameters differ:
+       The problem is in the kinds of a parameter:
        The layout of 'a is any, because
          of the definition of t at line 2, characters 2-38.
        But the layout of 'a must be a sublayout of value, because
@@ -986,7 +986,7 @@ Error: Signature mismatch:
          type 'a t = Mk of { x : 'a -> 'a; }
        is not included in
          type ('a : any) t = Mk of { x : 'a -> 'a; }
-       The kinds of their parameters differ:
+       The problem is in the kinds of a parameter:
        The layout of 'a is any, because
          of the definition of t at line 2, characters 2-44.
        But the layout of 'a must be a sublayout of value, because
@@ -1023,7 +1023,7 @@ Error: Signature mismatch:
          type _ t = Mk : 'a -> 'a t
        is not included in
          type (_ : any) t = Mk : 'a -> 'a t
-       The kinds of their parameters differ:
+       The problem is in the kinds of a parameter:
        The layout of '_ is any, because
          of the definition of t at line 2, characters 2-40.
        But the layout of '_ must be a sublayout of value, because
@@ -1287,7 +1287,7 @@ Error: Signature mismatch:
          type 'a t = 'a
        is not included in
          type ('a : any) t = private 'a
-       The kinds of their parameters differ:
+       The problem is in the kinds of a parameter:
        The layout of 'a is any, because
          of the definition of t at line 2, characters 2-32.
        But the layout of 'a must be a sublayout of value, because
@@ -1324,7 +1324,7 @@ Error: Signature mismatch:
          type 'a t = private 'a
        is not included in
          type ('a : any) t = private 'a
-       The kinds of their parameters differ:
+       The problem is in the kinds of a parameter:
        The layout of 'a is any, because
          of the definition of t at line 2, characters 2-32.
        But the layout of 'a must be a sublayout of value, because
@@ -1367,7 +1367,7 @@ Error: Signature mismatch:
          type 'a t = 'a
        is not included in
          type ('a : any) t = private 'a iddy
-       The kinds of their parameters differ:
+       The problem is in the kinds of a parameter:
        The layout of 'a is any, because
          of the definition of t at line 2, characters 2-37.
        But the layout of 'a must be a sublayout of value, because
