@@ -457,9 +457,9 @@ module Make(O : OBJ)(EVP : EVALPATH with type valu = O.t) = struct
                             instantiate_types env type_params ty_list l in
                           let ty_args =
                             List.map2
-                              (fun { ca_jkind } ty_arg ->
+                              (fun { ca_sort } ty_arg ->
                                  (ty_arg,
-                                 get_and_default_jkind_for_printing ca_jkind)
+                                 get_and_default_sort_for_printing ca_sort)
                               ) l ty_args
                           in
                           tree_of_constr_with_args (tree_of_constr env path)
@@ -699,8 +699,8 @@ module Make(O : OBJ)(EVP : EVALPATH with type valu = O.t) = struct
           | _ -> assert false
         in
         let args = instantiate_types env type_params ty_list cstr.cstr_args in
-        let args = List.map2 (fun { ca_jkind } arg ->
-            (arg, get_and_default_jkind_for_printing ca_jkind))
+        let args = List.map2 (fun { ca_sort } arg ->
+            (arg, get_and_default_sort_for_printing ca_sort))
             cstr.cstr_args args
         in
         tree_of_constr_with_args

@@ -54,8 +54,7 @@ let sort_must_not_be_void loc ty sort =
 let layout_exp sort e = layout e.exp_env e.exp_loc sort e.exp_type
 let layout_pat sort p = layout p.pat_env p.pat_loc sort p.pat_type
 
-let check_record_field_sort loc sort =
-  match Jkind.Sort.default_to_value_and_get sort with
+let check_record_field_sort loc : Jkind.Sort.Const.t -> _ = function
   | Base (Value | Float64 | Float32 | Bits32 | Bits64 | Vec128 | Word) -> ()
   | Base Void -> raise (Error (loc, Illegal_void_record_field))
   | Product _ as c -> raise (Error (loc, Illegal_product_record_field c))
@@ -520,13 +519,11 @@ and transl_exp0 ~in_new_scope ~scopes sort e =
             of_location ~scopes e.exp_loc)
   | Texp_construct(_, cstr, args, alloc_mode) ->
       let args_with_sorts =
-        List.map2 (fun { ca_jkind } e ->
-            let sort = Jkind.sort_of_jkind ca_jkind in
-            e, sort)
-          cstr.cstr_args args
+        List.map2 (fun { ca_sort } e -> e, ca_sort) cstr.cstr_args args
       in
       let ll =
-        List.map (fun (e, sort) -> transl_exp ~scopes sort e) args_with_sorts
+        List.map (fun (e, sort) ->
+            transl_exp ~scopes (Jkind.Sort.of_const sort) e) args_with_sorts
       in
       if cstr.cstr_inlined <> None then begin match ll with
         | [x] -> x
@@ -566,7 +563,8 @@ and transl_exp0 ~in_new_scope ~scopes sort e =
                 | Constructor_uniform_value ->
                     let shape =
                       List.map (fun (e, sort) ->
-                          Lambda.must_be_value (layout_exp sort e))
+                          Lambda.must_be_value
+                            (layout_exp (Jkind.Sort.of_const sort) e))
                         args_with_sorts
                     in
                     Pmakeblock(runtime_tag, Immutable, Some shape, alloc_mode)
@@ -592,7 +590,8 @@ and transl_exp0 ~in_new_scope ~scopes sort e =
               | Constructor_uniform_value ->
                   let shape =
                     List.map (fun (e, sort) ->
-                        Lambda.must_be_value (layout_exp sort e))
+                        Lambda.must_be_value
+                          (layout_exp (Jkind.Sort.of_const sort) e))
                       args_with_sorts
                   in
                   Pmakeblock(0, Immutable, Some (Pgenval :: shape),
@@ -635,8 +634,7 @@ and transl_exp0 ~in_new_scope ~scopes sort e =
         if Types.is_mutable lbl.lbl_mut then Reads_vary else Reads_agree
       in
       let sem = add_barrier_to_read (transl_unique_barrier ubr) sem in
-      let lbl_sort = Jkind.sort_of_jkind lbl.lbl_jkind in
-      check_record_field_sort id.loc lbl_sort;
+      check_record_field_sort id.loc lbl.lbl_sort;
       begin match lbl.lbl_repres with
           Record_boxed _
         | Record_inlined (_, Constructor_uniform_value, Variant_boxed _) ->
@@ -696,8 +694,7 @@ and transl_exp0 ~in_new_scope ~scopes sort e =
          representability on construction, [sort_of_jkind] will be unsafe here.
          Probably we should add a sort to `Texp_setfield` in the typed tree,
          then. *)
-      let lbl_sort = Jkind.sort_of_jkind lbl.lbl_jkind in
-      check_record_field_sort id.loc lbl_sort;
+      check_record_field_sort id.loc lbl.lbl_sort;
       let mode =
         Assignment (transl_modify_mode arg_mode)
       in
@@ -735,7 +732,7 @@ and transl_exp0 ~in_new_scope ~scopes sort e =
         end
       in
       Lprim(access, [transl_exp ~scopes Jkind.Sort.for_record arg;
-                     transl_exp ~scopes lbl_sort newval],
+                     transl_exp ~scopes (Jkind.Sort.of_const lbl.lbl_sort) newval],
             of_location ~scopes e.exp_loc)
   | Texp_array (amut, element_sort, expr_list, alloc_mode) ->
       let mode = transl_alloc_mode alloc_mode in
@@ -1819,8 +1816,7 @@ and transl_record ~scopes loc env mode fields repres opt_init_expr =
     let copy_id = Ident.create_local "newrecord" in
     let update_field cont (lbl, definition) =
       (* CR layouts v5: allow more unboxed types here. *)
-      let lbl_sort = Jkind.sort_of_jkind lbl.lbl_jkind in
-      check_record_field_sort lbl.lbl_loc lbl_sort;
+      check_record_field_sort lbl.lbl_loc lbl.lbl_sort;
       match definition with
       | Kept _ -> cont
       | Overridden (_lid, expr) ->
@@ -1867,7 +1863,8 @@ and transl_record ~scopes loc env mode fields repres opt_init_expr =
               end
           in
           Lsequence(Lprim(upd, [Lvar copy_id;
-                                transl_exp ~scopes lbl_sort expr],
+                                transl_exp ~scopes
+                                  (Jkind.Sort.of_const lbl.lbl_sort) expr],
                           of_location ~scopes loc),
                     cont)
     in
@@ -1885,14 +1882,10 @@ and transl_record ~scopes loc env mode fields repres opt_init_expr =
     let lv =
       Array.mapi
         (fun i (lbl, definition) ->
-           (* CR layouts v2.5: When we allow `any` in record fields and check
-              representability on construction, [sort_of_layout] will be unsafe
-              here.  Probably we should add sorts to record construction in the
-              typed tree, then. *)
-           let lbl_sort = Jkind.sort_of_jkind lbl.lbl_jkind in
+           let sort = Jkind.Sort.of_const lbl.lbl_sort in
            match definition with
            | Kept (typ, mut, _) ->
-               let field_layout = layout env lbl.lbl_loc lbl_sort typ in
+               let field_layout = layout env lbl.lbl_loc sort typ in
                let sem =
                  if Types.is_mutable mut then Reads_vary else Reads_agree
                in
@@ -1948,8 +1941,8 @@ and transl_record ~scopes loc env mode fields repres opt_init_expr =
                      of_location ~scopes loc),
                field_layout
            | Overridden (_lid, expr) ->
-               let field_layout = layout_exp lbl_sort expr in
-               transl_exp ~scopes lbl_sort expr, field_layout)
+               let field_layout = layout_exp sort expr in
+               transl_exp ~scopes sort expr, field_layout)
         fields
     in
     let ll, shape = List.split (Array.to_list lv) in
