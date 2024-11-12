@@ -221,7 +221,7 @@ module Half_simple : sig
   type nonrec clause = pattern Non_empty_row.t clause
 
   val of_clause :
-    arg:lambda -> arg_sort:Jkind.sort -> General.clause -> clause
+    arg:lambda -> arg_sort:Jkind.Sort.Const.t -> General.clause -> clause
 end = struct
   include Patterns.Half_simple
 
@@ -290,7 +290,7 @@ module Simple : sig
 
   val explode_or_pat :
     arg:lambda ->
-    arg_sort:Jkind.sort ->
+    arg_sort:Jkind.Sort.Const.t ->
     Half_simple.pattern ->
     mk_action:(vars:Ident.t list -> lambda) ->
     patbound_action_vars:Ident.t list ->
@@ -978,7 +978,7 @@ end
 
 type 'row pattern_matching = {
   mutable cases : 'row list;
-  args : (lambda * let_kind * Jkind.sort * layout) list;
+  args : (lambda * let_kind * Jkind.Sort.Const.t * layout) list;
       (** args are not just Ident.t in at least the following cases:
         - when matching the arguments of a constructor,
           direct field projections are used (make_field_args)

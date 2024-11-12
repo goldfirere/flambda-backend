@@ -1053,7 +1053,7 @@ type full_bound_ident_action =
    about the sort of the pattern but `f` doesn't care about the sorts. *)
 let iter_pattern_full ~both_sides_of_or f sort pat =
   let rec loop :
-    type k . full_bound_ident_action -> Jkind.sort -> k general_pattern -> _ =
+    type k . full_bound_ident_action -> _ -> k general_pattern -> _ =
     fun f sort pat ->
       match pat.pat_desc with
       (* Cases where we push the sort inwards: *)
