@@ -143,6 +143,7 @@ type error =
       ; expected: Path.t
       }
   | Non_abstract_reexport of Path.t
+  | Illegal_baggage of jkind_l
 
 open Typedtree
 
@@ -264,7 +265,21 @@ let enter_type ?abstract_abbrevs rec_flag env sdecl (id, uid) =
   let type_jkind =
     Jkind.of_type_decl_default
       ~context:(Type_declaration path)
-      ~default:any
+      (* CR layouts v2.8: This next line is truly terrible. But I think it's OK
+         for now: it will mean that any [with] constraints get interpreted to
+         mean that the thing does not cross that mode. That's OK: the jkind
+         produced here can be an overapproximation of the correct jkind (note
+         that [any] is the default).  Indeed the only reason (I think) we need a
+         non-[any] jkind here is to produce better error messages.
+
+         Doing better here will be annoying, because a type is in scope in its
+         own jkind... and yet we don't have an env that we can use at this
+         point. I think probably the solution will be to have
+         [Jkind.of_type_decl_default] just return [max] every time it sees a
+         [with]-kind... which basically just does this [type_exn] trick but much
+         more sanely. *)
+      ~transl_type:(fun _ -> Predef.type_exn)
+      ~default:(Jkind.disallow_right any)
       sdecl
   in
   let abstract_source, type_manifest =
@@ -769,8 +784,28 @@ let transl_declaration env sdecl (id, uid) =
     | _ -> false, false (* Not unboxable, mark as boxed *)
   in
   verify_unboxed_attr unboxed_attr sdecl;
+  (* CR layouts v2.8: This next call to [transl_simple_type] probably can loop
+     because it will do perhaps-circular jkind checks. But actually I think the
+     same problem exists in e.g. record fields. We should probably look into this. *)
+  let transl_type sty =
+    (* CR layouts v2.8: The [~new_var_jkind:Any] is weird. The type is closed,
+       and so there shouldn't be any new vars. Investigate. *)
+    let cty =
+      Ctype.with_local_level begin fun () ->
+        Typetexp.transl_simple_type env ~new_var_jkind:Any
+          ~closed:true Mode.Alloc.Const.legacy sty
+      end
+      (* This call to [generalize_structure] is necessary so that copying
+         during instantiation traverses inside of any type constructors in the
+         [with]-bound. It's also necessary because the variables here are at
+         generic level, and so any containers of them should be, too! *)
+      ~post:(fun cty -> Ctype.generalize_structure cty.ctyp_type)
+    in
+    cty.ctyp_type  (* CR layouts v2.8: Do this more efficiently. Or probably
+                      add with-kinds to Typedtree. *)
+  in
   let jkind_from_annotation, jkind_annotation =
-    match Jkind.of_type_decl ~context:(Type_declaration path) sdecl with
+    match Jkind.of_type_decl ~context:(Type_declaration path) ~transl_type sdecl with
     | Some (jkind, annot) ->
         Some jkind, annot
     | None -> None, None
@@ -1131,12 +1166,15 @@ let narrow_to_manifest_jkind env loc decl =
   match decl.type_manifest with
   | None -> decl
   | Some ty ->
-    match
-      Ctype.constrain_type_jkind env ty (Jkind.terrible_relax_l decl.type_jkind)
-    with
-    | Ok () -> { decl with type_jkind = Ctype.estimate_type_jkind env ty }
-    | Error v ->
-      raise (Error (loc, Jkind_mismatch_of_type (ty,v)))
+    match Jkind.try_allow_r decl.type_jkind with
+    | None -> raise (Error (loc, Illegal_baggage decl.type_jkind))
+    | Some type_jkind ->
+      match
+        Ctype.constrain_type_jkind env ty type_jkind
+      with
+      | Ok () -> { decl with type_jkind = Ctype.estimate_type_jkind env ty }
+      | Error v ->
+        raise (Error (loc, Jkind_mismatch_of_type (ty,v)))
 
 (* Check that the type expression (if present) is compatible with the kind.
    If both a variant/record definition and a type equation are given,
@@ -1147,7 +1185,8 @@ let check_kind_coherence env loc dpath decl =
   | (Type_variant _ | Type_record _ | Type_open), Some ty ->
       if !Clflags.allow_illegal_crossing then begin
         let jkind' = Ctype.type_jkind_purely env ty in
-        begin match Jkind.sub_jkind_l jkind' decl.type_jkind with
+        let type_equal = Ctype.type_equal env in
+        begin match Jkind.sub_jkind_l ~type_equal jkind' decl.type_jkind with
         | Ok _ -> ()
         | Error v ->
           raise (Error (loc, Jkind_mismatch_of_type (ty,v)))
@@ -1307,7 +1346,10 @@ module Element_repr = struct
     else
       let layout = Jkind.get_layout_defaulting_to_value jkind in
       let sort = Jkind.Layout.Const.get_sort layout in
-      let externality_upper_bound = Jkind.get_externality_upper_bound jkind in
+      let jkind_of_type ty = Some (Ctype.type_jkind_purely env ty) in
+      let externality_upper_bound =
+        Jkind.get_externality_upper_bound ~jkind_of_type jkind
+      in
       let base = match sort with
         | None ->
             Misc.fatal_error "Element_repr.classify: unexpected abstract layout"
@@ -1497,7 +1539,7 @@ let update_decl_jkind env dpath decl =
       let lbls, all_void, jkinds =
         update_label_sorts env loc lbls (Some sorts)
       in
-      let jkind = Jkind.for_boxed_record ~all_void in
+      let jkind = Jkind.for_boxed_record ~all_void lbls in
       let reprs =
         List.map2
           (fun lbl jkind ->
@@ -1651,7 +1693,7 @@ let update_decl_jkind env dpath decl =
           (idx+1,cstr::cstrs,all_voids && all_void)
         ) (0,[],true) cstrs
       in
-      let jkind = Jkind.for_boxed_variant ~all_voids in
+      let jkind = Jkind.for_boxed_variant ~all_voids cstrs in
       List.rev cstrs, rep, jkind
     | (([] | (_ :: _)), Variant_unboxed | _, Variant_extensible) ->
       assert false
@@ -1695,22 +1737,25 @@ let update_decl_jkind env dpath decl =
 
   (* check that the jkind computed from the kind matches the jkind
      annotation, which was stored in decl.type_jkind *)
-  if new_jkind != decl.type_jkind then
+  if new_jkind != decl.type_jkind then begin
     (* CR layouts v2.8: Consider making a function that doesn't compute
        histories for this use-case, which doesn't need it. *)
-    begin match Jkind.sub_jkind_l new_jkind decl.type_jkind with
+    (* The [decl.type_jkind] should never have [with]-types in it at this
+       point. *)
+    let type_equal _ _ = false in
+    match Jkind.sub_jkind_l ~type_equal new_jkind decl.type_jkind with
     | Ok _ -> ()
     | Error err ->
       raise(Error(decl.type_loc, Jkind_mismatch_of_path (dpath,err)))
     end;
   new_decl
 
-let update_decls_jkind_reason decls =
+let update_decls_jkind_reason env decls =
   List.map
     (fun (id, decl) ->
        let update_generalized =
         Ctype.check_and_update_generalized_ty_jkind
-          ~name:id ~loc:decl.type_loc
+          ~name:id ~loc:decl.type_loc env
        in
        List.iter update_generalized decl.type_params;
        Btype.iter_type_expr_kind update_generalized decl.type_kind;
@@ -2307,7 +2352,7 @@ let transl_type_decl env rec_flag sdecl_list =
       |> Typedecl_variance.update_decls env sdecl_list
       |> Typedecl_separability.update_decls env
       |> update_decls_jkind new_env
-      |> update_decls_jkind_reason
+      |> update_decls_jkind_reason new_env
     with
     | Typedecl_variance.Error (loc, err) ->
         raise (Error (loc, Variance err))
@@ -3082,7 +3127,7 @@ let transl_value_decl env loc ~sig_modalities valdecl =
     Env.enter_value ~mode:Mode.Value.legacy valdecl.pval_name.txt v env
       ~check:(fun s -> Warnings.Unused_value_declaration s)
   in
-  Ctype.check_and_update_generalized_ty_jkind ~name:id ~loc ty;
+  Ctype.check_and_update_generalized_ty_jkind ~name:id ~loc newenv ty;
   let desc =
     {
      val_id = id;
@@ -3314,9 +3359,17 @@ let approx_type_decl sdecl_list =
        let id = Ident.create_scoped ~scope sdecl.ptype_name.txt in
        let path = Path.Pident id in
        let injective = sdecl.ptype_kind <> Ptype_abstract in
+       let transl_type sty =
+         Misc.fatal_errorf
+           "@[I do not yet know how to deal with [with]-types (such as %a)@ in \
+            recursive modules. Please contact the Jane Street OCaml Language@ \
+            team for help if you see this."
+           Pprintast.core_type sty
+       in
        let jkind =
          Jkind.of_type_decl_default
            ~context:(Type_declaration path)
+           ~transl_type
            ~default:(Jkind.Builtin.value ~why:Default_type_jkind)
            sdecl
        in
@@ -3884,6 +3937,10 @@ let report_error ppf = function
       "@[Invalid reexport declaration.\
          @ Type %s must not define an explicit representation.@]"
       (Path.name definition)
+  | Illegal_baggage jkind ->
+    fprintf ppf
+      "@[Illegal %a in kind annotation of an abbreviation:@ %a@]"
+      Style.inline_code "with" Jkind.format jkind
 
 let () =
   Location.register_error_of_exn
