@@ -334,7 +334,7 @@ end = struct
   let mk_poly_univars_tuple_with_jkind ~context var jkind =
     let name = var.txt in
     let original_jkind, jkind_annot =
-      Jkind.of_annotation ~context:(context name) jkind
+      Jkind.of_annotation ~transl_type:None ~context:(context name) jkind
     in
     let jkind_info =
       { original_jkind; jkind_annot = Some jkind_annot; defaulted = false }
@@ -376,9 +376,10 @@ end = struct
       let cant_quantify reason =
         raise (Error (loc, env, Cannot_quantify(name, reason)))
       in
+      let type_equal ty1 ty2 = Ctype.is_equal env false [ty1] [ty2] in
       begin match get_desc v with
       | Tvar { jkind } when
-          not (Jkind.equate jkind jkind_info.original_jkind) ->
+          not (Jkind.equate ~type_equal jkind jkind_info.original_jkind) ->
         let reason =
           Bad_univar_jkind { name; jkind_info; inferred_jkind = jkind }
         in
@@ -490,8 +491,10 @@ end = struct
        From testing, we need all callsites that use [Sort] to be non-null to
        preserve backwards compatibility. But we also need [Any] callsites
        to accept nullable jkinds to allow cases like [type ('a : value_or_null) t = 'a]. *)
-    | Any -> Jkind.Builtin.any ~why:(if is_named then Unification_var else Wildcard)
-    | Sort -> Jkind.of_new_legacy_sort ~why:(if is_named then Unification_var else Wildcard)
+    | Any ->
+      Jkind.Builtin.any ~why:(if is_named then Unification_var else Wildcard)
+    | Sort ->
+      Jkind.of_new_legacy_sort ~why:(if is_named then Unification_var else Wildcard)
 
   let new_any_var loc env jkind = function
     | { extensibility = Fixed } -> raise(Error(loc, env, No_type_wildcards))
@@ -582,7 +585,7 @@ let transl_type_param_jst env loc attrs path :
   function
   | Jtyp_layout (Ltyp_var { name; jkind = jkind_annot }) ->
      let jkind, jkind_annot =
-       Jkind.of_annotation ~context:(Type_parameter (path, name)) jkind_annot
+       Jkind.of_annotation ~transl_type:None ~context:(Type_parameter (path, name)) jkind_annot
      in
      transl_type_param_var env loc attrs name jkind (Some jkind_annot)
   | Jtyp_layout (Ltyp_poly _ | Ltyp_alias _) ->
@@ -611,7 +614,7 @@ let get_type_param_jkind path styp =
   | None -> Jkind.of_new_legacy_sort ~why:(Unannotated_type_parameter path)
   | Some (Jtyp_layout (Ltyp_var { name; jkind }), _attrs) ->
     let jkind, _ =
-      Jkind.of_annotation
+      Jkind.of_annotation ~transl_type:None
         ~context:(Type_parameter (path, name))
         jkind
     in
@@ -677,7 +680,7 @@ let enrich_with_attributes attrs annotation_context =
   | None -> annotation_context
 
 let jkind_of_annotation annotation_context attrs jkind =
-  Jkind.of_annotation ~context:(enrich_with_attributes attrs annotation_context) jkind
+  Jkind.of_annotation ~transl_type:None ~context:(enrich_with_attributes attrs annotation_context) jkind
 
 (* translate the ['a 'b ('c : immediate) .] part of a polytype,
    returning a [poly_univars] *)

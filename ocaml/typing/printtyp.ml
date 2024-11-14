@@ -1345,10 +1345,11 @@ let out_jkind_option_of_jkind jkind =
   let elide =
     match desc with
     | Const jkind -> (* C2.1 *)
-      Jkind.Const.equal jkind Jkind.Const.Builtin.value.jkind
+      Jkind.Const.equal_and_no_baggage jkind Jkind.Const.Builtin.value.jkind
       (* CR layouts v3.0: remove this hack once [or_null] is out of [Alpha]. *)
       || (not Language_extension.(is_at_least Layouts Alpha)
-          && Jkind.Const.equal jkind Jkind.Const.Builtin.value_or_null.jkind)
+          && Jkind.Const.equal_and_no_baggage jkind
+               Jkind.Const.Builtin.value_or_null.jkind)
     | Var _ -> (* X1 *)
       not !Clflags.verbose_types
     | Product _ -> false
@@ -1937,7 +1938,8 @@ let tree_of_type_decl id decl =
      Note [When to print jkind annotations] *)
   let is_value =
     match decl.type_jkind_annotation with
-    | Some (jkind, _) -> Jkind.Const.equal jkind Jkind.Const.Builtin.value.jkind
+    | Some (jkind, _) ->
+      Jkind.Const.equal_and_no_baggage jkind Jkind.Const.Builtin.value.jkind
     | None -> false
   in
   let jkind_annotation = match ty, unboxed, is_value, decl.type_has_illegal_crossings with

@@ -12,6 +12,8 @@
 (*                                                                        *)
 (**************************************************************************)
 
+open Jkind_axis
+
 (** You should use the types defined in [Jkind] (which redefines the
    types in this file) rather than using this file directly, unless you
    are in [Types] or [Primitive]. *)
@@ -119,15 +121,22 @@ module Layout : sig
   end
 end
 
+module Bound : sig
+  type ('type_expr, 'a) t =
+    { modifier : 'a;
+      baggage : 'type_expr list
+    }
+end
+
+module Bounds : module type of Axis_collection (Bound)
+
 module Jkind_desc : sig
   (* We need the variance annotation here to allow [any_dummy_jkind] to be
      polymorphic in its allowances. Otherwise the value restriction bites.
      Sigh. *)
   type ('type_expr, +'d) t =
     { layout : Layout.t;
-      modes_upper_bounds : Mode.Alloc.Const.t;
-      externality_upper_bound : Jkind_axis.Externality.t;
-      nullability_upper_bound : Jkind_axis.Nullability.t
+      upper_bounds : 'type_expr Bounds.t
     }
     constraint 'd = 'l * 'r
 
@@ -155,9 +164,7 @@ type ('type_expr, +'d) t =
 module Const : sig
   type 'type_expr t =
     { layout : Layout.Const.t;
-      modes_upper_bounds : Mode.Alloc.Const.t;
-      externality_upper_bound : Jkind_axis.Externality.t;
-      nullability_upper_bound : Jkind_axis.Nullability.t
+      upper_bounds : 'type_expr Bounds.t
     }
 end
 
