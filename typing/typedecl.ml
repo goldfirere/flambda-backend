@@ -511,7 +511,7 @@ let transl_types_gf ~new_var_jkind ~allow_unboxed
       ca_loc = ca.ca_loc;
       ca_type = ca.ca_type.ctyp_type;
       ca_jkind = Jkind.Builtin.any ~why:Dummy_jkind;
-            (* Updated by [update_label_jkinds] *)
+            (* Updated by [update_constructor_arguments_jkinds] *)
     }) tyl_gfl
   in
   tyl_gfl, tyl_gfl'
