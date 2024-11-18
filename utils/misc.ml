@@ -372,13 +372,8 @@ module Stdlib = struct
       | [] -> [| |]
       | hd :: tl ->
         let a = Array.make (1 + List.length tl) (f hd) in
-        let rec fill i = function
-          | [] -> a
-          | hd :: tl ->
-            Array.unsafe_set a i (f hd);
-            fill (i + 1) tl
-        in
-        fill 1 tl
+        List.iteri (fun i x -> Array.unsafe_set a (i+1) (f x)) tl;
+        a
   end
 
   module String = struct
