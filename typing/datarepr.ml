@@ -115,9 +115,11 @@ let constructor_descrs ~current_unit ty_path decl cstrs rep =
       | Cstr_tuple [{ ca_jkind = jkind }]
       | Cstr_record [{ ld_jkind = jkind }] ->
         [| Constructor_uniform_value, [| jkind |] |]
-      | _ -> Misc.fatal_error "Multiple arguments in [@@unboxed] variant"
+      | Cstr_tuple ([] | _ :: _) | Cstr_record ([] | _ :: _) ->
+        Misc.fatal_error "Multiple or 0 arguments in [@@unboxed] variant"
       end
-    | _ -> Misc.fatal_error "Multiple constructors in [@@unboxed] variant"
+    | Variant_unboxed, ([] | _ :: _) ->
+      Misc.fatal_error "Multiple or 0 constructors in [@@unboxed] variant"
   in
   let all_void jkinds = Array.for_all Jkind.is_void_defaulting jkinds in
   let num_consts = ref 0 and num_nonconsts = ref 0 in
