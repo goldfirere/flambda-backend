@@ -192,7 +192,11 @@ end
 (* constants *)
 
 module Const : sig
-  (** Constant jkinds are used for user-written annotations *)
+  (** Constant jkinds are used for user-written annotations. They are not
+      actually constant, though: they might contain variables in [with]-types.
+      The "constant" refers to the fact that there are no sort variables here.
+      The existence of [with]-types means, though, that we still need the
+      allowance machinery here. *)
   type +'d t constraint 'd = 'l * 'r
 
   val to_out_jkind_const : 'd t -> Outcometree.out_jkind_const
@@ -385,7 +389,9 @@ val for_object : jkind_l
 (* elimination and defaulting *)
 
 module Desc : sig
-  (** The description of a jkind, used as a return type from [get]. *)
+  (** The description of a jkind, used as a return type from [get].  This
+      description has no sort variables, but it might have [with]-types and thus
+      needs the allowance machinery. *)
   type 'd t = (Sort.Flat.t Layout.t, 'd) Jkind_types.Layout_and_axes.t
 
   val get_const : 'd t -> 'd Const.t option

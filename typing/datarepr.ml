@@ -111,6 +111,15 @@ let constructor_descrs ~current_unit ty_path decl cstrs rep =
     | Variant_extensible, _ -> assert false
     | Variant_boxed x, _ -> x
     | Variant_unboxed, [{ cd_args }] ->
+      (* CR layouts: It's tempting just to use [decl.type_jkind] here, instead
+         of grabbing the jkind from the argument. However, doing so does not
+         work, now that we say [@@unboxed] types are classified by a sort
+         variable: it seems that the sort variable ends up getting copied
+         into the argument kind and then defaulted prematurely, causing errors
+         when the payload of the [@@unboxed] type is not a value. ccasinghino
+         believes that the choice of using [decl.type_jkind] vs the algorithm
+         written here should be irrelevant, and so would like to understand
+         this interaction better. *)
       begin match cd_args with
       | Cstr_tuple [{ ca_jkind = jkind }]
       | Cstr_record [{ ld_jkind = jkind }] ->
