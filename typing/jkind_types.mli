@@ -131,12 +131,6 @@ module Bound : sig
 
   val try_allow_r :
     ('type_expr, 'l * 'r, 'a) t -> ('type_expr, 'l * allowed, 'a) t option
-
-  val less_or_equal :
-    axis:'axis Jkind_axis.Axis.t ->
-    ('type_expr, allowed * 'r, 'axis) t ->
-    ('type_expr, 'l * allowed, 'axis) t ->
-    Misc.Le_result.t
 end
 
 module Bounds : sig
@@ -190,12 +184,6 @@ module Layout_and_axes : sig
   val try_allow_r :
     ('type_expr, 'layout, 'l * 'r) t ->
     ('type_expr, 'layout, 'l * allowed) t option
-
-  val sub :
-    ('layout -> 'layout -> Misc.Le_result.t) ->
-    ('type_expr, 'layout, allowed * 'r) t ->
-    ('type_expr, 'layout, 'l * allowed) t ->
-    Misc.Le_result.t
 
   val debug_print :
     print_type_expr:(Format.formatter -> 'type_expr -> unit) ->

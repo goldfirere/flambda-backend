@@ -411,6 +411,76 @@ module Bound = struct
       { modifier = mod2; baggage = bag2 } =
     let (module Ops) = Axis.get axis in
     { modifier = Ops.meet mod1 mod2; baggage = Baggage.meet bag1 bag2 }
+
+  let reduce (type a l r) ~jkind_of_type ~(axis : a Axis.t)
+      (bound : (l * r, a) t) =
+    let module TypeSet = Btype.TypeSet in
+    let (module A) = Axis.get axis in
+    (* Sadly, it seems hard (impossible?) to be sure to expand all types
+       here without using a fuel parameter to stop infinite regress. Here
+       is a nasty case:
+
+       {[
+         type zero
+         type 'n succ
+
+         type 'n loopy = Mk of 'n succ loopy list [@@unboxed]
+       ]}
+
+       First off: this type *is* inhabited, because of the [list] intervening
+       type (which can be empty). It's also inhabited by various circular
+       structures.
+
+       But what's the jkind of ['n loopy]? It must be the jkind of
+       ['n succ loopy list], which is [immutable_data with 'n succ loopy].
+       In order to see if we shouldn't mode-cross, we have to expand the
+       ['n succ loopy] in the jkind, but expanding that just yields the need
+       to expand ['n succ succ loopy], and around we go.
+
+       It seems hard to avoid this problem. And so we use fuel.
+
+       But we want to use a lot of fuel here, because we use a unit of fuel
+       for each expansion of a jkind. In contrast, the fuel used in unboxing
+       a type is used only for every [@@unboxed]. This is easy, though: just
+       use a bigger number.
+    *)
+    let rec loop fuel explored bound_so_far = function
+      | _ when fuel < 0 -> A.max (* sad *)
+      | _ when A.le A.max bound_so_far -> bound_so_far (* early cutoff *)
+      | [] -> bound_so_far
+      | b :: bs -> (
+        if TypeSet.mem b explored
+        then loop fuel explored bound_so_far bs
+        else
+          let explored = TypeSet.add b explored in
+          match jkind_of_type b with
+          | Some b_jkind ->
+            let b_bound = Bounds.get ~axis b_jkind.jkind.upper_bounds in
+            let bound_so_far = A.join bound_so_far b_bound.modifier in
+            loop (fuel - 1) explored bound_so_far
+              (Baggage.as_list b_bound.baggage @ bs)
+          | None ->
+            (* hd is not principally known, so we treat it as having the max bound
+             *)
+            (* CR layouts v2.8: Does this ever trigger? Richard is skeptical that
+               we need to worry about principality here. *)
+            A.max)
+    in
+    loop 1000 TypeSet.empty bound.modifier (Baggage.as_list bound.baggage)
+
+  let less_or_equal :
+      type axis l r.
+      axis:axis Axis.t ->
+      (allowed * r, axis) t ->
+      (l * allowed, axis) t ->
+      Misc.Le_result.t =
+   fun ~axis { modifier = m1; baggage = b1 } { modifier = m2; baggage = b2 } ->
+    let (module Axis_ops) = Axis.get axis in
+    match b1, b2 with
+    | No_baggage, No_baggage -> Axis_ops.less_or_equal m1 m2
+    (* CR layouts v2.8: This should expand types on the left. *)
+    | Baggage _, No_baggage ->
+      if Axis_ops.le Axis_ops.max m2 then Less else Not_le
 end
 
 module Bounds = struct
@@ -448,6 +518,14 @@ module Bounds = struct
   let join bounds1 bounds2 = Map2.f { f = Bound.join } bounds1 bounds2
 
   let meet bounds1 bounds2 = Map2.f { f = Bound.meet } bounds1 bounds2
+
+  let less_or_equal bounds1 bounds2 =
+    Fold2.f
+      { f =
+          (fun (type axis) ~(axis : axis Axis.t) bound1 bound2 ->
+            Bound.less_or_equal ~axis bound1 bound2)
+      }
+      ~combine:Misc.Le_result.combine bounds1 bounds2
 
   let add_baggage ~deep_only ~baggage bounds =
     (* Add the type as a baggage type along all deep axes *)
@@ -1042,7 +1120,10 @@ module Jkind_desc = struct
   let equate_or_equal ~allow_mutation t1 t2 =
     Layout_and_axes.equal (Layout.equate_or_equal ~allow_mutation) t1 t2
 
-  let sub t1 t2 = Layout_and_axes.sub Layout.sub t1 t2
+  let sub { layout = lay1; upper_bounds = bounds1 }
+      { layout = lay2; upper_bounds = bounds2 } =
+    Misc.Le_result.combine (Layout.sub lay1 lay2)
+      (Bounds.less_or_equal bounds1 bounds2)
 
   let intersection { layout = lay1; upper_bounds = bounds1 }
       { layout = lay2; upper_bounds = bounds2 } =
@@ -1349,85 +1430,22 @@ let sort_of_jkind (t : jkind_l) : sort =
 
 let get_layout jk : Layout.Const.t option = Layout.get_const jk.jkind.layout
 
-module Reduced_bounds = Axis_collection (struct
-  type (_, 'd, 'a) t = 'a constraint 'd = 'l * 'r
-end)
-
-let reduce_bound (type a l r) ~jkind_of_type ~(axis : a Axis.t)
-    (bound : (l * r, a) Bound.t) =
-  let module TypeSet = Btype.TypeSet in
-  let (module A) = Axis.get axis in
-  (* Sadly, it seems hard (impossible?) to be sure to expand all types
-     here without using a fuel parameter to stop infinite regress. Here
-     is a nasty case:
-
-     {[
-       type zero
-       type 'n succ
-
-       type 'n loopy = Mk of 'n succ loopy list [@@unboxed]
-     ]}
-
-     First off: this type *is* inhabited, because of the [list] intervening
-     type (which can be empty). It's also inhabited by various circular
-     structures.
-
-     But what's the jkind of ['n loopy]? It must be the jkind of
-     ['n succ loopy list], which is [immutable_data with 'n succ loopy].
-     In order to see if we shouldn't mode-cross, we have to expand the
-     ['n succ loopy] in the jkind, but expanding that just yields the need
-     to expand ['n succ succ loopy], and around we go.
-
-     It seems hard to avoid this problem. And so we use fuel.
-
-     But we want to use a lot of fuel here, because we use a unit of fuel
-     for each expansion of a jkind. In contrast, the fuel used in unboxing
-     a type is used only for every [@@unboxed]. This is easy, though: just
-     use a bigger number.
-  *)
-  let rec loop fuel explored bound_so_far = function
-    | _ when fuel < 0 -> A.max (* sad *)
-    | _ when A.le A.max bound_so_far -> bound_so_far (* early cutoff *)
-    | [] -> bound_so_far
-    | b :: bs -> (
-      if TypeSet.mem b explored
-      then loop fuel explored bound_so_far bs
-      else
-        let explored = TypeSet.add b explored in
-        match jkind_of_type b with
-        | Some b_jkind ->
-          let b_bound = Bounds.get ~axis b_jkind.jkind.upper_bounds in
-          let bound_so_far = A.join bound_so_far b_bound.modifier in
-          loop (fuel - 1) explored bound_so_far
-            (Baggage.as_list b_bound.baggage @ bs)
-        | None ->
-          (* hd is not principally known, so we treat it as having the max bound
-             *)
-          (* CR layouts v2.8: Does this ever trigger? Richard is skeptical that
-             we need to worry about principality here. *)
-          A.max)
-  in
-  loop 1000 TypeSet.empty bound.modifier (Baggage.as_list bound.baggage)
-
-let reduce_bounds ~jkind_of_type jk =
-  Reduced_bounds.Create.f
-    { f =
-        (fun (type axis) ~(axis : axis Axis.t) ->
-          reduce_bound ~jkind_of_type ~axis
-            (Bounds.get ~axis jk.jkind.upper_bounds))
-    }
-
 let get_modal_upper_bounds ~jkind_of_type jk : Alloc.Const.t =
-  let reduced_bounds = reduce_bounds ~jkind_of_type jk in
-  { areality = reduced_bounds.locality;
-    linearity = reduced_bounds.linearity;
-    uniqueness = reduced_bounds.uniqueness;
-    portability = reduced_bounds.portability;
-    contention = reduced_bounds.contention
+  let bounds = jk.jkind.upper_bounds in
+  { areality =
+      Bound.reduce ~axis:(Modal Locality) ~jkind_of_type bounds.locality;
+    linearity =
+      Bound.reduce ~axis:(Modal Linearity) ~jkind_of_type bounds.linearity;
+    uniqueness =
+      Bound.reduce ~axis:(Modal Uniqueness) ~jkind_of_type bounds.uniqueness;
+    portability =
+      Bound.reduce ~axis:(Modal Portability) ~jkind_of_type bounds.portability;
+    contention =
+      Bound.reduce ~axis:(Modal Contention) ~jkind_of_type bounds.contention
   }
 
 let get_externality_upper_bound ~jkind_of_type jk =
-  reduce_bound ~axis:(Nonmodal Externality) ~jkind_of_type
+  Bound.reduce ~axis:(Nonmodal Externality) ~jkind_of_type
     jk.jkind.upper_bounds.externality
 
 let set_externality_upper_bound jk externality_upper_bound =
@@ -2015,12 +2033,13 @@ let intersection_or_error ~reason t1 t2 =
       }
 
 let round_up ~jkind_of_type t =
-  let reduced_bounds = reduce_bounds ~jkind_of_type t in
   let upper_bounds =
-    Bounds.Create.f
+    Bounds.Map.f
       { f =
-          (fun ~axis -> Bound.simple (Reduced_bounds.get ~axis reduced_bounds))
+          (fun ~axis bound ->
+            Bound.simple (Bound.reduce ~axis ~jkind_of_type bound))
       }
+      t.jkind.upper_bounds
   in
   { t with jkind = { t.jkind with upper_bounds } }
 

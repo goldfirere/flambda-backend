@@ -593,7 +593,6 @@ end
 
 module Bound = struct
   open Allowance
-  open Jkind_axis
 
   type (+'type_expr, 'd, 'a) t =
     { modifier : 'a;
@@ -629,20 +628,6 @@ module Bound = struct
       _ -> (_, allowed * allowed, _) t -> (_, allowed * allowed, _) t -> bool =
    fun eq_axis { modifier = m1; baggage = b1 } { modifier = m2; baggage = b2 } ->
     match b1, b2 with No_baggage, No_baggage -> eq_axis m1 m2
-
-  let less_or_equal :
-      type axis l r.
-      axis:axis Axis.t ->
-      (_, allowed * r, axis) t ->
-      (_, l * allowed, axis) t ->
-      Misc.Le_result.t =
-   fun ~axis { modifier = m1; baggage = b1 } { modifier = m2; baggage = b2 } ->
-    let (module Axis_ops) = Axis.get axis in
-    match b1, b2 with
-    | No_baggage, No_baggage -> Axis_ops.less_or_equal m1 m2
-    (* CR layouts v2.8: This should expand types on the left. *)
-    | Baggage _, No_baggage ->
-      if Axis_ops.le Axis_ops.max m2 then Less else Not_le
 
   let debug_print ~print_type_expr print_modifier ppf { modifier; baggage } =
     Format.fprintf ppf "@[{ modifier = %a;@ baggage = %a }@]" print_modifier
@@ -682,14 +667,6 @@ module Bounds = struct
             Bound.equal Bound_ops.equal bound1 bound2)
       }
       ~combine:( && ) bounds1 bounds2
-
-  let less_or_equal bounds1 bounds2 =
-    Fold2.f
-      { f =
-          (fun (type axis) ~(axis : axis Axis.t) bound1 bound2 ->
-            Bound.less_or_equal ~axis bound1 bound2)
-      }
-      ~combine:Misc.Le_result.combine bounds1 bounds2
 
   let debug_print ~print_type_expr ppf
       { locality;
@@ -776,12 +753,6 @@ module Layout_and_axes = struct
     with
     | Some upper_bounds -> Some { layout; upper_bounds }
     | None -> None
-
-  let sub sub_layout { layout = lay1; upper_bounds = bounds1 }
-      { layout = lay2; upper_bounds = bounds2 } =
-    Misc.Le_result.combine (sub_layout lay1 lay2)
-      (Bounds.less_or_equal bounds1 bounds2)
-    [@@inline]
 
   let debug_print ~print_type_expr format_layout ppf { layout; upper_bounds } =
     Format.fprintf ppf "{ layout = %a;@ upper_bounds = %a }" format_layout
