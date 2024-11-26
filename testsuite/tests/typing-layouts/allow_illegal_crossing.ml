@@ -464,6 +464,16 @@ module A : sig type t : value mod portable end
 |}]
 
 module A : sig
+  type t : value mod portable
+end = struct
+  type t = { a : string -> string }
+end
+[%%expect {|
+  BAD
+module A : sig type t : value mod portable end
+|}]
+
+module A : sig
   type t : value mod portable = { a : string }
 end = struct
   type t = { a : string }
@@ -475,6 +485,18 @@ module A : sig type t = { a : string; } end
 |}]
 
 module A : sig
+  type t : value mod portable = { a : string -> string }
+end = struct
+  type t = { a : string -> string }
+  type ('a : value mod portable) u = 'a
+  type v = t u
+end
+[%%expect {|
+  BAD
+module A : sig type t : immutable_data = { a : string -> string; } end
+|}]
+
+module A : sig
   type t : value mod portable = { a : string }
 end = struct
   type t = { a : string }
@@ -482,6 +504,17 @@ end = struct
 end
 [%%expect {|
 module A : sig type t = { a : string; } end
+|}]
+
+module A : sig
+  type t : value mod portable = { a : string -> string }
+end = struct
+  type t = { a : string -> string }
+  let x : _ as (_ : value mod portable) = { a = fun _ -> "hello" }
+end
+[%%expect {|
+  BAD
+module A : sig type t : immutable_data = { a : string -> string; } end
 |}]
 
 type a
@@ -501,6 +534,14 @@ type a = { foo : int; bar : string }
 type b : any mod portable = a
 [%%expect {|
 type a = { foo : int; bar : string; }
+type b = a
+|}]
+
+type a = { foo : int -> int; bar : string }
+type b : any mod portable = a
+[%%expect {|
+  BAD
+type a = { foo : int -> int; bar : string; }
 type b = a
 |}]
 
@@ -546,6 +587,21 @@ type b : value mod uncontended = a = private { foo : string }
 [%%expect {|
 type a = private { foo : string; }
 type b = a = private { foo : string; }
+|}]
+
+type a = { foo : string -> string }
+type b : value mod portable = a = { foo : string -> string }
+[%%expect {|
+  BAD
+type a = { foo : string -> string; }
+type b = a : immutable_data = { foo : string -> string; }
+|}]
+
+type a = private { foo : int array }
+type b : value mod uncontended = a = private { foo : int array }
+[%%expect {|
+type a = private { foo : int array; }
+type b = a : immutable_data = private { foo : int array; }
 |}]
 
 type a = Foo of string | Bar
@@ -595,6 +651,16 @@ type u = t of_portable
 [%%expect {|
 type ('a : value mod portable) of_portable
 type t = { foo : int; }
+type u = t of_portable
+|}]
+
+type ('a : value mod portable) of_portable
+type t = { foo : int -> int }
+type u = t of_portable
+[%%expect {|
+  BAD
+type ('a : value mod portable) of_portable
+type t = { foo : int -> int; }
 type u = t of_portable
 |}]
 
