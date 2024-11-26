@@ -12,7 +12,7 @@ type a
 type b : value mod portable = { a : int; b : int }
 [%%expect {|
 type a
-type b : value mod portable = { a : int; b : int; }
+type b = { a : int; b : int; }
 |}]
 
 type a
@@ -45,31 +45,31 @@ Error: The kind of type "a" is value
 
 type t : value mod portable uncontended = { a : int; b : int }
 [%%expect {|
-type t : value mod uncontended portable = { a : int; b : int; }
+type t = { a : int; b : int; }
 |}]
 
 type ('a, 'b) t : value mod portable uncontended = { a : 'a; b : 'b }
 [%%expect {|
-type ('a, 'b) t : value mod uncontended portable = { a : 'a; b : 'b; }
+type ('a, 'b) t : immutable_data = { a : 'a; b : 'b; }
 |}]
 
 type t : value mod portable = private { foo : string }
 [%%expect {|
-type t : value mod portable = private { foo : string; }
+type t = private { foo : string; }
 |}]
 
 type a : value mod portable = { foo : string }
 type b : value mod portable = a = { foo : string }
 [%%expect {|
-type a : value mod portable = { foo : string; }
-type b = a : value mod portable = { foo : string; }
+type a = { foo : string; }
+type b = a = { foo : string; }
 |}]
 
 type a : value mod uncontended = private { foo : string }
 type b : value mod uncontended = a = private { foo : string }
 [%%expect {|
-type a : value mod uncontended = private { foo : string; }
-type b = a : value mod uncontended = private { foo : string; }
+type a = private { foo : string; }
+type b = a = private { foo : string; }
 |}]
 
 type t : value mod uncontended = private Foo of int | Bar
@@ -97,7 +97,7 @@ end = struct
   type t = { a : string }
 end
 [%%expect {|
-module A : sig type t : value mod portable = { a : string; } end
+module A : sig type t = { a : string; } end
 |}]
 
 (********************************************)
@@ -116,7 +116,7 @@ type t : value mod portable uncontended = { a : string; b : int }
 let f : ('a : value mod portable uncontended). 'a -> 'a = fun x -> x
 let g (x : t) = f x
 [%%expect {|
-type t : value mod uncontended portable = { a : string; b : int; }
+type t = { a : string; b : int; }
 val f : ('a : value mod uncontended portable). 'a -> 'a = <fun>
 val g : t -> t = <fun>
 |}]
@@ -124,14 +124,14 @@ val g : t -> t = <fun>
 type t : value mod portable uncontended = { a : int; b : int }
 let x : _ as (_ : value mod portable uncontended) = { a = 5; b = 5 }
 [%%expect {|
-type t : value mod uncontended portable = { a : int; b : int; }
+type t = { a : int; b : int; }
 val x : t = {a = 5; b = 5}
 |}]
 
 type ('a, 'b) t : value mod portable uncontended = { a : 'a; b : 'b }
 let x : _ as (_ : value mod portable uncontended) = { a = 5; b = 5 }
 [%%expect {|
-type ('a, 'b) t : value mod uncontended portable = { a : 'a; b : 'b; }
+type ('a, 'b) t : immutable_data = { a : 'a; b : 'b; }
 val x : (int, int) t = {a = 5; b = 5}
 |}]
 
@@ -151,7 +151,7 @@ type ('a : value mod portable) u = 'a
 type v = A.t u
 let x : _ as (_ : value mod portable) = ({ a = "hello" } : A.t)
 [%%expect {|
-module A : sig type t : value mod portable = { a : string; } end
+module A : sig type t = { a : string; } end
 type ('a : value mod portable) u = 'a
 type v = A.t u
 val x : A.t = {A.a = "hello"}
@@ -161,7 +161,7 @@ type t : value mod portable = { a : string }
 let my_str : string @@ nonportable = ""
 let y = ({ a = my_str } : t @@ portable)
 [%%expect {|
-type t : value mod portable = { a : string; }
+type t = { a : string; }
 val my_str : string = ""
 val y : t = {a = ""}
 |}]
@@ -170,7 +170,7 @@ type t : value mod portable = { a : string -> string }
 let my_fun @ nonportable = fun x -> x
 let y : t @@ portable = { a = my_fun }
 [%%expect {|
-type t : value mod portable = { a : string -> string; }
+type t : immutable_data = { a : string -> string; }
 val my_fun : 'a -> 'a = <fun>
 val y : t = {a = <fun>}
 |}]
@@ -181,7 +181,7 @@ let f () =
   let _ = ({ a = make_str () } : t @@ uncontended) in
   ()
 [%%expect {|
-type t : value mod uncontended = { a : string; }
+type t = { a : string; }
 val make_str : unit -> string = <fun>
 val f : unit -> unit = <fun>
 |}]
@@ -192,7 +192,7 @@ let f () =
   let _ : t @@ uncontended = { a = make_str () } in
   ()
 [%%expect {|
-type t : value mod uncontended = { a : string; }
+type t = { a : string; }
 val make_str : unit -> string = <fun>
 val f : unit -> unit = <fun>
 |}]
@@ -217,7 +217,7 @@ type t : value mod portable = { a : string -> string }
 let my_fun : _ @@ nonportable = fun x -> x
 let y = ({ a = my_fun } : _ @@ portable)
 [%%expect {|
-type t : value mod portable = { a : string -> string; }
+type t : immutable_data = { a : string -> string; }
 val my_fun : 'a -> 'a = <fun>
 Line 3, characters 15-21:
 3 | let y = ({ a = my_fun } : _ @@ portable)
@@ -370,7 +370,7 @@ type t : value mod global = { a : int; b : int }
 Line 1, characters 0-48:
 1 | type t : value mod global = { a : int; b : int }
     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-Error: The kind of type "t" is value
+Error: The kind of type "t" is immutable_data
          because it's a boxed record type.
        But the kind of type "t" must be a subkind of value mod global
          because of the annotation on the declaration of the type t.
@@ -381,7 +381,7 @@ type ('a, 'b) t : value mod many = { a : 'a; b : 'b }
 Line 1, characters 0-53:
 1 | type ('a, 'b) t : value mod many = { a : 'a; b : 'b }
     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-Error: The kind of type "t" is value
+Error: The kind of type "t" is immutable_data
          because it's a boxed record type.
        But the kind of type "t" must be a subkind of value mod many
          because of the annotation on the declaration of the type t.
@@ -460,23 +460,7 @@ end = struct
   type t = { a : string }
 end
 [%%expect {|
-Lines 3-5, characters 6-3:
-3 | ......struct
-4 |   type t = { a : string }
-5 | end
-Error: Signature mismatch:
-       Modules do not match:
-         sig type t = { a : string; } end
-       is not included in
-         sig type t : value mod portable end
-       Type declarations do not match:
-         type t = { a : string; }
-       is not included in
-         type t : value mod portable
-       The kind of the first is value
-         because of the definition of t at line 4, characters 2-25.
-       But the kind of the first must be a subkind of value mod portable
-         because of the definition of t at line 2, characters 2-29.
+module A : sig type t : value mod portable end
 |}]
 
 module A : sig
@@ -487,14 +471,7 @@ end = struct
   type v = t u
 end
 [%%expect {|
-Line 6, characters 11-12:
-6 |   type v = t u
-               ^
-Error: This type "t" should be an instance of type "('a : value mod portable)"
-       The kind of t is value
-         because of the definition of t at line 4, characters 2-25.
-       But the kind of t must be a subkind of value mod portable
-         because of the definition of u at line 5, characters 2-39.
+module A : sig type t = { a : string; } end
 |}]
 
 module A : sig
@@ -504,15 +481,7 @@ end = struct
   let x : _ as (_ : value mod portable) = { a = "hello" }
 end
 [%%expect {|
-Line 5, characters 42-57:
-5 |   let x : _ as (_ : value mod portable) = { a = "hello" }
-                                              ^^^^^^^^^^^^^^^
-Error: This expression has type "t" but an expression was expected of type
-         "('a : value mod portable)"
-       The kind of t is value
-         because of the definition of t at line 4, characters 2-25.
-       But the kind of t must be a subkind of value mod portable
-         because of the annotation on the wildcard _ at line 5, characters 20-38.
+module A : sig type t = { a : string; } end
 |}]
 
 type a
@@ -532,13 +501,7 @@ type a = { foo : int; bar : string }
 type b : any mod portable = a
 [%%expect {|
 type a = { foo : int; bar : string; }
-Line 2, characters 0-29:
-2 | type b : any mod portable = a
-    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-Error: The kind of type "a" is value
-         because of the definition of a at line 1, characters 0-36.
-       But the kind of type "a" must be a subkind of any mod portable
-         because of the definition of b at line 2, characters 0-29.
+type b = a
 |}]
 
 type a = Foo of int | Bar of string
@@ -575,26 +538,14 @@ type a = { foo : string }
 type b : value mod portable = a = { foo : string }
 [%%expect {|
 type a = { foo : string; }
-Line 2, characters 0-50:
-2 | type b : value mod portable = a = { foo : string }
-    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-Error: The kind of type "a" is value
-         because of the definition of a at line 1, characters 0-25.
-       But the kind of type "a" must be a subkind of value mod portable
-         because of the definition of b at line 2, characters 0-50.
+type b = a = { foo : string; }
 |}]
 
 type a = private { foo : string }
 type b : value mod uncontended = a = private { foo : string }
 [%%expect {|
 type a = private { foo : string; }
-Line 2, characters 0-61:
-2 | type b : value mod uncontended = a = private { foo : string }
-    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-Error: The kind of type "a" is value
-         because of the definition of a at line 1, characters 0-33.
-       But the kind of type "a" must be a subkind of value mod uncontended
-         because of the definition of b at line 2, characters 0-61.
+type b = a = private { foo : string; }
 |}]
 
 type a = Foo of string | Bar
@@ -644,14 +595,7 @@ type u = t of_portable
 [%%expect {|
 type ('a : value mod portable) of_portable
 type t = { foo : int; }
-Line 3, characters 9-10:
-3 | type u = t of_portable
-             ^
-Error: This type "t" should be an instance of type "('a : value mod portable)"
-       The kind of t is value
-         because of the definition of t at line 2, characters 0-22.
-       But the kind of t must be a subkind of value mod portable
-         because of the definition of of_portable at line 1, characters 0-42.
+type u = t of_portable
 |}]
 
 let f : ('a : value mod portable). 'a -> 'a = fun x -> x
