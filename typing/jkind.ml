@@ -1100,7 +1100,7 @@ module Jkind_desc = struct
         { t.upper_bounds with nullability = Bound.simple Nullability.min }
     }
 
-  let add_portability_and_contention_crossing ~from to_ =
+  let add_portability_and_contention_crossing ~jkind_of_type ~from to_ =
     let add_crossing (type a) ~(axis : a Axis.t) to_ =
       let (module A : Lattice with type t = a) = Axis.get axis in
       let from_bound = Bounds.get ~axis from.upper_bounds in
@@ -1111,8 +1111,9 @@ module Jkind_desc = struct
         Bound.simple (A.meet from_bound.modifier to_bound.modifier)
       in
       let added_crossings =
-        (not (A.le to_bound.modifier new_bound.modifier))
-        || Baggage.has_baggage to_bound.baggage
+        not
+          (Misc.Le_result.is_le
+             (Bound.less_or_equal ~axis ~jkind_of_type to_bound from_bound))
       in
       Bounds.set ~axis to_ new_bound, added_crossings
     in
@@ -1286,11 +1287,15 @@ let add_nullability_crossing t =
 let add_baggage ~baggage t =
   { t with jkind = Jkind_desc.add_baggage ~deep_only:true ~baggage t.jkind }
 
-let add_portability_and_contention_crossing ~from t =
-  let jkind, added_crossings =
-    Jkind_desc.add_portability_and_contention_crossing ~from:from.jkind t.jkind
-  in
-  { t with jkind }, added_crossings
+let add_portability_and_contention_crossing ~jkind_of_type ~from t =
+  match try_allow_r from with
+  | None -> t, false
+  | Some from ->
+    let jkind, added_crossings =
+      Jkind_desc.add_portability_and_contention_crossing ~jkind_of_type
+        ~from:from.jkind t.jkind
+    in
+    { t with jkind }, added_crossings
 
 (******************************)
 (* construction *)

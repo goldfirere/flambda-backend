@@ -317,7 +317,11 @@ val add_baggage : baggage:Types.type_expr -> jkind_l -> jkind_l
 (** Take an existing [t] and add an ability to mode-cross along the portability and
     contention axes, if [from] crosses the respective axes. Return the new jkind,
     along with a boolean of whether illegal crossing was added *)
-val add_portability_and_contention_crossing : from:'d t -> 'd t -> 'd t * bool
+val add_portability_and_contention_crossing :
+  jkind_of_type:(Types.type_expr -> jkind_l option) ->
+  from:'d t ->
+  (allowed * 'r) t ->
+  (allowed * 'r) t * bool
 
 (******************************)
 (* construction *)

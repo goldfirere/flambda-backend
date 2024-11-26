@@ -1702,9 +1702,12 @@ let update_decl_jkind env dpath decl =
       assert false
   in
 
+  let jkind_of_type ty = Some (Ctype.type_jkind_purely env ty) in
+
   let add_crossings jkind =
     match !Clflags.allow_illegal_crossing with
-    | true -> Jkind.add_portability_and_contention_crossing ~from:decl.type_jkind jkind
+    | true -> Jkind.add_portability_and_contention_crossing
+                ~jkind_of_type ~from:decl.type_jkind jkind
     | false -> jkind, false
   in
 
@@ -1746,7 +1749,6 @@ let update_decl_jkind env dpath decl =
     (* The [decl.type_jkind] should never have [with]-types in it at this
        point. *)
     let type_equal _ _ = false in
-    let jkind_of_type ty = Some (Ctype.type_jkind_purely env ty) in
     match Jkind.sub_jkind_l ~type_equal ~jkind_of_type
             new_jkind decl.type_jkind
     with
