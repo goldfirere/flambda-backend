@@ -1586,3 +1586,17 @@ Error: The kind of type "t" is immutable_data
        But the kind of type "t" must be a subkind of value mod many
          because of the annotation on the declaration of the type t.
 |}]
+
+(*************************************)
+(* Test 12: Bug in check_constraints *)
+
+(* This requires the [Ctype.instance] call in [check_constraints_rec]. *)
+type 'a u
+type 'a t =
+  | None
+  | Some of ('a * 'a) t u
+
+[%%expect{|
+type 'a u
+type 'a t = None | Some of ('a * 'a) t u
+|}]

@@ -1274,6 +1274,7 @@ let for_boxed_record ~all_void lbls =
   if all_void
   then Builtin.immediate ~why:Empty_record
   else
+    (* CR reisenberg: Builtin.value ~why:Boxed_record *)
     let open Types in
     let is_mutable =
       List.exists
