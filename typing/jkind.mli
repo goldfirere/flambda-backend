@@ -529,7 +529,11 @@ val intersection_or_error :
 
 (** [sub t1 t2] says whether [t1] is a subjkind of [t2]. Might update
     either [t1] or [t2] to make their layouts equal.*)
-val sub : jkind_l -> jkind_r -> bool
+val sub :
+  jkind_of_type:(Types.type_expr -> jkind_l option) ->
+  jkind_l ->
+  jkind_r ->
+  bool
 
 type sub_or_intersect =
   | Sub  (** The first jkind is a subjkind of the second. *)
@@ -538,12 +542,19 @@ type sub_or_intersect =
 
 (** [sub_or_intersect t1 t2] does a subtype check, returning a [sub_or_intersect];
     see comments there for more info. *)
-val sub_or_intersect : (allowed * 'r) t -> ('l * allowed) t -> sub_or_intersect
+val sub_or_intersect :
+  jkind_of_type:(Types.type_expr -> jkind_l option) ->
+  (allowed * 'r) t ->
+  ('l * allowed) t ->
+  sub_or_intersect
 
 (** [sub_or_error t1 t2] does a subtype check, returning an appropriate
     [Violation.t] upon failure. *)
 val sub_or_error :
-  (allowed * 'r) t -> ('l * allowed) t -> (unit, Violation.t) result
+  jkind_of_type:(Types.type_expr -> jkind_l option) ->
+  (allowed * 'r) t ->
+  ('l * allowed) t ->
+  (unit, Violation.t) result
 
 (** Like [sub], but returns the subjkind with an updated history.
     Pre-condition: the super jkind must be fully settled; no variables which
@@ -555,6 +566,7 @@ val sub_or_error :
 *)
 val sub_jkind_l :
   type_equal:(Types.type_expr -> Types.type_expr -> bool) ->
+  jkind_of_type:(Types.type_expr -> jkind_l option) ->
   jkind_l ->
   jkind_l ->
   (jkind_l, Violation.t) result

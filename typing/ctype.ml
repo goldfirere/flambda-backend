@@ -2269,7 +2269,10 @@ let constrain_type_jkind ~fixed env ty jkind =
     | Tpoly (t, _) -> loop ~fuel ~expanded:false t ty's_jkind jkind
 
     | _ ->
-       match Jkind.sub_or_intersect ty's_jkind jkind with
+       match Jkind.sub_or_intersect
+               ~jkind_of_type:(type_jkind_purely_if_principal env)
+               ty's_jkind jkind
+       with
        | Sub -> Ok ()
        | Disjoint ->
           (* Reporting that [ty's_jkind] must be a subjkind of [jkind] is not
@@ -6890,7 +6893,8 @@ let check_decl_jkind env decl jkind =
      to expand only as much as needed, but the l/l subtype algorithm is tricky,
      and so we leave this optimization for later. *)
   let type_equal = type_equal env in
-  match Jkind.sub_jkind_l ~type_equal decl.type_jkind jkind with
+  let jkind_of_type ty = Some (type_jkind_purely env ty) in
+  match Jkind.sub_jkind_l ~type_equal ~jkind_of_type decl.type_jkind jkind with
   | Ok _ -> Ok ()
   | Error _ as err ->
     match decl.type_manifest with
@@ -6898,7 +6902,7 @@ let check_decl_jkind env decl jkind =
     | Some ty ->
       (* CR layouts v2.8: Should this use [type_jkind_purely]? I think not. *)
       let ty_jkind = type_jkind env ty in
-      match Jkind.sub_jkind_l ~type_equal ty_jkind jkind with
+      match Jkind.sub_jkind_l ~type_equal ~jkind_of_type ty_jkind jkind with
       | Ok _ -> Ok ()
       | Error _ as err -> err
 
@@ -6910,7 +6914,8 @@ let constrain_decl_jkind env decl jkind =
      a while. *)
   | None -> check_decl_jkind env decl jkind
   | Some jkind ->
-    match Jkind.sub_or_error decl.type_jkind jkind with
+    let jkind_of_type ty = Some (type_jkind_purely env ty) in
+    match Jkind.sub_or_error ~jkind_of_type decl.type_jkind jkind with
     | Ok () as ok -> ok
     | Error _ as err ->
         match decl.type_manifest with

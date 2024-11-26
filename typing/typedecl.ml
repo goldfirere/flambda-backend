@@ -1185,8 +1185,11 @@ let check_kind_coherence env loc dpath decl =
   | (Type_variant _ | Type_record _ | Type_open), Some ty ->
       if !Clflags.allow_illegal_crossing then begin
         let jkind' = Ctype.type_jkind_purely env ty in
+        let jkind_of_type ty = Some (Ctype.type_jkind_purely env ty) in
         let type_equal = Ctype.type_equal env in
-        begin match Jkind.sub_jkind_l ~type_equal jkind' decl.type_jkind with
+        begin match Jkind.sub_jkind_l
+                      ~type_equal ~jkind_of_type jkind' decl.type_jkind
+        with
         | Ok _ -> ()
         | Error v ->
           raise (Error (loc, Jkind_mismatch_of_type (ty,v)))
@@ -1743,7 +1746,10 @@ let update_decl_jkind env dpath decl =
     (* The [decl.type_jkind] should never have [with]-types in it at this
        point. *)
     let type_equal _ _ = false in
-    match Jkind.sub_jkind_l ~type_equal new_jkind decl.type_jkind with
+    let jkind_of_type ty = Some (Ctype.type_jkind_purely env ty) in
+    match Jkind.sub_jkind_l ~type_equal ~jkind_of_type
+            new_jkind decl.type_jkind
+    with
     | Ok _ -> ()
     | Error err ->
       raise(Error(decl.type_loc, Jkind_mismatch_of_path (dpath,err)))

@@ -412,8 +412,8 @@ module Bound = struct
     let (module Ops) = Axis.get axis in
     { modifier = Ops.meet mod1 mod2; baggage = Baggage.meet bag1 bag2 }
 
-  let reduce (type a l r) ~jkind_of_type ~(axis : a Axis.t)
-      (bound : (l * r, a) t) =
+  let reduce_baggage (type a) ~jkind_of_type ~(axis : a Axis.t) modifier baggage
+      =
     let module TypeSet = Btype.TypeSet in
     let (module A) = Axis.get axis in
     (* Sadly, it seems hard (impossible?) to be sure to expand all types
@@ -466,21 +466,31 @@ module Bound = struct
                we need to worry about principality here. *)
             A.max)
     in
-    loop 1000 TypeSet.empty bound.modifier (Baggage.as_list bound.baggage)
+    loop 1000 TypeSet.empty modifier baggage
+
+  let reduce ~jkind_of_type ~axis bound =
+    reduce_baggage ~jkind_of_type ~axis bound.modifier
+      (Baggage.as_list bound.baggage)
 
   let less_or_equal :
       type axis l r.
+      jkind_of_type:_ ->
       axis:axis Axis.t ->
       (allowed * r, axis) t ->
       (l * allowed, axis) t ->
       Misc.Le_result.t =
-   fun ~axis { modifier = m1; baggage = b1 } { modifier = m2; baggage = b2 } ->
+   fun ~jkind_of_type ~axis { modifier = m1; baggage = b1 }
+       { modifier = m2; baggage = b2 } ->
     let (module Axis_ops) = Axis.get axis in
     match b1, b2 with
     | No_baggage, No_baggage -> Axis_ops.less_or_equal m1 m2
     (* CR layouts v2.8: This should expand types on the left. *)
-    | Baggage _, No_baggage ->
-      if Axis_ops.le Axis_ops.max m2 then Less else Not_le
+    | Baggage (ty, tys), No_baggage ->
+      if Axis_ops.le Axis_ops.max m2
+      then Less
+      else
+        let m1' = reduce_baggage ~jkind_of_type ~axis m1 (ty :: tys) in
+        Axis_ops.less_or_equal m1' m2
 end
 
 module Bounds = struct
@@ -519,11 +529,11 @@ module Bounds = struct
 
   let meet bounds1 bounds2 = Map2.f { f = Bound.meet } bounds1 bounds2
 
-  let less_or_equal bounds1 bounds2 =
+  let less_or_equal ~jkind_of_type bounds1 bounds2 =
     Fold2.f
       { f =
           (fun (type axis) ~(axis : axis Axis.t) bound1 bound2 ->
-            Bound.less_or_equal ~axis bound1 bound2)
+            Bound.less_or_equal ~jkind_of_type ~axis bound1 bound2)
       }
       ~combine:Misc.Le_result.combine bounds1 bounds2
 
@@ -802,11 +812,13 @@ module Const = struct
     let get_modal_bound (type a) ~(axis : a Axis.t) ~(base : ('d1, a) Bound.t)
         (actual : ('d2, a) Bound.t) =
       let (module A) = Axis.get axis in
+      let jkind_of_type _ = None in
+      (* CR layouts v2.8: Fix printing! *)
       let less_or_equal a b =
         let open Misc.Stdlib.Monad.Option.Syntax in
         let* a = Bound.try_allow_l a in
         let* b = Bound.try_allow_r b in
-        Some (Bound.less_or_equal ~axis a b)
+        Some (Bound.less_or_equal ~jkind_of_type ~axis a b)
       in
       match less_or_equal actual base with
       | Some Less | Some Equal -> (
@@ -1120,10 +1132,10 @@ module Jkind_desc = struct
   let equate_or_equal ~allow_mutation t1 t2 =
     Layout_and_axes.equal (Layout.equate_or_equal ~allow_mutation) t1 t2
 
-  let sub { layout = lay1; upper_bounds = bounds1 }
+  let sub ~jkind_of_type { layout = lay1; upper_bounds = bounds1 }
       { layout = lay2; upper_bounds = bounds2 } =
     Misc.Le_result.combine (Layout.sub lay1 lay2)
-      (Bounds.less_or_equal bounds1 bounds2)
+      (Bounds.less_or_equal ~jkind_of_type bounds1 bounds2)
 
   let intersection { layout = lay1; upper_bounds = bounds1 }
       { layout = lay2; upper_bounds = bounds2 } =
@@ -1983,7 +1995,8 @@ let score_reason = function
   | Creation (Concrete_creation _ | Concrete_legacy_creation _) -> -1
   | _ -> 0
 
-let combine_histories reason (Pack k1) (Pack k2) =
+let combine_histories ?(jkind_of_type = fun _ -> None) reason (Pack k1)
+    (Pack k2) =
   if flattened_histories
   then
     let choose_higher_scored_history history_a history_b =
@@ -1992,7 +2005,7 @@ let combine_histories reason (Pack k1) (Pack k2) =
       else history_b
     in
     let choose_subjkind_history k_a history_a k_b history_b =
-      match Jkind_desc.sub k_a k_b with
+      match Jkind_desc.sub ~jkind_of_type k_a k_b with
       | Less -> history_a
       | Not_le ->
         (* CR layouts: this will be wrong if we ever have a non-trivial meet in
@@ -2046,37 +2059,41 @@ let round_up ~jkind_of_type t =
 let map_type_expr f t = { t with jkind = Jkind_desc.map_type_expr f t.jkind }
 
 (* this is hammered on; it must be fast! *)
-let check_sub sub super = Jkind_desc.sub sub.jkind super.jkind
+let check_sub ~jkind_of_type sub super =
+  Jkind_desc.sub ~jkind_of_type sub.jkind super.jkind
 
-let sub sub super = Misc.Le_result.is_le (check_sub sub super)
+let sub ~jkind_of_type sub super =
+  Misc.Le_result.is_le (check_sub ~jkind_of_type sub super)
 
 type sub_or_intersect =
   | Sub
   | Disjoint
   | Has_intersection
 
-let sub_or_intersect t1 t2 =
-  if sub t1 t2
+let sub_or_intersect ~jkind_of_type t1 t2 =
+  if sub ~jkind_of_type t1 t2
   then Sub
   else if has_intersection t1 t2
   then Has_intersection
   else Disjoint
 
-let sub_or_error t1 t2 =
-  match sub_or_intersect t1 t2 with
+let sub_or_error ~jkind_of_type t1 t2 =
+  match sub_or_intersect ~jkind_of_type t1 t2 with
   | Sub -> Ok ()
   | _ -> Error (Violation.of_ (Not_a_subjkind (t1, t2)))
 
 (* CR layouts v2.8: Rewrite this to do the hard subjkind check from the
    kind polymorphism design. *)
-let sub_jkind_l ~type_equal sub super =
+let sub_jkind_l ~type_equal ~jkind_of_type sub super =
   let success =
     Ok { sub with history = combine_histories Subjkind (Pack sub) (Pack super) }
   in
   let failure = Error (Violation.of_ (Not_a_subjkind (sub, super))) in
   match try_allow_r super with
   | Some super -> (
-    match check_sub sub super with Less | Equal -> success | Not_le -> failure)
+    match check_sub ~jkind_of_type sub super with
+    | Less | Equal -> success
+    | Not_le -> failure)
   | None ->
     (* CR layouts v2.8: Do something better than just comparing for equality. *)
     (* We can't use other functions, because they insist that we only compare
@@ -2109,7 +2126,10 @@ let is_void_defaulting = function
 
 (* This doesn't do any mutation because mutating a sort variable can't make it
    any, and modal upper bounds are constant. *)
-let is_max jkind = sub Builtin.any_dummy_jkind jkind
+(* The choice of [jkind_of_type] doesn't matter because there are no with-kinds
+   on the left-hand kind. *)
+let is_max jkind =
+  sub ~jkind_of_type:(fun _ -> None) Builtin.any_dummy_jkind jkind
 
 let has_layout_any jkind =
   match jkind.jkind.layout with Any -> true | _ -> false
