@@ -115,6 +115,8 @@ module Baggage : sig
         -> ('type_expr, 'l * Allowance.disallowed) t
 
   val as_list : ('type_expr, 'l * 'r) t -> 'type_expr list
+
+  val has_baggage : ('type_expr, 'l * 'r) t -> bool
 end
 
 module Bound : sig

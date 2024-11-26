@@ -533,6 +533,10 @@ module Baggage = struct
     | No_baggage -> []
     | Baggage (ty, tys) -> ty :: tys
 
+  let has_baggage : type l r. (_, l * r) t -> _ = function
+    | No_baggage -> false
+    | Baggage _ -> true
+
   open Allowance
 
   include Magic_allow_disallow (struct
