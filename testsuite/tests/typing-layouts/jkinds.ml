@@ -749,15 +749,10 @@ type t : any mod many = { x : string }
 type t : any mod portable = { x : string }
 type t : any mod uncontended = { x : string }
 [%%expect {|
-Line 1, characters 0-38:
-1 | type t : any mod many = { x : string }
-    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-Error: The kind of type "t" is immutable_data
-         because it's a boxed record type.
-       But the kind of type "t" must be a subkind of any mod many
-         because of the annotation on the declaration of the type t.
+type t = { x : string; }
+type t = { x : string; }
+type t = { x : string; }
 |}]
-(* CR layouts v2.8: This should be accepted *)
 
 type t : any mod many = { x : t_value }
 [%%expect{|
@@ -808,15 +803,8 @@ type u : immediate
 type t : value mod portable many uncontended = { x : string; y : int; z : u }
 [%%expect {|
 type u : immediate
-Line 2, characters 0-77:
-2 | type t : value mod portable many uncontended = { x : string; y : int; z : u }
-    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-Error: The kind of type "t" is immutable_data
-         because it's a boxed record type.
-       But the kind of type "t" must be a subkind of immutable_data
-         because of the annotation on the declaration of the type t.
+type t = { x : string; y : int; z : u; }
 |}]
-(* CR layouts v2.8: This should be accepted *)
 
 type t = { x : string }
 let foo : _ as (_ : value mod external_) = { x = "string" }
@@ -837,15 +825,10 @@ type t : any mod uncontended = { x : int }
 type t : any mod portable = { x : int }
 type t : any mod many = { x : int }
 [%%expect{|
-Line 1, characters 0-42:
-1 | type t : any mod uncontended = { x : int }
-    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-Error: The kind of type "t" is immutable_data
-         because it's a boxed record type.
-       But the kind of type "t" must be a subkind of any mod uncontended
-         because of the annotation on the declaration of the type t.
+type t = { x : int; }
+type t = { x : int; }
+type t = { x : int; }
 |}]
-(* CR layouts v2.8: this should be accepted *)
 
 type t : any mod global = { x : int }
 [%%expect {|
@@ -996,15 +979,8 @@ val v : int = 5
 
 type ('a : immediate) t : value mod many portable = { mutable x : 'a }
 [%%expect {|
-Line 1, characters 0-70:
-1 | type ('a : immediate) t : value mod many portable = { mutable x : 'a }
-    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-Error: The kind of type "t" is mutable_data
-         because it's a boxed record type.
-       But the kind of type "t" must be a subkind of mutable_data
-         because of the annotation on the declaration of the type t.
+type ('a : immediate) t = { mutable x : 'a; }
 |}]
-(* CR layouts v2.8: this should be accepted *)
 
 type ('a : immediate) t : value mod global = { mutable x : 'a }
 [%%expect {|
