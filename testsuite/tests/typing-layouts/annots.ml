@@ -1091,16 +1091,8 @@ Error: The kind of type "t" is immutable_data
 
 type t : any mod portable = { x : float }
 [%%expect {|
-Line 1, characters 0-41:
-1 | type t : any mod portable = { x : float }
-    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-Error: The kind of type "t" is immutable_data
-         because it's a boxed record type.
-       But the kind of type "t" must be a subkind of any mod portable
-         because of the annotation on the declaration of the type t.
+type t = { x : float; }
 |}]
-(* CR layouts v2.8: This should be accepted, because t should be inferred to
-   mode-cross portability. *)
 
 type t = { x : int } [@@unboxed]
 let f (x : t) : _ as (_ : immediate) = x
