@@ -2102,6 +2102,8 @@ let sub_jkind_l ~type_equal ~jkind_of_type sub super =
     Ok { sub with history = combine_histories Subjkind (Pack sub) (Pack super) }
   in
   let failure = Error (Violation.of_ (Not_a_subjkind (sub, super))) in
+  (* First try normal subjkinding, if the right-hand jkind has the right
+     shape. *)
   match try_allow_r super with
   | Some super -> (
     match check_sub ~jkind_of_type sub super with
@@ -2119,15 +2121,24 @@ let sub_jkind_l ~type_equal ~jkind_of_type sub super =
         { f =
             (fun (type axis) ~(axis : axis Axis.t) (bound1 : _ Bound.t)
                  (bound2 : _ Bound.t) ->
-              let (module Bound_ops) = Axis.get axis in
-              let baggage1 = Baggage.as_list bound1.baggage in
-              let baggage2 = Baggage.as_list bound2.baggage in
-              let modifiers = Bound_ops.equal bound1.modifier bound2.modifier in
-              let baggages =
-                List.compare_lengths baggage1 baggage2 = 0
-                && List.for_all2 type_equal baggage1 baggage2
-              in
-              modifiers && baggages)
+              (* Maybe an individual axis has the right shape on the right;
+                 try this again before doing the stupid equality check. *)
+              match Bound.try_allow_r bound2 with
+              | Some bound2 ->
+                Misc.Le_result.is_le
+                  (Bound.less_or_equal ~axis ~jkind_of_type bound1 bound2)
+              | None ->
+                let (module Bound_ops) = Axis.get axis in
+                let baggage1 = Baggage.as_list bound1.baggage in
+                let baggage2 = Baggage.as_list bound2.baggage in
+                let modifiers =
+                  Bound_ops.equal bound1.modifier bound2.modifier
+                in
+                let baggages =
+                  List.compare_lengths baggage1 baggage2 = 0
+                  && List.for_all2 type_equal baggage1 baggage2
+                in
+                modifiers && baggages)
         }
         ~combine:( && ) sub.jkind.upper_bounds super.jkind.upper_bounds
     in
