@@ -1105,10 +1105,15 @@ module Jkind_desc = struct
       let (module A : Lattice with type t = a) = Axis.get axis in
       let from_bound = Bounds.get ~axis from.upper_bounds in
       let to_bound = Bounds.get ~axis to_ in
-      (* This discards any baggage, but that's what we want when doing illegal
-         crossing. *)
       let new_bound =
-        Bound.simple (A.meet from_bound.modifier to_bound.modifier)
+        (* Only do this when the new mode is less than the old one. We
+           don't want to discard baggage if the new one is greater than
+           the old one. *)
+        if A.le from_bound.modifier to_bound.modifier
+           (* This discards any baggage, but that's what we want when doing illegal
+              crossing. *)
+        then Bound.simple from_bound.modifier
+        else to_bound
       in
       let added_crossings =
         not

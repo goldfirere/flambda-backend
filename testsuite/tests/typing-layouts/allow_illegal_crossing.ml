@@ -469,8 +469,23 @@ end = struct
   type t = { a : string -> string }
 end
 [%%expect {|
-  BAD
-module A : sig type t : value mod portable end
+Lines 3-5, characters 6-3:
+3 | ......struct
+4 |   type t = { a : string -> string }
+5 | end
+Error: Signature mismatch:
+       Modules do not match:
+         sig type t = { a : string -> string; } end
+       is not included in
+         sig type t : value mod portable end
+       Type declarations do not match:
+         type t = { a : string -> string; }
+       is not included in
+         type t : value mod portable
+       The kind of the first is immutable_data
+         because of the definition of t at line 4, characters 2-35.
+       But the kind of the first must be a subkind of value mod portable
+         because of the definition of t at line 2, characters 2-29.
 |}]
 
 module A : sig
@@ -482,6 +497,15 @@ end = struct
 end
 [%%expect {|
 module A : sig type t = { a : string; } end
+|}, Principal{|
+Line 6, characters 11-12:
+6 |   type v = t u
+               ^
+Error: This type "t" should be an instance of type "('a : value mod portable)"
+       The kind of t is immutable_data
+         because of the definition of t at line 4, characters 2-25.
+       But the kind of t must be a subkind of value mod portable
+         because of the definition of u at line 5, characters 2-39.
 |}]
 
 module A : sig
@@ -492,8 +516,14 @@ end = struct
   type v = t u
 end
 [%%expect {|
-  BAD
-module A : sig type t : immutable_data = { a : string -> string; } end
+Line 6, characters 11-12:
+6 |   type v = t u
+               ^
+Error: This type "t" should be an instance of type "('a : value mod portable)"
+       The kind of t is immutable_data
+         because of the definition of t at line 4, characters 2-35.
+       But the kind of t must be a subkind of value mod portable
+         because of the definition of u at line 5, characters 2-39.
 |}]
 
 module A : sig
@@ -504,6 +534,16 @@ end = struct
 end
 [%%expect {|
 module A : sig type t = { a : string; } end
+|}, Principal{|
+Line 5, characters 42-57:
+5 |   let x : _ as (_ : value mod portable) = { a = "hello" }
+                                              ^^^^^^^^^^^^^^^
+Error: This expression has type "t" but an expression was expected of type
+         "('a : value mod portable)"
+       The kind of t is immutable_data
+         because of the definition of t at line 4, characters 2-25.
+       But the kind of t must be a subkind of value mod portable
+         because of the annotation on the wildcard _ at line 5, characters 20-38.
 |}]
 
 module A : sig
@@ -513,8 +553,15 @@ end = struct
   let x : _ as (_ : value mod portable) = { a = fun _ -> "hello" }
 end
 [%%expect {|
-  BAD
-module A : sig type t : immutable_data = { a : string -> string; } end
+Line 5, characters 42-66:
+5 |   let x : _ as (_ : value mod portable) = { a = fun _ -> "hello" }
+                                              ^^^^^^^^^^^^^^^^^^^^^^^^
+Error: This expression has type "t" but an expression was expected of type
+         "('a : value mod portable)"
+       The kind of t is immutable_data
+         because of the definition of t at line 4, characters 2-35.
+       But the kind of t must be a subkind of value mod portable
+         because of the annotation on the wildcard _ at line 5, characters 20-38.
 |}]
 
 type a
@@ -540,9 +587,14 @@ type b = a
 type a = { foo : int -> int; bar : string }
 type b : any mod portable = a
 [%%expect {|
-  BAD
 type a = { foo : int -> int; bar : string; }
-type b = a
+Line 2, characters 0-29:
+2 | type b : any mod portable = a
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Error: The kind of type "a" is immutable_data
+         because of the definition of a at line 1, characters 0-43.
+       But the kind of type "a" must be a subkind of any mod portable
+         because of the definition of b at line 2, characters 0-29.
 |}]
 
 type a = Foo of int | Bar of string
@@ -592,16 +644,27 @@ type b = a = private { foo : string; }
 type a = { foo : string -> string }
 type b : value mod portable = a = { foo : string -> string }
 [%%expect {|
-  BAD
 type a = { foo : string -> string; }
-type b = a : immutable_data = { foo : string -> string; }
+Line 2, characters 0-60:
+2 | type b : value mod portable = a = { foo : string -> string }
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Error: The kind of type "a" is immutable_data
+         because of the definition of a at line 1, characters 0-35.
+       But the kind of type "a" must be a subkind of immutable_data
+         because of the definition of b at line 2, characters 0-60.
 |}]
 
 type a = private { foo : int array }
 type b : value mod uncontended = a = private { foo : int array }
 [%%expect {|
 type a = private { foo : int array; }
-type b = a : immutable_data = private { foo : int array; }
+Line 2, characters 0-64:
+2 | type b : value mod uncontended = a = private { foo : int array }
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Error: The kind of type "a" is immutable_data
+         because of the definition of a at line 1, characters 0-36.
+       But the kind of type "a" must be a subkind of immutable_data
+         because of the definition of b at line 2, characters 0-64.
 |}]
 
 type a = Foo of string | Bar
@@ -652,16 +715,33 @@ type u = t of_portable
 type ('a : value mod portable) of_portable
 type t = { foo : int; }
 type u = t of_portable
+|}, Principal{|
+type ('a : value mod portable) of_portable
+type t = { foo : int; }
+Line 3, characters 9-10:
+3 | type u = t of_portable
+             ^
+Error: This type "t" should be an instance of type "('a : value mod portable)"
+       The kind of t is immutable_data
+         because of the definition of t at line 2, characters 0-22.
+       But the kind of t must be a subkind of value mod portable
+         because of the definition of of_portable at line 1, characters 0-42.
 |}]
 
 type ('a : value mod portable) of_portable
 type t = { foo : int -> int }
 type u = t of_portable
 [%%expect {|
-  BAD
 type ('a : value mod portable) of_portable
 type t = { foo : int -> int; }
-type u = t of_portable
+Line 3, characters 9-10:
+3 | type u = t of_portable
+             ^
+Error: This type "t" should be an instance of type "('a : value mod portable)"
+       The kind of t is immutable_data
+         because of the definition of t at line 2, characters 0-29.
+       But the kind of t must be a subkind of value mod portable
+         because of the definition of of_portable at line 1, characters 0-42.
 |}]
 
 let f : ('a : value mod portable). 'a -> 'a = fun x -> x
@@ -737,7 +817,7 @@ Line 2, characters 45-61:
                                                  ^^^^^^^^^^^^^^^^
 Error: This expression has type "t" but an expression was expected of type
          "('a : value mod uncontended)"
-       The kind of t is value
+       The kind of t is immutable_data
          because of the definition of t at line 1, characters 0-24.
        But the kind of t must be a subkind of value mod uncontended
          because of the annotation on the wildcard _ at line 2, characters 20-41.
