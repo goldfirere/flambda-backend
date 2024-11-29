@@ -314,6 +314,9 @@ val add_nullability_crossing : 'd t -> 'd t
 (** Take an existing [t] and add some baggage. *)
 val add_baggage : baggage:Types.type_expr -> jkind_l -> jkind_l
 
+(** Does this jkind have baggage? *)
+val has_baggage : jkind_l -> bool
+
 (** Take an existing [t] and add an ability to mode-cross along the portability and
     contention axes, if [from] crosses the respective axes. Return the new jkind,
     along with a boolean of whether illegal crossing was added *)

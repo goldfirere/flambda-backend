@@ -2165,9 +2165,18 @@ let rec estimate_type_jkind ~expand_component env ty =
   | Tconstr (p, args, _) -> begin try
       let type_decl = Env.find_type p env in
       let jkind = type_decl.type_jkind in
-      let level = get_level ty in
-      (* CR reisenberg: skip substitution on the first pass *)
-      jkind_subst env level type_decl.type_params args jkind
+      (* Checking [has_baggage] here is needed for correctness, because
+         intersection types sometimes do not unify with themselves. Removing
+         this check causes typing-misc/pr7937.ml to fail. *)
+      if Jkind.has_baggage jkind
+      then
+        let level = get_level ty in
+        (* CR layouts v2.8: We could possibly skip this substitution if we're
+           called from [constrain_type_jkind]; the jkind returned without
+           substing is just weaker than the one we would get by substing. *)
+        jkind_subst env level type_decl.type_params args jkind
+      else
+        jkind
     with
     | Cannot_subst | Not_found -> Jkind.Builtin.any ~why:(Missing_cmi p)
     end

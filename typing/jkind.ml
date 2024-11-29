@@ -549,6 +549,11 @@ module Bounds = struct
             | true, false -> bound)
       }
       bounds
+
+  let has_baggage bounds =
+    Fold.f
+      { f = (fun ~axis:_ bound -> Baggage.has_baggage bound.baggage) }
+      ~combine:( || ) bounds
 end
 
 (***********************)
@@ -1292,6 +1297,8 @@ let add_nullability_crossing t =
 
 let add_baggage ~baggage t =
   { t with jkind = Jkind_desc.add_baggage ~deep_only:true ~baggage t.jkind }
+
+let has_baggage t = Bounds.has_baggage t.jkind.upper_bounds
 
 let add_portability_and_contention_crossing ~jkind_of_type ~from t =
   match try_allow_r from with
