@@ -2399,10 +2399,15 @@ let rec intersect_type_jkind ~reason env ty1 jkind2 =
     Jkind.intersection_or_error ~reason jkind1 jkind2
 
 (* See comment on [jkind_unification_mode] *)
-let unification_jkind_check env ty jkind =
-  match !lmode with
-  | Perform_checks -> constrain_type_jkind_exn env Unify ty jkind
-  | Delay_checks r -> r := (ty,jkind) :: !r
+let unification_jkind_check uenv ty jkind =
+  (* If we assume the original type is well-kinded, then we don't need to check
+     jkinds in substitution. And checking here can actually cause a loop with
+     with-kinds, in test case typing-misc/constraints.ml, because substitution
+     is used in [estimate_type_jkind], used in [constrain_type_jkind]. *)
+  if not (in_subst_mode uenv) then
+    match !lmode with
+    | Perform_checks -> constrain_type_jkind_exn (get_env uenv) Unify ty jkind
+    | Delay_checks r -> r := (ty,jkind) :: !r
 
 let check_and_update_generalized_ty_jkind ?name ~loc env ty =
   let immediacy_check jkind =
@@ -3463,7 +3468,7 @@ let unify1_var uenv t1 t2 =
   let env = get_env uenv in
   match
     occur_univar_for Unify env t2;
-    unification_jkind_check env t2 (Jkind.disallow_left jkind)
+    unification_jkind_check uenv t2 (Jkind.disallow_left jkind)
   with
   | () ->
       begin
@@ -3491,7 +3496,7 @@ let unify3_var uenv jkind1 t1' t2 t2' =
   let snap = snapshot () in
   match
     occur_univar_for Unify (get_env uenv) t2;
-    unification_jkind_check (get_env uenv) t2' (Jkind.disallow_left jkind1)
+    unification_jkind_check uenv t2' (Jkind.disallow_left jkind1)
   with
   | () -> link_type t1' t2
   | exception Unify_trace _ when in_pattern_mode uenv ->
@@ -4141,11 +4146,7 @@ let unify_var uenv t1 t2 =
         occur_for Unify uenv t1 t2;
         update_level_for Unify env (get_level t1) t2;
         update_scope_for Unify (get_scope t1) t2;
-        (* If we assume the original type is well-kinded, then we don't
-           need to check jkinds in substitution. *)
-        if not (in_subst_mode uenv) then begin
-          unification_jkind_check env t2 (Jkind.disallow_left jkind)
-        end;
+        unification_jkind_check uenv t2 (Jkind.disallow_left jkind);
         link_type t1 t2;
         reset_trace_gadt_instances reset_tracing;
       with Unify_trace trace ->
