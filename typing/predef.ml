@@ -222,32 +222,37 @@ let list_argument_jkind = Jkind.Builtin.value ~why:(
 
 let or_null_argument_sort = Jkind.Sort.Const.value
 
-let mk_add_type add_type
+let mk_add_type add_type =
+  let add_type_with_jkind
       ?manifest type_ident
       ?(kind=Type_abstract Definition)
       ~jkind
       env =
-  let type_jkind = Jkind.of_builtin ~why:(Primitive type_ident) jkind
+    let decl =
+      {type_params = [];
+       type_arity = 0;
+       type_kind = kind;
+       type_jkind = jkind;
+       type_loc = Location.none;
+       type_private = Asttypes.Public;
+       type_manifest = manifest;
+       type_variance = [];
+       type_separability = [];
+       type_is_newtype = false;
+       type_expansion_scope = lowest_level;
+       type_attributes = [];
+       type_unboxed_default = false;
+       type_uid = Uid.of_predef_id type_ident;
+       type_has_illegal_crossings = false;
+      }
+    in
+    add_type type_ident decl env
   in
-  let decl =
-    {type_params = [];
-     type_arity = 0;
-     type_kind = kind;
-     type_jkind;
-     type_loc = Location.none;
-     type_private = Asttypes.Public;
-     type_manifest = manifest;
-     type_variance = [];
-     type_separability = [];
-     type_is_newtype = false;
-     type_expansion_scope = lowest_level;
-     type_attributes = [];
-     type_unboxed_default = false;
-     type_uid = Uid.of_predef_id type_ident;
-     type_has_illegal_crossings = false;
-    }
+  let add_type ?manifest type_ident ?kind ~jkind env =
+    let jkind = Jkind.of_builtin ~why:(Primitive type_ident) jkind in
+    add_type_with_jkind ?manifest type_ident ?kind ~jkind env
   in
-  add_type type_ident decl env
+  add_type_with_jkind, add_type
 
 let mk_add_type1 add_type type_ident
       ?(kind=fun _ -> Type_abstract Definition)
@@ -337,7 +342,7 @@ let unrestricted tvar ca_sort =
 (* CR layouts: Changes will be needed here as we add support for the built-ins
    to work with non-values, and as we relax the mixed block restriction. *)
 let build_initial_env add_type add_extension empty_env =
-  let add_type = mk_add_type add_type
+  let add_type_with_jkind, add_type = mk_add_type add_type
   and add_type1 = mk_add_type1 add_type
   and add_extension = mk_add_extension add_extension in
   empty_env
@@ -393,7 +398,7 @@ let build_initial_env add_type add_extension empty_env =
        ~jkind:(fun param ->
          Jkind.add_baggage ~baggage:param
            (Jkind.Builtin.immutable_data ~why:Boxed_variant))
-  |> add_type ident_lexing_position
+  |> add_type_with_jkind ident_lexing_position
        ~kind:(
          let lbl (field, field_type) =
            let id = Ident.create_predef field in
@@ -419,7 +424,15 @@ let build_initial_env add_type add_extension empty_env =
            (Record_boxed (List.map (fun label -> label.ld_sort) labels |> Array.of_list))
          )
        )
-       ~jkind:Jkind.Const.Builtin.immutable_data
+       (* CR layouts v2.8: Possibly remove this -- and simplify [mk_add_type] --
+          when we have a better jkind subsumption check. *)
+       ~jkind:Jkind.(
+         of_builtin Const.Builtin.immutable_data
+           ~why:(Primitive ident_lexing_position) |>
+         add_baggage ~baggage:type_int |>
+         add_baggage ~baggage:type_int |>
+         add_baggage ~baggage:type_int |>
+         add_baggage ~baggage:type_string)
   |> add_type ident_string ~jkind:Jkind.Const.Builtin.immutable_data
   |> add_type ident_unboxed_float ~jkind:Jkind.Const.Builtin.float64
   |> add_type ident_unboxed_nativeint ~jkind:Jkind.Const.Builtin.word
@@ -453,7 +466,7 @@ let build_initial_env add_type add_extension empty_env =
        Jkind.Sort.Const.value]
 
 let add_simd_stable_extension_types add_type env =
-  let add_type = mk_add_type add_type in
+  let _, add_type = mk_add_type add_type in
   env
   |> add_type ident_int8x16 ~jkind:Jkind.Const.Builtin.immutable_data
   |> add_type ident_int16x8 ~jkind:Jkind.Const.Builtin.immutable_data
@@ -469,7 +482,7 @@ let add_simd_stable_extension_types add_type env =
   |> add_type ident_unboxed_float64x2 ~jkind:Jkind.Const.Builtin.vec128
 
 let add_small_number_extension_types add_type env =
-  let add_type = mk_add_type add_type in
+  let _, add_type = mk_add_type add_type in
   env
   |> add_type ident_float32 ~jkind:Jkind.Const.Builtin.immutable_data
   |> add_type ident_unboxed_float32 ~jkind:Jkind.Const.Builtin.float32
