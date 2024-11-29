@@ -414,6 +414,7 @@ module Bound = struct
 
   let reduce_baggage (type a) ~jkind_of_type ~(axis : a Axis.t) modifier baggage
       =
+    (* CR reisenberg: fuel per identifier *)
     let module TypeSet = Btype.TypeSet in
     let (module A) = Axis.get axis in
     (* Sadly, it seems hard (impossible?) to be sure to expand all types

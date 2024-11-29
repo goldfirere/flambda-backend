@@ -2166,6 +2166,7 @@ let rec estimate_type_jkind ~expand_component env ty =
       let type_decl = Env.find_type p env in
       let jkind = type_decl.type_jkind in
       let level = get_level ty in
+      (* CR reisenberg: skip substitution on the first pass *)
       jkind_subst env level type_decl.type_params args jkind
     with
     | Cannot_subst | Not_found -> Jkind.Builtin.any ~why:(Missing_cmi p)
