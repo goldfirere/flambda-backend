@@ -6911,7 +6911,8 @@ let check_decl_jkind env decl jkind =
     match decl.type_manifest with
     | None -> err
     | Some ty ->
-      (* CR layouts v2.8: Should this use [type_jkind_purely]? I think not. *)
+      (* CR layouts v2.8: Should this use [type_jkind_purely_if_principal]? I
+         think not. *)
       let ty_jkind = type_jkind env ty in
       match Jkind.sub_jkind_l ~type_equal ~jkind_of_type ty_jkind jkind with
       | Ok _ -> Ok ()
