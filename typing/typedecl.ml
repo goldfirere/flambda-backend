@@ -1166,15 +1166,33 @@ let narrow_to_manifest_jkind env loc decl =
   match decl.type_manifest with
   | None -> decl
   | Some ty ->
-    match Jkind.try_allow_r decl.type_jkind with
-    | None -> raise (Error (loc, Illegal_baggage decl.type_jkind))
-    | Some type_jkind ->
-      match
-        Ctype.constrain_type_jkind env ty type_jkind
-      with
-      | Ok () -> { decl with type_jkind = Ctype.estimate_type_jkind env ty }
-      | Error v ->
-        raise (Error (loc, Jkind_mismatch_of_type (ty,v)))
+    (* CR layouts v2.8: Remove this horrible hack. In practice, this
+       [try_allow_r] fails in the case of a record re-export, because the jkind
+       from the record has been calculated and put in decl.type_jkind at this
+       point.  So we need to use the deeply broken [type_jkind_purely] and then
+       [sub_jkind_l] here. The right way forward is to parameterize
+       [constrain_type_jkind] over the [l]-ness of its bound. But probably not
+       until we have proper subsumption working, as this hack will likely hold
+       up for a little while. *)
+    begin match Jkind.try_allow_r decl.type_jkind with
+    | None -> begin
+        let type_equal = Ctype.type_equal env in
+        let jkind_of_type ty = Some (Ctype.type_jkind_purely env ty) in
+        let manifest_jkind = Ctype.type_jkind_purely env ty in
+        match
+          Jkind.sub_jkind_l ~type_equal ~jkind_of_type
+            manifest_jkind decl.type_jkind
+        with
+        | Ok _ -> ()
+        | Error v -> raise (Error (loc, Jkind_mismatch_of_type (ty,v)))
+      end
+    | Some type_jkind -> begin
+        match Ctype.constrain_type_jkind env ty type_jkind with
+        | Ok () -> ()
+        | Error v -> raise (Error (loc, Jkind_mismatch_of_type (ty,v)))
+      end
+    end;
+    { decl with type_jkind = Ctype.estimate_type_jkind env ty }
 
 (* Check that the type expression (if present) is compatible with the kind.
    If both a variant/record definition and a type equation are given,
