@@ -394,9 +394,8 @@ val of_type_decl_default :
   Parsetree.type_declaration ->
   jkind_l
 
-(** Choose an appropriate jkind for a boxed record type, given whether
-    all of its fields are [void]. *)
-val for_boxed_record : all_void:bool -> Types.label_declaration list -> jkind_l
+(** Choose an appropriate jkind for a boxed record type *)
+val for_boxed_record : Types.label_declaration list -> jkind_l
 
 (** Choose an appropriate jkind for a boxed variant type, given whether
     all of the fields of all of its constructors are [void]. *)

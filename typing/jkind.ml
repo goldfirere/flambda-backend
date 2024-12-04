@@ -1386,14 +1386,17 @@ let of_type_decl_default ~context ~transl_type ~default
   | Some (t, _) -> t
   | None -> default
 
-let for_boxed_record ~all_void lbls =
-  if all_void
+let for_boxed_record lbls =
+  if List.for_all
+       (fun (lbl : Types.label_declaration) ->
+         Sort.Const.(equal void lbl.ld_sort))
+       lbls
   then Builtin.immediate ~why:Empty_record
   else
     let open Types in
     let is_mutable =
       List.exists
-        (fun (lbl : Types.label_declaration) ->
+        (fun lbl ->
           match lbl.ld_mutable with Immutable -> false | Mutable _ -> true)
         lbls
     in
