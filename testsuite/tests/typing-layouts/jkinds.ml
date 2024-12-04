@@ -1054,28 +1054,22 @@ type t = Foo | Bar
 type t = Foo | Bar
 type t = Foo | Bar
 |}]
-(* CR layouts v2.8: These outputs should include kinds *)
 
 type t : any mod uncontended = Foo of int | Bar
 type t : any mod portable = Foo of int | Bar
 type t : any mod many = Foo of int | Bar
 [%%expect {|
-Line 1, characters 0-47:
-1 | type t : any mod uncontended = Foo of int | Bar
-    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-Error: The kind of type "t" is value
-         because it's a boxed variant type.
-       But the kind of type "t" must be a subkind of any mod uncontended
-         because of the annotation on the declaration of the type t.
+type t = Foo of int | Bar
+type t = Foo of int | Bar
+type t = Foo of int | Bar
 |}]
-(* CR layouts v2.8: this should be accepted *)
 
 type t : any mod unique = Foo of int | Bar
 [%%expect {|
 Line 1, characters 0-42:
 1 | type t : any mod unique = Foo of int | Bar
     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-Error: The kind of type "t" is value
+Error: The kind of type "t" is immutable_data
          because it's a boxed variant type.
        But the kind of type "t" must be a subkind of any mod unique
          because of the annotation on the declaration of the type t.
@@ -1086,7 +1080,7 @@ type t : any mod global = Foo of int | Bar
 Line 1, characters 0-42:
 1 | type t : any mod global = Foo of int | Bar
     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-Error: The kind of type "t" is value
+Error: The kind of type "t" is immutable_data
          because it's a boxed variant type.
        But the kind of type "t" must be a subkind of any mod global
          because of the annotation on the declaration of the type t.
@@ -1098,7 +1092,7 @@ type t : any mod external_ = Foo of int | Bar
 Line 1, characters 0-45:
 1 | type t : any mod external_ = Foo of int | Bar
     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-Error: The kind of type "t" is value
+Error: The kind of type "t" is immutable_data
          because it's a boxed variant type.
        But the kind of type "t" must be a subkind of any mod external_
          because of the annotation on the declaration of the type t.

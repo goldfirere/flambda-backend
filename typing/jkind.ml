@@ -1471,17 +1471,30 @@ let for_boxed_variant ~all_voids cstrs =
           | Cstr_record lbls -> has_mutable_label lbls)
         cstrs
     in
-    let base =
-      (if is_mutable then Builtin.mutable_data else Builtin.immutable_data)
-        ~why:Boxed_variant
+    let has_gadt_constructor =
+      List.exists
+        (fun cstr -> match cstr.cd_res with None -> false | Some _ -> true)
+        cstrs
     in
-    let add_cstr_args cstr jkind =
-      match cstr.cd_args with
-      | Cstr_tuple args ->
-        List.fold_right (fun arg -> add_baggage ~baggage:arg.ca_type) args jkind
-      | Cstr_record lbls -> add_labels_as_baggage lbls jkind
-    in
-    List.fold_right add_cstr_args cstrs base
+    if has_gadt_constructor
+       (* CR layouts v2.8: This is sad, but I don't know how to account for
+          existentials in the baggage. See doc named "Existential
+          baggage". *)
+    then Builtin.value ~why:Boxed_variant
+    else
+      let base =
+        (if is_mutable then Builtin.mutable_data else Builtin.immutable_data)
+          ~why:Boxed_variant
+      in
+      let add_cstr_args cstr jkind =
+        match cstr.cd_args with
+        | Cstr_tuple args ->
+          List.fold_right
+            (fun arg -> add_baggage ~baggage:arg.ca_type)
+            args jkind
+        | Cstr_record lbls -> add_labels_as_baggage lbls jkind
+      in
+      List.fold_right add_cstr_args cstrs base
 
 let for_arrow =
   fresh_jkind

@@ -1201,7 +1201,7 @@ type t : value mod global = Foo of int
 Line 1, characters 0-38:
 1 | type t : value mod global = Foo of int
     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-Error: The kind of type "t" is value
+Error: The kind of type "t" is immutable_data
          because it's a boxed variant type.
        But the kind of type "t" must be a subkind of value mod global
          because of the annotation on the declaration of the type t.
@@ -1209,13 +1209,7 @@ Error: The kind of type "t" is value
 
 type t : any mod portable = Foo of float
 [%%expect {|
-Line 1, characters 0-40:
-1 | type t : any mod portable = Foo of float
-    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-Error: The kind of type "t" is value
-         because it's a boxed variant type.
-       But the kind of type "t" must be a subkind of any mod portable
-         because of the annotation on the declaration of the type t.
+type t = Foo of float
 |}]
 
 type t = Foo | Bar
@@ -1265,7 +1259,7 @@ type t : value mod global = Foo of t_value
 Line 1, characters 0-42:
 1 | type t : value mod global = Foo of t_value
     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-Error: The kind of type "t" is value
+Error: The kind of type "t" is immutable_data
          because it's a boxed variant type.
        But the kind of type "t" must be a subkind of value mod global
          because of the annotation on the declaration of the type t.
@@ -1276,7 +1270,7 @@ type t : value mod unique = Foo of t_value
 Line 1, characters 0-42:
 1 | type t : value mod unique = Foo of t_value
     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-Error: The kind of type "t" is value
+Error: The kind of type "t" is immutable_data
          because it's a boxed variant type.
        But the kind of type "t" must be a subkind of value mod unique
          because of the annotation on the declaration of the type t.
@@ -1287,7 +1281,7 @@ type t : value mod many = Foo of t_value
 Line 1, characters 0-40:
 1 | type t : value mod many = Foo of t_value
     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-Error: The kind of type "t" is value
+Error: The kind of type "t" is immutable_data
          because it's a boxed variant type.
        But the kind of type "t" must be a subkind of value mod many
          because of the annotation on the declaration of the type t.
@@ -1298,7 +1292,7 @@ type t : value mod portable = Foo of t_value
 Line 1, characters 0-44:
 1 | type t : value mod portable = Foo of t_value
     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-Error: The kind of type "t" is value
+Error: The kind of type "t" is immutable_data
          because it's a boxed variant type.
        But the kind of type "t" must be a subkind of value mod portable
          because of the annotation on the declaration of the type t.
@@ -1309,7 +1303,7 @@ type t : value mod uncontended = Foo of t_value
 Line 1, characters 0-47:
 1 | type t : value mod uncontended = Foo of t_value
     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-Error: The kind of type "t" is value
+Error: The kind of type "t" is immutable_data
          because it's a boxed variant type.
        But the kind of type "t" must be a subkind of value mod uncontended
          because of the annotation on the declaration of the type t.
@@ -1320,7 +1314,7 @@ type t : value mod external_ = Foo of t_value
 Line 1, characters 0-45:
 1 | type t : value mod external_ = Foo of t_value
     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-Error: The kind of type "t" is value
+Error: The kind of type "t" is immutable_data
          because it's a boxed variant type.
        But the kind of type "t" must be a subkind of value mod external_
          because of the annotation on the declaration of the type t.

@@ -551,8 +551,24 @@ type 'a t2 : immutable_data with 'a = Foo of 'a
 Line 1, characters 0-47:
 1 | type 'a t2 : immutable_data with 'a = Foo of 'a
     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-Error: The kind of type "t2" is value
+Error: The kind of type "t2" is immutable_data
          because it's a boxed variant type.
        But the kind of type "t2" must be a subkind of immutable_data
          because of the annotation on the declaration of the type t2.
+|}]
+
+(*****************)
+(* TEST 4: Loops *)
+
+(* This requires fuel-per-type-head in [Jkind.Bound.reduce_baggage] to cut off
+   *)
+type 'a t = Leaf of 'a | Node of ('a * 'a) t
+
+let rec depth : 'a. 'a t -> _ = function
+  | Leaf _ -> 1
+  | Node x -> 1 + depth x
+
+[%%expect{|
+type 'a t = Leaf of 'a | Node of ('a * 'a) t
+val depth : 'a t -> int = <fun>
 |}]
