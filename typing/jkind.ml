@@ -1433,6 +1433,17 @@ let of_type_decl_default ~context ~transl_type ~default
   | Some (t, _) -> t
   | None -> default
 
+let has_mutable_label lbls =
+  List.exists
+    (fun (lbl : Types.label_declaration) ->
+      match lbl.ld_mutable with Immutable -> false | Mutable _ -> true)
+    lbls
+
+let add_labels_as_baggage lbls jkind =
+  List.fold_right
+    (fun (lbl : Types.label_declaration) -> add_baggage ~baggage:lbl.ld_type)
+    lbls jkind
+
 let for_boxed_record lbls =
   if List.for_all
        (fun (lbl : Types.label_declaration) ->
@@ -1440,24 +1451,37 @@ let for_boxed_record lbls =
        lbls
   then Builtin.immediate ~why:Empty_record
   else
-    let open Types in
-    let is_mutable =
-      List.exists
-        (fun lbl ->
-          match lbl.ld_mutable with Immutable -> false | Mutable _ -> true)
-        lbls
-    in
+    let is_mutable = has_mutable_label lbls in
     let base =
       (if is_mutable then Builtin.mutable_data else Builtin.immutable_data)
         ~why:Boxed_record
     in
-    List.fold_right (fun lbl -> add_baggage ~baggage:lbl.ld_type) lbls base
+    add_labels_as_baggage lbls base
 
-(* CR reisenberg: fix *)
-let for_boxed_variant ~all_voids _ =
+let for_boxed_variant ~all_voids cstrs =
   if all_voids
   then Builtin.immediate ~why:Enumeration
-  else Builtin.value ~why:Boxed_variant
+  else
+    let open Types in
+    let is_mutable =
+      List.exists
+        (fun cstr ->
+          match cstr.cd_args with
+          | Cstr_tuple _ -> false
+          | Cstr_record lbls -> has_mutable_label lbls)
+        cstrs
+    in
+    let base =
+      (if is_mutable then Builtin.mutable_data else Builtin.immutable_data)
+        ~why:Boxed_variant
+    in
+    let add_cstr_args cstr jkind =
+      match cstr.cd_args with
+      | Cstr_tuple args ->
+        List.fold_right (fun arg -> add_baggage ~baggage:arg.ca_type) args jkind
+      | Cstr_record lbls -> add_labels_as_baggage lbls jkind
+    in
+    List.fold_right add_cstr_args cstrs base
 
 let for_arrow =
   fresh_jkind
