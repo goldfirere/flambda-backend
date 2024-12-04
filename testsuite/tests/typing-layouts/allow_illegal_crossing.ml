@@ -767,7 +767,7 @@ Line 2, characters 10-18:
               ^^^^^^^^
 Error: This expression has type "int ref"
        but an expression was expected of type "('a : value mod uncontended)"
-       The kind of int ref is value.
+       The kind of int ref is mutable_data.
        But the kind of int ref must be a subkind of value mod uncontended
          because of the definition of f at line 1, characters 4-5.
 |}]

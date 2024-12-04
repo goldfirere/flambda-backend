@@ -1192,6 +1192,9 @@ let narrow_to_manifest_jkind env loc decl =
         | Error v -> raise (Error (loc, Jkind_mismatch_of_type (ty,v)))
       end
     end;
+    (* Just use [estimate_type_jkind], as [type_jkind] does effectful
+       expansion (bad) and [type_jkind_purely] is broken; see comments
+       on that function. *)
     { decl with type_jkind = Ctype.estimate_type_jkind env ty }
 
 (* Check that the type expression (if present) is compatible with the kind.
