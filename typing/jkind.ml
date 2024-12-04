@@ -414,7 +414,9 @@ module Bound = struct
 
   let reduce_baggage (type a) ~jkind_of_type ~(axis : a Axis.t) modifier baggage
       =
-    (* CR reisenberg: fuel per identifier *)
+    (* CR layouts v2.8: Use fuel per type path, instead of one shared pile of
+       fuel. This is less likely to reject programs with long sequences of
+       abbreviations. *)
     let module TypeSet = Btype.TypeSet in
     let (module A) = Axis.get axis in
     (* Sadly, it seems hard (impossible?) to be sure to expand all types
@@ -1388,7 +1390,6 @@ let for_boxed_record ~all_void lbls =
   if all_void
   then Builtin.immediate ~why:Empty_record
   else
-    (* CR reisenberg: Builtin.value ~why:Boxed_record *)
     let open Types in
     let is_mutable =
       List.exists

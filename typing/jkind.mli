@@ -453,8 +453,6 @@ val sort_of_jkind : jkind_l -> sort
     Never does mutation. *)
 val get_layout : 'd t -> Layout.Const.t option
 
-(* CR reisenberg: Do we need to return the option? *)
-
 (** Gets the maximum modes for types of this jkind. *)
 val get_modal_upper_bounds :
   jkind_of_type:(Types.type_expr -> jkind_l option) ->
