@@ -414,11 +414,6 @@ module Bound = struct
 
   let reduce_baggage (type a) ~jkind_of_type ~(axis : a Axis.t) modifier baggage
       =
-    (* CR layouts v2.8: Use fuel per type path, instead of one shared pile of
-       fuel. This is less likely to reject programs with long sequences of
-       abbreviations. *)
-    let module TypeSet = Btype.TypeSet in
-    let (module A) = Axis.get axis in
     (* Sadly, it seems hard (impossible?) to be sure to expand all types
        here without using a fuel parameter to stop infinite regress. Here
        is a nasty case:
@@ -440,36 +435,88 @@ module Bound = struct
        ['n succ loopy] in the jkind, but expanding that just yields the need
        to expand ['n succ succ loopy], and around we go.
 
-       It seems hard to avoid this problem. And so we use fuel.
+       It seems hard to avoid this problem. And so we use fuel. Yet we want
+       both a small amount of fuel (a type like [type t = K of (t * t) list]
+       gets big very quickly) and a lot of fuel (we can imagine using a unit
+       of fuel for each level of a deeply nested record structure). The
+       compromise is to track fuel per type head, where a type head is either
+       the path to a type constructor (like [t] or [loopy]) or a tuple.
+       (We need to include tuples because of the possibility of recursive
+       types and the fact that tuples track their element types in their
+       jkind's baggage.)
 
-       But we want to use a lot of fuel here, because we use a unit of fuel
-       for each expansion of a jkind. In contrast, the fuel used in unboxing
-       a type is used only for every [@@unboxed]. This is easy, though: just
-       use a bigger number.
+       The initial fuel per type head is 10, as it seems hard to imagine that
+       we're going to make meaningful progress if we've seen the same type
+       head 10 times in one line of recursive descent. (This "one line of
+       recursive descent" bit is why we recur separately down one type before
+       iterating down the list.)
     *)
+    (* CR layouts v2.8: This would seem to eliminate the possibility of
+       mode-crossing for types like rose trees. There's a good chance
+       normalization will fix this. Once we have normalization, let's try this
+       out. *)
+    let module Fuel = struct
+      type t =
+        { tuple : int;
+          constr : int Path.Map.t
+        }
+
+      let initial_fuel_per_ty = 10
+
+      let starting = { tuple = initial_fuel_per_ty; constr = Path.Map.empty }
+
+      let rec burn ({ tuple; constr } as fuel) ty =
+        match Types.get_desc ty with
+        | Tpoly (ty, _) -> burn fuel ty
+        | Ttuple _ ->
+          if tuple > 0 then Some { tuple = tuple - 1; constr } else None
+        | Tconstr (p, _, _) -> (
+          match Path.Map.find_opt p constr with
+          | None ->
+            Some { tuple; constr = Path.Map.add p initial_fuel_per_ty constr }
+          | Some p_fuel ->
+            if p_fuel > 0
+            then Some { tuple; constr = Path.Map.add p (p_fuel - 1) constr }
+            else None)
+        | Tvar _ | Tarrow _ | Tunboxed_tuple _ | Tobject _ | Tfield _ | Tnil
+        | Tvariant _ | Tunivar _ | Tpackage _ ->
+          (* these cases either cannot be infinitely recursive or their jkinds
+             do not have baggage *)
+          Some fuel
+        | Tlink _ | Tsubst _ ->
+          Misc.fatal_error "Tlink or Tsubst in reduce_baggage"
+    end in
+    let module TypeSet = Btype.TypeSet in
+    let (module A) = Axis.get axis in
     let rec loop fuel explored bound_so_far = function
-      | _ when fuel < 0 -> A.max (* sad *)
-      | _ when A.le A.max bound_so_far -> bound_so_far (* early cutoff *)
-      | [] -> bound_so_far
+      (* early cutoff *)
+      | _ when A.le A.max bound_so_far -> bound_so_far, explored
+      | [] -> bound_so_far, explored
       | b :: bs -> (
         if TypeSet.mem b explored
         then loop fuel explored bound_so_far bs
         else
           let explored = TypeSet.add b explored in
-          match jkind_of_type b with
-          | Some b_jkind ->
-            let b_bound = Bounds.get ~axis b_jkind.jkind.upper_bounds in
-            let bound_so_far = A.join bound_so_far b_bound.modifier in
-            loop (fuel - 1) explored bound_so_far
-              (Baggage.as_list b_bound.baggage @ bs)
-          | None ->
-            (* hd is not principally known, so we treat it as having the max bound
-             *)
-            (* CR layouts v2.8: Does this ever trigger? Richard is skeptical that
-               we need to worry about principality here. *)
-            A.max)
+          match Fuel.burn fuel b with
+          | None -> A.max, explored (* out of fuel *)
+          | Some fuel -> (
+            match jkind_of_type b with
+            | Some b_jkind ->
+              let b_bound = Bounds.get ~axis b_jkind.jkind.upper_bounds in
+              let bound_so_far = A.join bound_so_far b_bound.modifier in
+              let bound_so_far, explored =
+                loop fuel explored bound_so_far
+                  (Baggage.as_list b_bound.baggage)
+              in
+              loop fuel explored bound_so_far bs
+            | None ->
+              (* hd is not principally known, so we treat it as having the max
+                 bound *)
+              (* CR layouts v2.8: Does this ever trigger? Richard is skeptical
+                 that we need to worry about principality here. *)
+              A.max, explored))
     in
-    loop 1000 TypeSet.empty modifier baggage
+    fst (loop Fuel.starting TypeSet.empty modifier baggage)
 
   let reduce ~jkind_of_type ~axis bound =
     reduce_baggage ~jkind_of_type ~axis bound.modifier
