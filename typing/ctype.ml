@@ -2197,6 +2197,8 @@ let type_jkind env ty =
     ~expand_component:(get_unboxed_type_approximation env)
     (get_unboxed_type_approximation env ty)
 
+(* CR layouts v2.8: This function is quite suspect. See Jane Street internal
+   gdoc titled "Let's kill type_jkind_purely". *)
 let type_jkind_purely env ty =
   if !Clflags.principal || Env.has_local_constraints env then
     (* We snapshot to keep this pure; see the test in [typing-local/crossing.ml]
