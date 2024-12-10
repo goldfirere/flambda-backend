@@ -212,9 +212,12 @@ let option_argument_sort = Jkind.Sort.Const.value
 let option_argument_jkind = Jkind.Builtin.value ~why:(
   Type_argument {parent_path = path_option; position = 1; arity = 1})
 
+(* CR layouts v2.8: Simplify this once we have a real subsumption check. *)
 let list_jkind param =
   Jkind.add_baggage ~baggage:param
-    (Jkind.Builtin.immutable_data ~why:Boxed_variant)
+    (Jkind.add_baggage ~baggage:(type_list param)
+       (Jkind.Builtin.immutable_data ~why:Boxed_variant))
+
 let list_sort = Jkind.Sort.Const.value
 let list_argument_sort = Jkind.Sort.Const.value
 let list_argument_jkind = Jkind.Builtin.value ~why:(

@@ -1371,9 +1371,10 @@ module Element_repr = struct
     else
       let layout = Jkind.get_layout_defaulting_to_value jkind in
       let sort = Jkind.Layout.Const.get_sort layout in
+      let type_equal = Ctype.type_equal env in
       let jkind_of_type ty = Some (Ctype.type_jkind_purely env ty) in
       let externality_upper_bound =
-        Jkind.get_externality_upper_bound ~jkind_of_type jkind
+        Jkind.get_externality_upper_bound ~type_equal ~jkind_of_type jkind
       in
       let base = match sort with
         | None ->
@@ -1724,12 +1725,13 @@ let update_decl_jkind env dpath decl =
       assert false
   in
 
+  let type_equal = Ctype.type_equal env in
   let jkind_of_type ty = Some (Ctype.type_jkind_purely env ty) in
 
   let add_crossings jkind =
     match !Clflags.allow_illegal_crossing with
     | true -> Jkind.add_portability_and_contention_crossing
-                ~jkind_of_type ~from:decl.type_jkind jkind
+                ~type_equal ~jkind_of_type ~from:decl.type_jkind jkind
     | false -> jkind, false
   in
 

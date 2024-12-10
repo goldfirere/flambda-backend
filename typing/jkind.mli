@@ -321,6 +321,7 @@ val has_baggage : jkind_l -> bool
     contention axes, if [from] crosses the respective axes. Return the new jkind,
     along with a boolean of whether illegal crossing was added *)
 val add_portability_and_contention_crossing :
+  type_equal:(Types.type_expr -> Types.type_expr -> bool) ->
   jkind_of_type:(Types.type_expr -> jkind_l option) ->
   from:'d t ->
   (allowed * 'r) t ->
@@ -454,13 +455,17 @@ val get_layout : 'd t -> Layout.Const.t option
 
 (** Gets the maximum modes for types of this jkind. *)
 val get_modal_upper_bounds :
+  type_equal:(Types.type_expr -> Types.type_expr -> bool) ->
   jkind_of_type:(Types.type_expr -> jkind_l option) ->
   'd t ->
   Mode.Alloc.Const.t
 
 (** Gets the maximum mode on the externality axis for types of this jkind. *)
 val get_externality_upper_bound :
-  jkind_of_type:(Types.type_expr -> jkind_l option) -> 'd t -> Externality.t
+  type_equal:(Types.type_expr -> Types.type_expr -> bool) ->
+  jkind_of_type:(Types.type_expr -> jkind_l option) ->
+  'd t ->
+  Externality.t
 
 (** Computes a jkind that is the same as the input but with an updated maximum
     mode for the externality axis *)
@@ -526,6 +531,8 @@ val has_intersection : 'd1 t -> 'd2 t -> bool
     it should be thought of as modifying the first jkind to be the
     intersection of the two, not something that modifies the second jkind. *)
 val intersection_or_error :
+  type_equal:(Types.type_expr -> Types.type_expr -> bool) ->
+  jkind_of_type:(Types.type_expr -> jkind_l option) ->
   reason:History.interact_reason ->
   ('l1 * allowed) t ->
   ('l2 * allowed) t ->
@@ -534,6 +541,7 @@ val intersection_or_error :
 (** [sub t1 t2] says whether [t1] is a subjkind of [t2]. Might update
     either [t1] or [t2] to make their layouts equal.*)
 val sub :
+  type_equal:(Types.type_expr -> Types.type_expr -> bool) ->
   jkind_of_type:(Types.type_expr -> jkind_l option) ->
   jkind_l ->
   jkind_r ->
@@ -547,6 +555,7 @@ type sub_or_intersect =
 (** [sub_or_intersect t1 t2] does a subtype check, returning a [sub_or_intersect];
     see comments there for more info. *)
 val sub_or_intersect :
+  type_equal:(Types.type_expr -> Types.type_expr -> bool) ->
   jkind_of_type:(Types.type_expr -> jkind_l option) ->
   (allowed * 'r) t ->
   ('l * allowed) t ->
@@ -555,6 +564,7 @@ val sub_or_intersect :
 (** [sub_or_error t1 t2] does a subtype check, returning an appropriate
     [Violation.t] upon failure. *)
 val sub_or_error :
+  type_equal:(Types.type_expr -> Types.type_expr -> bool) ->
   jkind_of_type:(Types.type_expr -> jkind_l option) ->
   (allowed * 'r) t ->
   ('l * allowed) t ->
@@ -578,6 +588,7 @@ val sub_jkind_l :
 (** "round up" a [jkind_l] to a [jkind_r] such that the input is less than the
     output. *)
 val round_up :
+  type_equal:(Types.type_expr -> Types.type_expr -> bool) ->
   jkind_of_type:(Types.type_expr -> jkind_l option) ->
   (allowed * 'r) t ->
   ('l * allowed) t

@@ -412,8 +412,8 @@ module Bound = struct
     let (module Ops) = Axis.get axis in
     { modifier = Ops.meet mod1 mod2; baggage = Baggage.meet bag1 bag2 }
 
-  let reduce_baggage (type a) ~jkind_of_type ~(axis : a Axis.t) modifier baggage
-      =
+  let reduce_baggage (type a) ~type_equal ~jkind_of_type ~(axis : a Axis.t)
+      modifier baggage =
     (* Sadly, it seems hard (impossible?) to be sure to expand all types
        here without using a fuel parameter to stop infinite regress. Here
        is a nasty case:
@@ -451,85 +451,100 @@ module Bound = struct
        recursive descent" bit is why we recur separately down one type before
        iterating down the list.)
     *)
+    (* CR reisenberg: document seen_args *)
     (* CR layouts v2.8: This would seem to eliminate the possibility of
        mode-crossing for types like rose trees. There's a good chance
        normalization will fix this. Once we have normalization, let's try this
        out. *)
-    let module Fuel = struct
+    let module Loop_control = struct
       type t =
-        { tuple : int;
-          constr : int Path.Map.t
+        { tuple_fuel : int;
+          constr : (int * type_expr list) Path.Map.t
         }
+
+      type result =
+        | Stop (* give up, returning [max] *)
+        | Skip (* skip reducing this type, but otherwise continue *)
+        | Continue of t (* continue, with a new [t] *)
 
       let initial_fuel_per_ty = 10
 
-      let starting = { tuple = initial_fuel_per_ty; constr = Path.Map.empty }
+      let starting =
+        { tuple_fuel = initial_fuel_per_ty; constr = Path.Map.empty }
 
-      let rec burn ({ tuple; constr } as fuel) ty =
+      let rec check ({ tuple_fuel; constr } as t) ty =
         match Types.get_desc ty with
-        | Tpoly (ty, _) -> burn fuel ty
+        | Tpoly (ty, _) -> check t ty
         | Ttuple _ ->
-          if tuple > 0 then Some { tuple = tuple - 1; constr } else None
-        | Tconstr (p, _, _) -> (
+          if tuple_fuel > 0
+          then Continue { t with tuple_fuel = tuple_fuel - 1 }
+          else Stop
+        | Tconstr (p, args, _) -> (
           match Path.Map.find_opt p constr with
           | None ->
-            Some { tuple; constr = Path.Map.add p initial_fuel_per_ty constr }
-          | Some p_fuel ->
-            if p_fuel > 0
-            then Some { tuple; constr = Path.Map.add p (p_fuel - 1) constr }
-            else None)
+            Continue
+              { t with
+                constr = Path.Map.add p (initial_fuel_per_ty, args) constr
+              }
+          | Some (fuel, seen_args) ->
+            if List.for_all2 type_equal seen_args args
+            then Skip
+            else if fuel > 0
+            then
+              Continue
+                { t with constr = Path.Map.add p (fuel - 1, args) constr }
+            else Stop)
         | Tvar _ | Tarrow _ | Tunboxed_tuple _ | Tobject _ | Tfield _ | Tnil
         | Tvariant _ | Tunivar _ | Tpackage _ ->
           (* these cases either cannot be infinitely recursive or their jkinds
              do not have baggage *)
-          Some fuel
+          Continue t
         | Tlink _ | Tsubst _ ->
           Misc.fatal_error "Tlink or Tsubst in reduce_baggage"
     end in
-    let module TypeSet = Btype.TypeSet in
     let (module A) = Axis.get axis in
-    let rec loop fuel explored bound_so_far = function
+    let rec loop ctl bound_so_far = function
       (* early cutoff *)
-      | _ when A.le A.max bound_so_far -> bound_so_far, explored
-      | [] -> bound_so_far, explored
+      | _ when A.le A.max bound_so_far -> bound_so_far
+      | [] -> bound_so_far
       | b :: bs -> (
-        if TypeSet.mem b explored
-        then loop fuel explored bound_so_far bs
-        else
-          let explored = TypeSet.add b explored in
-          match Fuel.burn fuel b with
-          | None -> A.max, explored (* out of fuel *)
-          | Some fuel -> (
-            match jkind_of_type b with
-            | Some b_jkind ->
-              let b_bound = Bounds.get ~axis b_jkind.jkind.upper_bounds in
-              let bound_so_far = A.join bound_so_far b_bound.modifier in
-              let bound_so_far, explored =
-                loop fuel explored bound_so_far
-                  (Baggage.as_list b_bound.baggage)
-              in
-              loop fuel explored bound_so_far bs
-            | None ->
-              (* hd is not principally known, so we treat it as having the max
-                 bound *)
-              (* CR layouts v2.8: Does this ever trigger? Richard is skeptical
-                 that we need to worry about principality here. *)
-              A.max, explored))
+        match Loop_control.check ctl b with
+        | Stop -> A.max (* out of fuel *)
+        | Skip -> loop ctl bound_so_far bs (* skip [b] *)
+        | Continue ctl_after_unpacking_b -> (
+          match jkind_of_type b with
+          | Some b_jkind ->
+            let b_bound = Bounds.get ~axis b_jkind.jkind.upper_bounds in
+            let bound_so_far = A.join bound_so_far b_bound.modifier in
+            let bound_so_far =
+              loop ctl_after_unpacking_b bound_so_far
+                (Baggage.as_list b_bound.baggage)
+            in
+            (* Use *original* ctl here, so we don't fall over on
+               a record with 20 lists with different payloads. *)
+            loop ctl bound_so_far bs
+          | None ->
+            (* hd is not principally known, so we treat it as having the max
+               bound *)
+            (* CR layouts v2.8: Does this ever trigger? Richard is skeptical
+               that we need to worry about principality here. *)
+            A.max))
     in
-    fst (loop Fuel.starting TypeSet.empty modifier baggage)
+    loop Loop_control.starting modifier baggage
 
-  let reduce ~jkind_of_type ~axis bound =
-    reduce_baggage ~jkind_of_type ~axis bound.modifier
+  let reduce ~type_equal ~jkind_of_type ~axis bound =
+    reduce_baggage ~type_equal ~jkind_of_type ~axis bound.modifier
       (Baggage.as_list bound.baggage)
 
   let less_or_equal :
       type axis l r.
+      type_equal:_ ->
       jkind_of_type:_ ->
       axis:axis Axis.t ->
       (allowed * r, axis) t ->
       (l * allowed, axis) t ->
       Misc.Le_result.t =
-   fun ~jkind_of_type ~axis { modifier = m1; baggage = b1 }
+   fun ~type_equal ~jkind_of_type ~axis { modifier = m1; baggage = b1 }
        { modifier = m2; baggage = b2 } ->
     let (module Axis_ops) = Axis.get axis in
     match b1, b2 with
@@ -539,7 +554,9 @@ module Bound = struct
       if Axis_ops.le Axis_ops.max m2
       then Less
       else
-        let m1' = reduce_baggage ~jkind_of_type ~axis m1 (ty :: tys) in
+        let m1' =
+          reduce_baggage ~type_equal ~jkind_of_type ~axis m1 (ty :: tys)
+        in
         Axis_ops.less_or_equal m1' m2
 end
 
@@ -579,11 +596,11 @@ module Bounds = struct
 
   let meet bounds1 bounds2 = Map2.f { f = Bound.meet } bounds1 bounds2
 
-  let less_or_equal ~jkind_of_type bounds1 bounds2 =
+  let less_or_equal ~type_equal ~jkind_of_type bounds1 bounds2 =
     Fold2.f
       { f =
           (fun (type axis) ~(axis : axis Axis.t) bound1 bound2 ->
-            Bound.less_or_equal ~jkind_of_type ~axis bound1 bound2)
+            Bound.less_or_equal ~type_equal ~jkind_of_type ~axis bound1 bound2)
       }
       ~combine:Misc.Le_result.combine bounds1 bounds2
 
@@ -867,13 +884,14 @@ module Const = struct
     let get_modal_bound (type a) ~(axis : a Axis.t) ~(base : ('d1, a) Bound.t)
         (actual : ('d2, a) Bound.t) =
       let (module A) = Axis.get axis in
+      let type_equal _ _ = false in
       let jkind_of_type _ = None in
       (* CR layouts v2.8: Fix printing! *)
       let less_or_equal a b =
         let open Misc.Stdlib.Monad.Option.Syntax in
         let* a = Bound.try_allow_l a in
         let* b = Bound.try_allow_r b in
-        Some (Bound.less_or_equal ~jkind_of_type ~axis a b)
+        Some (Bound.less_or_equal ~type_equal ~jkind_of_type ~axis a b)
       in
       match less_or_equal actual base with
       | Some Less | Some Equal -> (
@@ -1155,7 +1173,8 @@ module Jkind_desc = struct
         { t.upper_bounds with nullability = Bound.simple Nullability.min }
     }
 
-  let add_portability_and_contention_crossing ~jkind_of_type ~from to_ =
+  let add_portability_and_contention_crossing ~type_equal ~jkind_of_type ~from
+      to_ =
     let add_crossing (type a) ~(axis : a Axis.t) to_ =
       let (module A : Lattice with type t = a) = Axis.get axis in
       let from_bound = Bounds.get ~axis from.upper_bounds in
@@ -1173,7 +1192,8 @@ module Jkind_desc = struct
       let added_crossings =
         not
           (Misc.Le_result.is_le
-             (Bound.less_or_equal ~axis ~jkind_of_type to_bound from_bound))
+             (Bound.less_or_equal ~axis ~type_equal ~jkind_of_type to_bound
+                from_bound))
       in
       Bounds.set ~axis to_ new_bound, added_crossings
     in
@@ -1196,10 +1216,10 @@ module Jkind_desc = struct
   let equate_or_equal ~allow_mutation t1 t2 =
     Layout_and_axes.equal (Layout.equate_or_equal ~allow_mutation) t1 t2
 
-  let sub ~jkind_of_type { layout = lay1; upper_bounds = bounds1 }
+  let sub ~type_equal ~jkind_of_type { layout = lay1; upper_bounds = bounds1 }
       { layout = lay2; upper_bounds = bounds2 } =
     Misc.Le_result.combine (Layout.sub lay1 lay2)
-      (Bounds.less_or_equal ~jkind_of_type bounds1 bounds2)
+      (Bounds.less_or_equal ~type_equal ~jkind_of_type bounds1 bounds2)
 
   let intersection { layout = lay1; upper_bounds = bounds1 }
       { layout = lay2; upper_bounds = bounds2 } =
@@ -1349,13 +1369,13 @@ let add_baggage ~baggage t =
 
 let has_baggage t = Bounds.has_baggage t.jkind.upper_bounds
 
-let add_portability_and_contention_crossing ~jkind_of_type ~from t =
+let add_portability_and_contention_crossing ~type_equal ~jkind_of_type ~from t =
   match try_allow_r from with
   | None -> t, false
   | Some from ->
     let jkind, added_crossings =
-      Jkind_desc.add_portability_and_contention_crossing ~jkind_of_type
-        ~from:from.jkind t.jkind
+      Jkind_desc.add_portability_and_contention_crossing ~type_equal
+        ~jkind_of_type ~from:from.jkind t.jkind
     in
     { t with jkind }, added_crossings
 
@@ -1444,6 +1464,7 @@ let add_labels_as_baggage lbls jkind =
     (fun (lbl : Types.label_declaration) -> add_baggage ~baggage:lbl.ld_type)
     lbls jkind
 
+(* CR layouts v2.8: This should take modalities into account. *)
 let for_boxed_record lbls =
   if List.for_all
        (fun (lbl : Types.label_declaration) ->
@@ -1458,6 +1479,7 @@ let for_boxed_record lbls =
     in
     add_labels_as_baggage lbls base
 
+(* CR layouts v2.8: This should take modalities into account. *)
 let for_boxed_variant ~all_voids cstrs =
   if all_voids
   then Builtin.immediate ~why:Enumeration
@@ -1551,22 +1573,27 @@ let sort_of_jkind (t : jkind_l) : sort =
 
 let get_layout jk : Layout.Const.t option = Layout.get_const jk.jkind.layout
 
-let get_modal_upper_bounds ~jkind_of_type jk : Alloc.Const.t =
+let get_modal_upper_bounds ~type_equal ~jkind_of_type jk : Alloc.Const.t =
   let bounds = jk.jkind.upper_bounds in
   { areality =
-      Bound.reduce ~axis:(Modal Locality) ~jkind_of_type bounds.locality;
+      Bound.reduce ~axis:(Modal Locality) ~type_equal ~jkind_of_type
+        bounds.locality;
     linearity =
-      Bound.reduce ~axis:(Modal Linearity) ~jkind_of_type bounds.linearity;
+      Bound.reduce ~axis:(Modal Linearity) ~type_equal ~jkind_of_type
+        bounds.linearity;
     uniqueness =
-      Bound.reduce ~axis:(Modal Uniqueness) ~jkind_of_type bounds.uniqueness;
+      Bound.reduce ~axis:(Modal Uniqueness) ~type_equal ~jkind_of_type
+        bounds.uniqueness;
     portability =
-      Bound.reduce ~axis:(Modal Portability) ~jkind_of_type bounds.portability;
+      Bound.reduce ~axis:(Modal Portability) ~type_equal ~jkind_of_type
+        bounds.portability;
     contention =
-      Bound.reduce ~axis:(Modal Contention) ~jkind_of_type bounds.contention
+      Bound.reduce ~axis:(Modal Contention) ~type_equal ~jkind_of_type
+        bounds.contention
   }
 
-let get_externality_upper_bound ~jkind_of_type jk =
-  Bound.reduce ~axis:(Nonmodal Externality) ~jkind_of_type
+let get_externality_upper_bound ~type_equal ~jkind_of_type jk =
+  Bound.reduce ~axis:(Nonmodal Externality) ~type_equal ~jkind_of_type
     jk.jkind.upper_bounds.externality
 
 let set_externality_upper_bound jk externality_upper_bound =
@@ -2104,8 +2131,7 @@ let score_reason = function
   | Creation (Concrete_creation _ | Concrete_legacy_creation _) -> -1
   | _ -> 0
 
-let combine_histories ?(jkind_of_type = fun _ -> None) reason (Pack k1)
-    (Pack k2) =
+let combine_histories ~type_equal ~jkind_of_type reason (Pack k1) (Pack k2) =
   if flattened_histories
   then
     let choose_higher_scored_history history_a history_b =
@@ -2114,7 +2140,7 @@ let combine_histories ?(jkind_of_type = fun _ -> None) reason (Pack k1)
       else history_b
     in
     let choose_subjkind_history k_a history_a k_b history_b =
-      match Jkind_desc.sub ~jkind_of_type k_a k_b with
+      match Jkind_desc.sub ~type_equal ~jkind_of_type k_a k_b with
       | Less -> history_a
       | Not_le ->
         (* CR layouts: this will be wrong if we ever have a non-trivial meet in
@@ -2143,23 +2169,25 @@ let has_intersection t1 t2 =
   (* Need to check only the layouts: all the axes have bottom elements. *)
   Option.is_some (Layout.intersection t1.jkind.layout t2.jkind.layout)
 
-let intersection_or_error ~reason t1 t2 =
+let intersection_or_error ~type_equal ~jkind_of_type ~reason t1 t2 =
   match Jkind_desc.intersection t1.jkind t2.jkind with
   | None -> Error (Violation.of_ (No_intersection (t1, t2)))
   | Some jkind ->
     Ok
       { jkind;
         annotation = None;
-        history = combine_histories reason (Pack t1) (Pack t2);
+        history =
+          combine_histories ~type_equal ~jkind_of_type reason (Pack t1)
+            (Pack t2);
         has_warned = t1.has_warned || t2.has_warned
       }
 
-let round_up ~jkind_of_type t =
+let round_up ~type_equal ~jkind_of_type t =
   let upper_bounds =
     Bounds.Map.f
       { f =
           (fun ~axis bound ->
-            Bound.simple (Bound.reduce ~axis ~jkind_of_type bound))
+            Bound.simple (Bound.reduce ~axis ~type_equal ~jkind_of_type bound))
       }
       t.jkind.upper_bounds
   in
@@ -2171,23 +2199,23 @@ let map_type_expr f t = { t with jkind = Jkind_desc.map_type_expr f t.jkind }
 let check_sub ~jkind_of_type sub super =
   Jkind_desc.sub ~jkind_of_type sub.jkind super.jkind
 
-let sub ~jkind_of_type sub super =
-  Misc.Le_result.is_le (check_sub ~jkind_of_type sub super)
+let sub ~type_equal ~jkind_of_type sub super =
+  Misc.Le_result.is_le (check_sub ~type_equal ~jkind_of_type sub super)
 
 type sub_or_intersect =
   | Sub
   | Disjoint
   | Has_intersection
 
-let sub_or_intersect ~jkind_of_type t1 t2 =
-  if sub ~jkind_of_type t1 t2
+let sub_or_intersect ~type_equal ~jkind_of_type t1 t2 =
+  if sub ~type_equal ~jkind_of_type t1 t2
   then Sub
   else if has_intersection t1 t2
   then Has_intersection
   else Disjoint
 
-let sub_or_error ~jkind_of_type t1 t2 =
-  match sub_or_intersect ~jkind_of_type t1 t2 with
+let sub_or_error ~type_equal ~jkind_of_type t1 t2 =
+  match sub_or_intersect ~type_equal ~jkind_of_type t1 t2 with
   | Sub -> Ok ()
   | _ -> Error (Violation.of_ (Not_a_subjkind (t1, t2)))
 
@@ -2195,14 +2223,19 @@ let sub_or_error ~jkind_of_type t1 t2 =
    kind polymorphism design. *)
 let sub_jkind_l ~type_equal ~jkind_of_type sub super =
   let success =
-    Ok { sub with history = combine_histories Subjkind (Pack sub) (Pack super) }
+    Ok
+      { sub with
+        history =
+          combine_histories ~type_equal ~jkind_of_type Subjkind (Pack sub)
+            (Pack super)
+      }
   in
   let failure = Error (Violation.of_ (Not_a_subjkind (sub, super))) in
   (* First try normal subjkinding, if the right-hand jkind has the right
      shape. *)
   match try_allow_r super with
   | Some super -> (
-    match check_sub ~jkind_of_type sub super with
+    match check_sub ~type_equal ~jkind_of_type sub super with
     | Less | Equal -> success
     | Not_le -> failure)
   | None ->
@@ -2222,7 +2255,8 @@ let sub_jkind_l ~type_equal ~jkind_of_type sub super =
               match Bound.try_allow_r bound2 with
               | Some bound2 ->
                 Misc.Le_result.is_le
-                  (Bound.less_or_equal ~axis ~jkind_of_type bound1 bound2)
+                  (Bound.less_or_equal ~axis ~type_equal ~jkind_of_type bound1
+                     bound2)
               | None ->
                 let (module Bound_ops) = Axis.get axis in
                 let baggage1 = Baggage.as_list bound1.baggage in
@@ -2246,10 +2280,13 @@ let is_void_defaulting = function
 
 (* This doesn't do any mutation because mutating a sort variable can't make it
    any, and modal upper bounds are constant. *)
-(* The choice of [jkind_of_type] doesn't matter because there are no with-kinds
-   on the left-hand kind. *)
+(* The choice of [type_equal] and [jkind_of_type] doesn't matter because there
+   are no with-kinds on the left-hand kind. *)
 let is_max jkind =
-  sub ~jkind_of_type:(fun _ -> None) Builtin.any_dummy_jkind jkind
+  sub
+    ~type_equal:(fun _ _ -> false)
+    ~jkind_of_type:(fun _ -> None)
+    Builtin.any_dummy_jkind jkind
 
 let has_layout_any jkind =
   match jkind.jkind.layout with Any -> true | _ -> false
