@@ -1691,8 +1691,8 @@ let update_decl_jkind env dpath decl =
           assert false
       end
     | cstrs, Variant_boxed cstr_shapes ->
-      let (_,cstrs,all_voids) =
-        List.fold_left (fun (idx,cstrs,all_voids) cstr ->
+      let (_,cstrs) =
+        List.fold_left (fun (idx,cstrs) cstr ->
           let arg_sorts =
             match cstr_shapes.(idx) with
             | Constructor_uniform_value, arg_sorts -> arg_sorts
@@ -1701,7 +1701,7 @@ let update_decl_jkind env dpath decl =
                   "Typedecl.update_variant_kind doesn't expect mixed \
                    constructor as input"
           in
-          let cd_args, all_void, jkinds =
+          let cd_args, _all_void, jkinds =
             update_constructor_arguments_sorts env cstr.Types.cd_loc
               cstr.Types.cd_args (Some arg_sorts)
           in
@@ -1716,10 +1716,10 @@ let update_decl_jkind env dpath decl =
             | Constructor_mixed _ -> cstr_shapes.(idx) <- cstr_repr, arg_sorts
           in
           let cstr = { cstr with Types.cd_args } in
-          (idx+1,cstr::cstrs,all_voids && all_void)
-        ) (0,[],true) cstrs
+          (idx+1,cstr::cstrs)
+        ) (0,[]) cstrs
       in
-      let jkind = Jkind.for_boxed_variant ~all_voids cstrs in
+      let jkind = Jkind.for_boxed_variant cstrs in
       List.rev cstrs, rep, jkind
     | (([] | (_ :: _)), Variant_unboxed | _, Variant_extensible) ->
       assert false

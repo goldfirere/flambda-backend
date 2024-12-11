@@ -398,10 +398,8 @@ val of_type_decl_default :
 (** Choose an appropriate jkind for a boxed record type *)
 val for_boxed_record : Types.label_declaration list -> jkind_l
 
-(** Choose an appropriate jkind for a boxed variant type, given whether
-    all of the fields of all of its constructors are [void]. *)
-val for_boxed_variant :
-  all_voids:bool -> Types.constructor_declaration list -> jkind_l
+(** Choose an appropriate jkind for a boxed variant type. *)
+val for_boxed_variant : Types.constructor_declaration list -> jkind_l
 
 (** The jkind of an arrow type. *)
 val for_arrow : jkind_l

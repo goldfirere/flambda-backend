@@ -1459,6 +1459,11 @@ let has_mutable_label lbls =
       match lbl.ld_mutable with Immutable -> false | Mutable _ -> true)
     lbls
 
+let all_void_labels lbls =
+  List.for_all
+    (fun (lbl : Types.label_declaration) -> Sort.Const.(equal void lbl.ld_sort))
+    lbls
+
 let add_labels_as_baggage lbls jkind =
   List.fold_right
     (fun (lbl : Types.label_declaration) -> add_baggage ~baggage:lbl.ld_type)
@@ -1466,10 +1471,7 @@ let add_labels_as_baggage lbls jkind =
 
 (* CR layouts v2.8: This should take modalities into account. *)
 let for_boxed_record lbls =
-  if List.for_all
-       (fun (lbl : Types.label_declaration) ->
-         Sort.Const.(equal void lbl.ld_sort))
-       lbls
+  if all_void_labels lbls
   then Builtin.immediate ~why:Empty_record
   else
     let is_mutable = has_mutable_label lbls in
@@ -1480,11 +1482,17 @@ let for_boxed_record lbls =
     add_labels_as_baggage lbls base
 
 (* CR layouts v2.8: This should take modalities into account. *)
-let for_boxed_variant ~all_voids cstrs =
-  if all_voids
+let for_boxed_variant cstrs =
+  let open Types in
+  if List.for_all
+       (fun cstr ->
+         match cstr.cd_args with
+         | Cstr_tuple args ->
+           List.for_all (fun arg -> Sort.Const.(equal void arg.ca_sort)) args
+         | Cstr_record lbls -> all_void_labels lbls)
+       cstrs
   then Builtin.immediate ~why:Enumeration
   else
-    let open Types in
     let is_mutable =
       List.exists
         (fun cstr ->
