@@ -6920,7 +6920,7 @@ let print_global_state fmt global_state =
    The problem is that Env depends on Jkind, and so the type of [type_equal]
    can't be written in Jkind. It's possible that, after jkind.ml is broken up,
    this problem goes away, because the dependency from Env to Jkind is pretty
-
+   minimal. *)
 let type_equal env ty1 ty2 = is_equal env false [ty1] [ty2]
 let () = type_equal' := type_equal
 
