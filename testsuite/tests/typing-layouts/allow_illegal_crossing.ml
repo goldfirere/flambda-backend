@@ -19,14 +19,28 @@ type a
 type b : value mod uncontended = Foo of int
 [%%expect {|
 type a
-type b : value mod uncontended = Foo of int
+type b = Foo of int
 |}]
 
 type a
 type b : value mod uncontended portable = Foo of int | Bar of int
 [%%expect {|
 type a
-type b : value mod uncontended portable = Foo of int | Bar of int
+type b = Foo of int | Bar of int
+|}]
+
+type a
+type b : value mod uncontended = Foo of int ref
+[%%expect {|
+type a
+type b : immutable_data = Foo of int ref
+|}]
+
+type a
+type b : value mod uncontended portable = Foo of int ref | Bar of (int -> int)
+[%%expect {|
+type a
+type b : immutable_data = Foo of int ref | Bar of (int -> int)
 |}]
 
 module _ = struct
@@ -74,21 +88,40 @@ type b = a = private { foo : string; }
 
 type t : value mod uncontended = private Foo of int | Bar
 [%%expect {|
-type t : value mod uncontended = private Foo of int | Bar
+type t = private Foo of int | Bar
 |}]
 
 type a : value mod uncontended = Foo of int | Bar
 type b : value mod uncontended = a = Foo of int | Bar
 [%%expect {|
-type a : value mod uncontended = Foo of int | Bar
-type b = a : value mod uncontended = Foo of int | Bar
+type a = Foo of int | Bar
+type b = a = Foo of int | Bar
 |}]
 
 type a : value mod portable = private Foo of int | Bar
 type b : value mod portable = a = private Foo of int | Bar
 [%%expect {|
-type a : value mod portable = private Foo of int | Bar
-type b = a : value mod portable = private Foo of int | Bar
+type a = private Foo of int | Bar
+type b = a = private Foo of int | Bar
+|}]
+
+type t : value mod uncontended = private Foo of int ref | Bar
+[%%expect {|
+type t : immutable_data = private Foo of int ref | Bar
+|}]
+
+type a : value mod uncontended = Foo of int ref | Bar
+type b : value mod uncontended = a = Foo of int ref | Bar
+[%%expect {|
+type a : immutable_data = Foo of int ref | Bar
+type b = a : immutable_data = Foo of int ref | Bar
+|}]
+
+type a : value mod portable = private Foo of (int -> int) | Bar
+type b : value mod portable = a = private Foo of (int -> int) | Bar
+[%%expect {|
+type a : immutable_data = private Foo of (int -> int) | Bar
+type b = a : immutable_data = private Foo of (int -> int) | Bar
 |}]
 
 module A : sig
@@ -107,7 +140,16 @@ type a : value mod portable uncontended = Foo of string
 type ('a : value mod portable uncontended) b
 type c = a b
 [%%expect {|
-type a : value mod uncontended portable = Foo of string
+type a = Foo of string
+type ('a : value mod uncontended portable) b
+type c = a b
+|}]
+
+type a : value mod portable uncontended = Foo of (string -> string)
+type ('a : value mod portable uncontended) b
+type c = a b
+[%%expect {|
+type a : immutable_data = Foo of (string -> string)
 type ('a : value mod uncontended portable) b
 type c = a b
 |}]
@@ -138,7 +180,14 @@ val x : (int, int) t = {a = 5; b = 5}
 type t : value mod portable uncontended = Foo of string | Bar of int
 let x : _ as (_ : value mod portable uncontended) = Foo "hello world"
 [%%expect {|
-type t : value mod uncontended portable = Foo of string | Bar of int
+type t = Foo of string | Bar of int
+val x : t = Foo "hello world"
+|}]
+
+type t : value mod portable uncontended = Foo of string | Bar of (int -> int) ref
+let x : _ as (_ : value mod portable uncontended) = Foo "hello world"
+[%%expect {|
+type t : immutable_data = Foo of string | Bar of (int -> int) ref
 val x : t = Foo "hello world"
 |}]
 
@@ -208,7 +257,7 @@ let f () =
   ()
 [%%expect {|
 type t_value
-type t : value mod uncontended portable = Foo of t_value
+type t : immutable_data = Foo of t_value
 val make_value : unit -> t_value = <fun>
 val f : unit -> unit = <fun>
 |}]
@@ -233,7 +282,7 @@ type t : value mod portable uncontended = Foo of string | Bar of int
 let g (x : t @@ nonportable contended) = f x; f (Foo ""); f (Bar 10)
 [%%expect {|
 val f : 'a @ portable -> unit = <fun>
-type t : value mod uncontended portable = Foo of string | Bar of int
+type t = Foo of string | Bar of int
 val g : t @ contended -> unit = <fun>
 |}]
 
@@ -601,11 +650,18 @@ type a = Foo of int | Bar of string
 type b : any mod uncontended = a
 [%%expect {|
 type a = Foo of int | Bar of string
+type b = a
+|}]
+
+type a = Foo of int ref | Bar of string
+type b : any mod uncontended = a
+[%%expect {|
+type a = Foo of int ref | Bar of string
 Line 2, characters 0-32:
 2 | type b : any mod uncontended = a
     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-Error: The kind of type "a" is value
-         because of the definition of a at line 1, characters 0-35.
+Error: The kind of type "a" is immutable_data
+         because of the definition of a at line 1, characters 0-39.
        But the kind of type "a" must be a subkind of any mod uncontended
          because of the definition of b at line 2, characters 0-32.
 |}]
@@ -671,25 +727,39 @@ type a = Foo of string | Bar
 type b : value mod uncontended = a = Foo of string | Bar
 [%%expect {|
 type a = Foo of string | Bar
-Line 2, characters 0-56:
-2 | type b : value mod uncontended = a = Foo of string | Bar
-    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-Error: The kind of type "a" is value
-         because of the definition of a at line 1, characters 0-28.
-       But the kind of type "a" must be a subkind of value mod uncontended
-         because of the definition of b at line 2, characters 0-56.
+type b = a = Foo of string | Bar
 |}]
 
 type a = private Foo of string | Bar
 type b : value mod portable = a = private Foo of string | Bar
 [%%expect {|
 type a = private Foo of string | Bar
+type b = a = private Foo of string | Bar
+|}]
+
+type a = Foo of { mutable x : int } | Bar
+type b : value mod uncontended = a = Foo of string | Bar
+[%%expect {|
+type a = Foo of { mutable x : int; } | Bar
+Line 2, characters 0-56:
+2 | type b : value mod uncontended = a = Foo of string | Bar
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Error: The kind of type "a" is mutable_data
+         because of the definition of a at line 1, characters 0-41.
+       But the kind of type "a" must be a subkind of immutable_data
+         because of the definition of b at line 2, characters 0-56.
+|}]
+
+type a = private Foo of (int -> int) | Bar
+type b : value mod portable = a = private Foo of string | Bar
+[%%expect {|
+type a = private Foo of (int -> int) | Bar
 Line 2, characters 0-61:
 2 | type b : value mod portable = a = private Foo of string | Bar
     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-Error: The kind of type "a" is value
-         because of the definition of a at line 1, characters 0-36.
-       But the kind of type "a" must be a subkind of value mod portable
+Error: The kind of type "a" is immutable_data
+         because of the definition of a at line 1, characters 0-42.
+       But the kind of type "a" must be a subkind of immutable_data
          because of the definition of b at line 2, characters 0-61.
 |}]
 
@@ -832,7 +902,7 @@ Line 2, characters 55-67:
                                                            ^^^^^^^^^^^^
 Error: This expression has type "t" but an expression was expected of type
          "('a : value mod portable)"
-       The kind of t is value
+       The kind of t is immutable_data
          because of the definition of t at line 1, characters 0-23.
        But the kind of t must be a subkind of value mod portable
          because of the annotation on the universal variable 'a.
