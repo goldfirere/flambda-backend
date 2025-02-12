@@ -20,6 +20,19 @@ module type Axis_ops = sig
   val equal : t -> t -> bool
 end
 
+module Accent_lattice (M : Mode_intf.Lattice) = struct
+  (* A functor to add some convenient functions to modal axes *)
+  include M
+
+  let less_or_equal a b : Misc.Le_result.t =
+    match le a b, le b a with
+    | true, true -> Equal
+    | true, false -> Less
+    | false, _ -> Not_le
+
+  let equal a b = Misc.Le_result.is_equal (less_or_equal a b)
+end
+
 module Externality = struct
   type t =
     | External
@@ -126,19 +139,6 @@ module Axis = struct
     | Nonmodal : 'a Nonmodal.t -> 'a t
 
   type packed = Pack : 'a t -> packed [@@unboxed]
-
-  module Accent_lattice (M : Mode_intf.Lattice) = struct
-    (* A functor to add some convenient functions to modal axes *)
-    include M
-
-    let less_or_equal a b : Misc.Le_result.t =
-      match le a b, le b a with
-      | true, true -> Equal
-      | true, false -> Less
-      | false, _ -> Not_le
-
-    let equal a b = Misc.Le_result.is_equal (less_or_equal a b)
-  end
 
   let get (type a) : a t -> (module Axis_ops with type t = a) = function
     | Modal axis ->

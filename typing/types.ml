@@ -28,8 +28,16 @@ let is_mutable = function
 
 (* Type expressions for the core language *)
 
-module Jkind_mod_bounds =
-  Jkind_axis.Axis_collection.Indexed (Misc.Stdlib.Monad.Identity)
+module Jkind_mod_bounds = struct
+  type t = { locality : Mode.Locality.Const.t;
+             linearity : Mode.Linearity.Const.t;
+             uniqueness : Mode.Uniqueness.Const.t;
+             portability : Mode.Portability.Const.t;
+             contention : Mode.Contention.Const.t;
+             yielding : Mode.Yielding.Const.t;
+             externality : Jkind_axis.Externality.t;
+             nullability : Jkind_axis.Nullability.t }
+end
 
 module With_bounds_type_info = struct
   type t = {relevant_axes : Jkind_axis.Axis_set.t } [@@unboxed]

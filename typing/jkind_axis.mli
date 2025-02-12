@@ -12,7 +12,6 @@
 (*                                                                        *)
 (**************************************************************************)
 
-(** Re-export *)
 module type Axis_ops = sig
   include Mode_intf.Lattice
 
@@ -20,6 +19,8 @@ module type Axis_ops = sig
 
   val equal : t -> t -> bool
 end
+
+module Accent_lattice (L : Mode_intf.Lattice) : Axis_ops with type t = L.t
 
 (** The jkind axis of Externality *)
 module Externality : sig

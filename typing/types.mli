@@ -69,8 +69,16 @@ val is_mutable : mutability -> bool
  *)
 
 (** The mod-bounds of a jkind *)
-module Jkind_mod_bounds :
-  module type of Jkind_axis.Axis_collection.Indexed (Misc.Stdlib.Monad.Identity)
+module Jkind_mod_bounds : sig
+  type t = { locality : Mode.Locality.Const.t;
+             linearity : Mode.Linearity.Const.t;
+             uniqueness : Mode.Uniqueness.Const.t;
+             portability : Mode.Portability.Const.t;
+             contention : Mode.Contention.Const.t;
+             yielding : Mode.Yielding.Const.t;
+             externality : Jkind_axis.Externality.t;
+             nullability : Jkind_axis.Nullability.t }
+end
 
 (** Information tracked about an individual type within the with-bounds for a jkind *)
 module With_bounds_type_info : sig
