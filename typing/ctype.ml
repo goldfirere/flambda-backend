@@ -2121,21 +2121,33 @@ type open_type_expr = { ty : type_expr; is_open : bool }
 let mk_open_type_expr ty vars =
   { ty; is_open = List.compare_length_with vars 0 <> 0 }
 
-type unbox_result =
+type unbox_step =
   (* unboxing process made a step: either an unboxing or removal of a [Tpoly] *)
   | Stepped of open_type_expr
   (* unboxing process unboxed a product. Invariant: length >= 2 *)
-  | Stepped_record_unboxed_product of type_expr list
+  | Unboxed_product of type_expr list
   (* no step to make; we're all done here *)
-  | Final_result
+  | Function of { arg : type_expr; result : type_expr }
   (* definition not in environment: missing cmi *)
-  | Missing of Path.t
+  | Missing_cmi of Path.t
+  | Final_result
 
-let unbox_once env ty =
+(* The result of deeply unboxing a type *)
+type unbox_result =
+  | Abstract_type of Path.t
+  | Function of { arg : type_expr; result : type_expr }
+  | Unboxed_product of unbox_result list
+  | Missing_cmi of Path.t
+  | Other of type_expr
+  | Out_of_fuel of type_expr
+
+let unbox_once env ty : unbox_step =
   match get_desc ty with
+  | Tarrow (_, arg, result, _) -> Function { arg; result }
+  | Tunboxed_tuple ltys -> Unboxed_product (List.map snd ltys)
   | Tconstr (p, args, _) ->
     begin match Env.find_type p env with
-    | exception Not_found -> Missing p
+    | exception Not_found -> Missing_cmi p
     | decl ->
       let apply ty2 = apply env decl.type_params ty2 args in
       begin match find_unboxed_type decl with
@@ -2157,7 +2169,7 @@ let unbox_once env ty =
           Misc.fatal_error "Ctype.unbox_once"
         | Type_record_unboxed_product
             ((_::_::_ as lbls), Record_unboxed_product, _) ->
-          Stepped_record_unboxed_product
+          Unboxed_product
             (List.map (fun ld -> apply ld.ld_type) lbls)
         | Type_record_unboxed_product ([], _, _) ->
           Misc.fatal_error "Ctype.unboxed_once: fieldless record"
@@ -2167,27 +2179,21 @@ let unbox_once env ty =
       end
     end
   | Tpoly (ty, bound_vars) -> Stepped (mk_open_type_expr ty bound_vars)
-  | _ -> Final_result
+  | Tvar _ | Ttuple _ | Tobject _ | Tvariant _ | Tunivar _ | Tpackage _
+    -> Final_result
+  | Tfield _ | Tnil | Tlink _ | Tsubst _ -> Misc.fatal_error "unbox_once"
 
 let contained_without_boxing env ty =
-  match get_desc ty with
-  | Tconstr _ ->
-    begin match unbox_once env ty with
-    | Stepped { ty; _ } -> [ty]
-    | Stepped_record_unboxed_product tys -> tys
-    | Final_result | Missing _ -> []
-    end
-  | Tunboxed_tuple labeled_tys ->
-    List.map snd labeled_tys
-  | Tpoly (ty, _) -> [ty]
-  | Tvar _ | Tarrow _ | Ttuple _ | Tobject _ | Tfield _ | Tnil | Tlink _
-  | Tsubst _ | Tvariant _ | Tunivar _ | Tpackage _ -> []
+  match unbox_once env ty with
+  | Stepped { ty; _ } -> [ty]
+  | Unboxed_product tys -> tys
+  | Function _ | Missing_cmi _ | Final_result -> []
 
 (* We use ty_prev to track the last type for which we found a definition,
    allowing us to return a type for which a definition was found even if
    we eventually bottom out at a missing cmi file, or otherwise. *)
 let rec get_unboxed_type_representation env ty_prev ty fuel =
-  if fuel < 0 then Error { ty; is_open = false } else
+  if fuel < 0 then Out_of_fuel else
     (* We use expand_head_opt version of expand_head to get access
        to the manifest type of private abbreviations. *)
     let ty = expand_head_opt env ty in
@@ -2198,9 +2204,13 @@ let rec get_unboxed_type_representation env ty_prev ty fuel =
         Ok { ty = result; is_open = open1 || open2 }
       | Error _ as err -> err
       end
-    | Stepped_record_unboxed_product _ | Final_result ->
-      Ok { ty; is_open = false }
-    | Missing _ -> Ok { ty = ty_prev; is_open = false }
+    | Unboxed_product tys ->
+      Unboxed_product
+        (List.map (fun ty -> get_unboxed_type_representation env ty ty fuel)
+           tys)
+    | Function { arg; result } -> Function { arg; result }
+    | Missing_cmi _ -> Other { ty = ty_prev; is_open = false }
+    | Final_result -> Other ty
 
 let get_unboxed_type_representation env ty =
   (* Do not give too much fuel: PR#7424 *)
