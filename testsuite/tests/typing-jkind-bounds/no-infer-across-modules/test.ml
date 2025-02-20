@@ -288,3 +288,146 @@ type 'a my_option2 =
     Nothing
   | Just of 'a
 |}]
+
+type t = int Optionish2.my_option require_contended
+
+[%%expect{|
+type t = int Define_with_kinds.Optionish2.my_option require_contended
+|}, Principal{|
+Line 1, characters 9-33:
+1 | type t = int Optionish2.my_option require_contended
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+Error: This type "int Define_with_kinds.Optionish2.my_option"
+       should be an instance of type "('a : value mod contended)"
+       The kind of int Define_with_kinds.Optionish2.my_option is
+         immutable_data.
+       But the kind of int Define_with_kinds.Optionish2.my_option must be a subkind of
+         value mod contended
+         because of the definition of require_contended at line 11, characters 0-49.
+|}]
+
+type t = int my_option2 require_contended
+
+[%%expect{|
+type t = int my_option2 require_contended
+|}, Principal{|
+Line 1, characters 9-23:
+1 | type t = int my_option2 require_contended
+             ^^^^^^^^^^^^^^
+Error: This type "int my_option2" = "int Define_with_kinds.Optionish2.my_option"
+       should be an instance of type "('a : value mod contended)"
+       The kind of int my_option2 is immutable_data.
+       But the kind of int my_option2 must be a subkind of
+         value mod contended
+         because of the definition of require_contended at line 11, characters 0-49.
+|}]
+
+module Optionish3 = struct
+  type 'a my_option =
+    | Nothing
+      | Just of 'a
+end
+
+[%%expect{|
+module Optionish3 : sig type 'a my_option = Nothing | Just of 'a end
+|}]
+
+type t = int Optionish3.my_option require_contended
+
+[%%expect{|
+Line 1, characters 9-33:
+1 | type t = int Optionish3.my_option require_contended
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+Error: This type "int Optionish3.my_option" should be an instance of type
+         "('a : value mod contended)"
+       The kind of int Optionish3.my_option is value
+         because of the definition of my_option at lines 2-4, characters 2-18.
+       But the kind of int Optionish3.my_option must be a subkind of
+         value mod contended
+         because of the definition of require_contended at line 11, characters 0-49.
+|}]
+
+module Optionish4 = (Optionish3 : Optionish)
+
+[%%expect{|
+module Optionish4 : Define_with_kinds.Optionish
+|}]
+
+type t = int Optionish4.my_option require_contended
+
+[%%expect{|
+type t = int Optionish4.my_option require_contended
+|}, Principal{|
+Line 1, characters 9-33:
+1 | type t = int Optionish4.my_option require_contended
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+Error: This type "int Optionish4.my_option" should be an instance of type
+         "('a : value mod contended)"
+       The kind of int Optionish4.my_option is immutable_data.
+       But the kind of int Optionish4.my_option must be a subkind of
+         value mod contended
+         because of the definition of require_contended at line 11, characters 0-49.
+|}]
+
+module type Optionish5 = sig
+  type 'a my_option =
+    | Nothing
+    | Just of 'a
+end
+
+[%%expect{|
+module type Optionish5 = sig type 'a my_option = Nothing | Just of 'a end
+|}]
+
+module F (X : Optionish5) : Optionish = X
+
+[%%expect{|
+module F : functor (X : Optionish5) -> Define_with_kinds.Optionish
+|}]
+
+module F (X : Optionish) : Optionish5 = X
+
+[%%expect{|
+module F : functor (X : Define_with_kinds.Optionish) -> Optionish5
+|}]
+
+module M : sig
+  module type S = Optionish
+end = struct
+  module type S = Optionish5
+end
+
+[%%expect{|
+module M : sig module type S = Define_with_kinds.Optionish end
+|}]
+
+module M : sig
+  module type S = Optionish5
+end = struct
+  module type S = Optionish
+end
+
+[%%expect{|
+module M : sig module type S = Optionish5 end
+|}]
+
+module Optionish6 = (Optionish3 : Optionish5)
+
+[%%expect{|
+module Optionish6 : Optionish5
+|}]
+
+type t = int Optionish6.my_option require_contended
+
+[%%expect{|
+Line 1, characters 9-33:
+1 | type t = int Optionish6.my_option require_contended
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+Error: This type "int Optionish6.my_option" should be an instance of type
+         "('a : value mod contended)"
+       The kind of int Optionish6.my_option is value
+         because of the definition of my_option at lines 2-4, characters 2-16.
+       But the kind of int Optionish6.my_option must be a subkind of
+         value mod contended
+         because of the definition of require_contended at line 11, characters 0-49.
+|}]
