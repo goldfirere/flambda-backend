@@ -54,41 +54,21 @@ let scrape_ty env ty =
   match get_desc ty with
   | Tconstr _ ->
       let ty = Ctype.correct_levels ty in
-      let ty' = Ctype.expand_head_opt env ty in
-      begin match get_desc ty' with
-      | Tconstr (p, _, _) ->
-          begin match find_unboxed_type (Env.find_type p env) with
-          | Some _ -> (Ctype.get_unboxed_type_approximation env ty').ty
-          | None -> ty'
-          | exception Not_found -> ty (* missing cmi file *)
-          end
-      | _ ->
-          ty'
-      end
-  | _ -> ty
-
-(* See [scrape_ty]; this returns the [type_desc] of a scraped [type_expr]. *)
-let scrape env ty =
-  get_desc (scrape_ty env ty)
-
-let scrape_poly env ty =
-  let ty = scrape_ty env ty in
-  match get_desc ty with
-  | Tpoly (ty, _) -> get_desc ty
-  | d -> d
+      Ctype.get_unboxed_type_approximation env ty
+  | _ -> Ctype.get_type_representation ty
 
 let is_function_type env ty =
-  match scrape env ty with
-  | Tarrow (_, lhs, rhs, _) -> Some (lhs, rhs)
+  match scrape_ty env ty with
+  | Rep_function { arg; result } -> Some (arg, result)
   | _ -> None
 
 let is_base_type env ty base_ty_path =
-  match scrape env ty with
-  | Tconstr(p, _, _) -> Path.same p base_ty_path
+  match scrape_ty env ty with
+  | Rep_constr { p } -> Path.same p base_ty_path
   | _ -> false
 
-let is_always_gc_ignorable env ty =
-  let ext : Jkind_axis.Externality.t =
+let is_always_gc_ignorable env ty_rep =
+  let ext_wanted : Jkind_axis.Externality.t =
     (* We check that we're compiling to (64-bit) native code before counting
        External64 types as gc_ignorable, because bytecode is intended to be
        platform independent. *)
@@ -96,12 +76,15 @@ let is_always_gc_ignorable env ty =
     then External64
     else External
   in
-  Ctype.check_type_externality env ty ext
+  let jkind = Ctype.type_rep_jkind env ty_rep in
+  let jkind_of_type ty = Some (Ctype.type_jkind_purely env ty) in
+  let ext_got = Jkind.get_externality_upper_bound ~jkind_of_type jkind in
+  Jkind_axis.Externality.le ext_got ext_wanted
 
 let maybe_pointer_type env ty =
-  let ty = scrape_ty env ty in
+  let ty_rep = scrape_ty env ty in
   let immediate_or_pointer =
-    match is_always_gc_ignorable env ty with
+    match is_always_gc_ignorable env ty_rep with
     | true -> Immediate
     | false -> Pointer
   in
@@ -145,14 +128,14 @@ type 'a classification =
    [scrape_ty].  Returning [Any] is safe, though may skip some optimizations.
    See comment on [classification] above to understand [classify_product]. *)
 let classify ~classify_product env loc ty sort : _ classification =
-  let ty = scrape_ty env ty in
+  let ty_rep = scrape_ty env ty in
   match (sort : Jkind.Sort.Const.t) with
   | Base Value -> begin
-  if is_always_gc_ignorable env ty then Int
-  else match get_desc ty with
-  | Tvar _ | Tunivar _ ->
+  if is_always_gc_ignorable env ty_rep then Int
+  else match ty_rep with
+  | Rep_variable _ ->
       Any
-  | Tconstr (p, _args, _abbrev) ->
+  | Rep_constr { p } ->
       if Path.same p Predef.path_float then Float
       else if Path.same p Predef.path_lazy_t then Lazy
       else if Path.same p Predef.path_string
@@ -184,10 +167,11 @@ let classify ~classify_product env loc ty sort : _ classification =
              Maybe we should emit a warning. *)
           Any
       end
-  | Tarrow _ | Ttuple _ | Tpackage _ | Tobject _ | Tnil | Tvariant _ ->
-      Addr
-  | Tlink _ | Tsubst _ | Tpoly _ | Tfield _ | Tunboxed_tuple _ ->
-      assert false
+  | Rep_tuple _ | Rep_function _ | Rep_object | Rep_package -> Addr
+  | Rep_variant _ -> Addr
+  (* the [immediate] case for variants is handled by [is_always_gc_ignorable],
+     above *)
+  | Rep_unboxed_product _ -> assert false
   end
   | Base Float64 -> Unboxed_float Unboxed_float64
   | Base Float32 -> Unboxed_float Unboxed_float32
@@ -197,7 +181,7 @@ let classify ~classify_product env loc ty sort : _ classification =
   | Base Word -> Unboxed_int Unboxed_nativeint
   | Base Void as c ->
     raise (Error (loc, Unsupported_sort c))
-  | Product c -> Product (classify_product ty c)
+  | Product c -> Product (classify_product ty_rep c)
 
 let rec scannable_product_array_kind loc sorts =
   List.map (sort_to_scannable_product_element_kind loc) sorts
@@ -254,10 +238,10 @@ let array_kind_of_elt ~elt_sort env loc ty =
   | Product c -> c
 
 let array_type_kind ~elt_sort env loc ty =
-  match scrape_poly env ty with
-  | Tconstr(p, [elt_ty], _) when Path.same p Predef.path_array ->
+  match scrape_ty env ty with
+  | Rep_constr { p; args = [elt_ty] } when Path.same p Predef.path_array ->
       array_kind_of_elt ~elt_sort env loc elt_ty
-  | Tconstr(p, [elt_ty], _) when Path.same p Predef.path_iarray ->
+  | Rep_constr { p; args = [elt_ty] } when Path.same p Predef.path_iarray ->
       let kind = array_kind_of_elt ~elt_sort env loc elt_ty in
       (* CR layouts v7.1: allow iarrays of products. *)
       begin match kind with
@@ -267,15 +251,16 @@ let array_type_kind ~elt_sort env loc ty =
       | Punboxedintarray _ | Punboxedvectorarray _  ->
         kind
       end
-  | Tconstr(p, [], _) when Path.same p Predef.path_floatarray ->
+  | Rep_constr { p } when Path.same p Predef.path_floatarray ->
       Pfloatarray
   | _ ->
       (* This can happen with e.g. Obj.field *)
       Pgenarray
 
 let array_type_mut env ty =
-  match scrape_poly env ty with
-  | Tconstr(p, [_], _) when Path.same p Predef.path_iarray -> Immutable
+  match scrape_ty env ty with
+  | Rep_constr { p; args = [_] } when Path.same p Predef.path_iarray ->
+    Immutable
   | _ -> Mutable
 
 let array_kind exp elt_sort =
@@ -289,8 +274,8 @@ let array_pattern_kind pat elt_sort =
     pat.pat_env pat.pat_loc pat.pat_type
 
 let bigarray_decode_type env ty tbl dfl =
-  match scrape env ty with
-  | Tconstr(Pdot(Pident mod_id, type_name), [], _)
+  match scrape_ty env ty with
+  | Rep_constr { p = Pdot(Pident mod_id, type_name); args = [] }
     when Ident.name mod_id = "Stdlib__Bigarray" ->
       begin try List.assoc type_name tbl with Not_found -> dfl end
   | _ ->
@@ -316,8 +301,8 @@ let layout_table =
    "fortran_layout", Pbigarray_fortran_layout]
 
 let bigarray_specialize_kind_and_layout env ~kind ~layout typ =
-  match scrape env typ with
-  | Tconstr(_p, [_caml_type; elt_type; layout_type], _abbrev) ->
+  match scrape_ty env typ with
+  | Rep_constr { args = [_caml_type; elt_type; layout_type] } ->
       let kind =
         match kind with
         | Pbigarray_unknown ->
@@ -475,10 +460,11 @@ let rec value_kind env ~loc ~visited ~depth ~num_nodes_visited ty
 
        This should be understood, but for now the simple fall back thing is
        sufficient.  *)
-    match Ctype.check_type_jkind env scty (Jkind.Builtin.value_or_null ~why:V1_safety_check)
-    with
-    | Ok _ -> ()
-    | Error _ ->
+    let jkind = Ctype.type_rep_jkind env scty in
+    let layout = Jkind.get_layout_defaulting_to_value jkind in
+    match layout with
+    | Base Value -> ()
+    | _ ->
       match
         Ctype.(check_type_jkind env
                  (correct_levels ty) (Jkind.Builtin.value_or_null ~why:V1_safety_check))
@@ -489,44 +475,44 @@ let rec value_kind env ~loc ~visited ~depth ~num_nodes_visited ty
         then raise Missing_cmi_fallback
         else raise (Error (loc, Non_value_layout (ty, Some violation)))
   end;
-  match get_desc scty with
-  | Tconstr(p, _, _) when Path.same p Predef.path_int ->
+  match scty with
+  | Rep_constr { p } when Path.same p Predef.path_int ->
     num_nodes_visited, non_nullable Pintval
-  | Tconstr(p, _, _) when Path.same p Predef.path_char ->
+  | Rep_constr { p } when Path.same p Predef.path_char ->
     num_nodes_visited, non_nullable Pintval
-  | Tconstr(p, _, _) when Path.same p Predef.path_int8 ->
+  | Rep_constr { p } when Path.same p Predef.path_int8 ->
     num_nodes_visited, non_nullable Pintval
-  | Tconstr(p, _, _) when Path.same p Predef.path_int16 ->
+  | Rep_constr { p } when Path.same p Predef.path_int16 ->
     num_nodes_visited, non_nullable Pintval
-  | Tconstr(p, _, _) when Path.same p Predef.path_float ->
+  | Rep_constr { p } when Path.same p Predef.path_float ->
     num_nodes_visited, non_nullable (Pboxedfloatval Boxed_float64)
-  | Tconstr(p, _, _) when Path.same p Predef.path_float32 ->
+  | Rep_constr { p } when Path.same p Predef.path_float32 ->
     num_nodes_visited, non_nullable (Pboxedfloatval Boxed_float32)
-  | Tconstr(p, _, _) when Path.same p Predef.path_int32 ->
+  | Rep_constr { p } when Path.same p Predef.path_int32 ->
     num_nodes_visited, non_nullable (Pboxedintval Boxed_int32)
-  | Tconstr(p, _, _) when Path.same p Predef.path_int64 ->
+  | Rep_constr { p } when Path.same p Predef.path_int64 ->
     num_nodes_visited, non_nullable (Pboxedintval Boxed_int64)
-  | Tconstr(p, _, _) when Path.same p Predef.path_nativeint ->
+  | Rep_constr { p } when Path.same p Predef.path_nativeint ->
     num_nodes_visited, non_nullable (Pboxedintval Boxed_nativeint)
-  | Tconstr(p, _, _) when Path.same p Predef.path_int8x16 ->
+  | Rep_constr { p } when Path.same p Predef.path_int8x16 ->
     num_nodes_visited, non_nullable (Pboxedvectorval Boxed_vec128)
-  | Tconstr(p, _, _) when Path.same p Predef.path_int16x8 ->
+  | Rep_constr { p } when Path.same p Predef.path_int16x8 ->
     num_nodes_visited, non_nullable (Pboxedvectorval Boxed_vec128)
-  | Tconstr(p, _, _) when Path.same p Predef.path_int32x4 ->
+  | Rep_constr { p } when Path.same p Predef.path_int32x4 ->
     num_nodes_visited, non_nullable (Pboxedvectorval Boxed_vec128)
-  | Tconstr(p, _, _) when Path.same p Predef.path_int64x2 ->
+  | Rep_constr { p } when Path.same p Predef.path_int64x2 ->
     num_nodes_visited, non_nullable (Pboxedvectorval Boxed_vec128)
-  | Tconstr(p, _, _) when Path.same p Predef.path_float32x4 ->
+  | Rep_constr { p } when Path.same p Predef.path_float32x4 ->
     num_nodes_visited, non_nullable (Pboxedvectorval Boxed_vec128)
-  | Tconstr(p, _, _) when Path.same p Predef.path_float64x2 ->
+  | Rep_constr { p } when Path.same p Predef.path_float64x2 ->
     num_nodes_visited, non_nullable (Pboxedvectorval Boxed_vec128)
-  | Tconstr(p, _, _)
+  | Rep_constr { p }
     when (Path.same p Predef.path_array
           || Path.same p Predef.path_floatarray) ->
     (* CR layouts: [~elt_sort:None] here is bad for performance. To
        fix it, we need a place to store the sort on a [Tconstr]. *)
     num_nodes_visited, non_nullable (Parrayval (array_type_kind ~elt_sort:None env loc ty))
-  | Tconstr(p, _, _) -> begin
+  | Rep_constr { p } -> begin
       (* CR layouts v2.8: The uses of [decl.type_jkind] here are suspect:
          with with-kinds, [decl.type_jkind] will mention variables bound
          by the parameters of the declaration. The code below loses this
@@ -575,7 +561,7 @@ let rec value_kind env ~loc ~visited ~depth ~num_nodes_visited ty
             (value_kind_of_value_jkind env decl.type_jkind)
         | Type_open -> num_nodes_visited, non_nullable Pgenval
     end
-  | Ttuple labeled_fields ->
+  | Rep_tuple { fields } ->
     if cannot_proceed () then
       num_nodes_visited, non_nullable Pgenval
     else
@@ -591,20 +577,20 @@ let rec value_kind env ~loc ~visited ~depth ~num_nodes_visited ty
                are values before recurring.
             *)
             value_kind env ~loc ~visited ~depth ~num_nodes_visited field)
-            num_nodes_visited labeled_fields
+            num_nodes_visited fields
         in
         num_nodes_visited,
         non_nullable
           (Pvariant { consts = [];
                       non_consts = [0, Constructor_uniform fields] }))
-  | Tvariant row ->
+  | Rep_variant { row } ->
     num_nodes_visited,
     if Ctype.tvariant_not_immediate row
     then non_nullable Pgenval
     else non_nullable Pintval
   | _ ->
     num_nodes_visited,
-    add_nullability_from_jkind env (Ctype.estimate_type_jkind env ty) Pgenval
+    add_nullability_from_jkind env (Ctype.type_rep_jkind env scty) Pgenval
 
 and value_kind_mixed_block_field env ~loc ~visited ~depth ~num_nodes_visited
       (field : Types.mixed_block_element) ty

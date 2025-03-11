@@ -524,6 +524,42 @@ module Mod_bounds = struct
       ~uniqueness:Uniqueness.min ~portability:Portability.max
       ~contention:Contention.min ~yielding:Yielding.max
       ~externality:Externality.max ~nullability:Nullability.Non_null
+
+  let apply_modality_to_expected modality mod_bounds =
+    let is_constant axis =
+      Mode.Modality.is_constant (Mode.Modality.Value.Const.proj axis modality)
+    in
+    let locality =
+      if is_constant (Comonadic Areality) then Locality.max else Locality.min
+    in
+    let linearity =
+      if is_constant (Comonadic Linearity) then Linearity.max else Linearity.min
+    in
+    let uniqueness =
+      if is_constant (Monadic Uniqueness)
+      then Uniqueness.max
+      else Uniqueness.min
+    in
+    let portability =
+      if is_constant (Comonadic Portability)
+      then Portability.max
+      else Portability.min
+    in
+    let contention =
+      if is_constant (Monadic Contention)
+      then Contention.max
+      else Contention.min
+    in
+    let yielding =
+      if is_constant (Comonadic Yielding) then Yielding.max else Yielding.min
+    in
+    let externality = Externality.min in
+    let nullability = Nullability.min in
+    let mod_bounds2 =
+      create ~locality ~linearity ~uniqueness ~portability ~contention ~yielding
+        ~externality ~nullability
+    in
+    join mod_bounds mod_bounds2
 end
 
 module With_bounds = struct
@@ -2257,6 +2293,12 @@ let set_nullability_upper_bound jk nullability_upper_bound =
   { jk with jkind = { jk.jkind with mod_bounds = new_bounds } }
 
 let set_layout jk layout = { jk with jkind = { jk.jkind with layout } }
+
+let apply_modality_to_expected modality jkind =
+  let mod_bounds =
+    Mod_bounds.apply_modality_to_expected modality jkind.jkind.mod_bounds
+  in
+  { jkind with jkind = { jkind.jkind with mod_bounds } }
 
 let get_annotation jk = jk.annotation
 

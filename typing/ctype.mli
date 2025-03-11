@@ -569,21 +569,43 @@ val package_subtype :
 (* Raises [Incompatible] *)
 val mcomp : Env.t -> type_expr -> type_expr -> unit
 
-(* A type with whether it has any unbound variables. This could easily
-   be changed to actually track the variables, if there is ever a need. *)
-type open_type_expr = { ty : type_expr; is_open : bool }
+(* CR reisenberg: comment me *)
+module Open_type_details : sig
+  type t
 
-val get_unboxed_type_representation :
-  Env.t -> type_expr -> (open_type_expr, open_type_expr) result
-    (* [get_unboxed_type_representation] attempts to fully expand the input
+  val is_open : t -> bool
+end
+
+(* CR reisenberg: comment me *)
+type type_representation =
+  | Rep_constr of
+      { p : Path.t; args : type_expr list; level : int;
+        is_open : Open_type_details.t }
+  | Rep_variable of { jkind : jkind_lr }
+  | Rep_function of
+      { arg : type_expr; result : type_expr; is_open : Open_type_details.t }
+  | Rep_unboxed_product of
+      (* Invariant: there is always at least two fields; an unboxed record
+         with only one field uses a representation equal to its field's
+         representation, not [Rep_unboxed_product]. *)
+      { fields : (Types.type_expr * Mode.Modality.Value.Const.t) list;
+        is_open : Open_type_details.t }
+  | Rep_tuple of
+      { fields : (string option * type_expr) list;
+        is_open : Open_type_details.t }
+  | Rep_variant of { row : row_desc; is_open : Open_type_details.t }
+  | Rep_object
+  | Rep_package
+
+val get_unboxed_type_approximation : Env.t -> type_expr -> type_representation
+    (* [get_unboxed_type_approximation] attempts to fully expand the input
        type_expr, descending through [@@unboxed] types.  May fail in the case of
        circular types or very deeply nested unboxed types, in which case it
        returns the most expanded version it was able to compute. *)
 
-val get_unboxed_type_approximation : Env.t -> type_expr -> open_type_expr
-    (* [get_unboxed_type_approximation] does the same thing as
-       [get_unboxed_type_representation], but doesn't indicate whether the type
-       was fully expanded or not. *)
+val get_type_representation : type_expr -> type_representation
+    (* Get a [type_representation] for the given type without doing any
+       expansion. *)
 
 val contained_without_boxing : Env.t -> type_expr -> type_expr list
     (* Return all types that are directly contained without boxing
@@ -594,6 +616,9 @@ val contained_without_boxing : Env.t -> type_expr -> type_expr list
    just checks that all constructors have no arguments, doesn't consider
    void. *)
 val tvariant_not_immediate : row_desc -> bool
+
+(* Gets the jkind of a [type_representation]. Does not do expansion. *)
+val type_rep_jkind : Env.t -> type_representation -> jkind_l
 
 (* Cheap upper bound on jkind.  Will not expand unboxed types - call
    [type_jkind] if that's needed. *)
