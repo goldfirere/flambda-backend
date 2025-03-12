@@ -2160,6 +2160,7 @@ type type_representation =
   | Rep_variant of { row : row_desc; is_open : Open_type_details.t }
   | Rep_object
   | Rep_package
+  | Rep_row
 
 let unbox_once env ty : unbox_step =
   match get_desc ty with
@@ -2212,9 +2213,10 @@ let unbox_once env ty : unbox_step =
     end
   | Tpoly (ty, bound_vars) ->
     Under_tpoly { ty; is_open = Open_type_details.from_vars bound_vars }
-  | Tvar _ | Ttuple _ | Tobject _ | Tvariant _ | Tunivar _ | Tpackage _
+  | Tvar _ | Ttuple _ | Tobject _ | Tvariant _ | Tunivar _ | Tpackage _ |
+    Tfield _ | Tnil
     -> Final_result
-  | Tfield _ | Tnil | Tlink _ | Tsubst _ -> Misc.fatal_error "unbox_once"
+  | Tlink _ | Tsubst _ -> Misc.fatal_error "unbox_once"
 
 let contained_without_boxing env ty =
   match unbox_once env ty with
@@ -2241,9 +2243,7 @@ let rec get_type_representation ~is_open ty =
     get_type_representation ~is_open ty
   | Tobject _ -> Rep_object
   | Tpackage _ -> Rep_package
-  | Tfield _ | Tnil ->
-    Misc.fatal_errorf "Row type in get_type_representation: %a"
-      !Btype.print_raw ty
+  | Tfield _ | Tnil -> Rep_row
   | Tlink _ | Tsubst _ ->
     Misc.fatal_errorf "Link/subst in get_type_representation: %a"
       !Btype.print_raw ty
@@ -2337,6 +2337,7 @@ let rec type_rep_jkind ~expand_component env ty_rep =
      then Jkind.Builtin.value ~why:Polymorphic_variant
      else Jkind.Builtin.immediate ~why:Immediate_polymorphic_variant
   | Rep_package -> Jkind.Builtin.value ~why:First_class_module
+  | Rep_row -> Jkind.Builtin.value ~why:Row_variable
 
 and close_open_jkind ~is_open env jkind =
   if Open_type_details.is_open is_open
@@ -6347,7 +6348,7 @@ let rec build_subtype env (visited : transient_expr list)
       else (t, Unchanged)
   | Tnil ->
       if posi then
-        let v = newvar (Jkind.Builtin.value ~why:Tnil) in
+        let v = newvar (Jkind.Builtin.value ~why:Row_variable) in
         (v, Changed)
       else begin
         warn := true;

@@ -167,7 +167,7 @@ let classify ~classify_product env loc ty sort : _ classification =
              Maybe we should emit a warning. *)
           Any
       end
-  | Rep_tuple _ | Rep_function _ | Rep_object | Rep_package -> Addr
+  | Rep_tuple _ | Rep_function _ | Rep_object | Rep_package | Rep_row -> Addr
   | Rep_variant _ -> Addr
   (* the [immediate] case for variants is handled by [is_always_gc_ignorable],
      above *)

@@ -282,8 +282,6 @@ module History = struct
     | Row_variable
     | Polymorphic_variant
     | Arrow
-    | Tfield
-    | Tnil
     | First_class_module
     | Univar
     | Default_type_jkind

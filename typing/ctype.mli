@@ -596,6 +596,7 @@ type type_representation =
   | Rep_variant of { row : row_desc; is_open : Open_type_details.t }
   | Rep_object
   | Rep_package
+  | Rep_row
 
 val get_unboxed_type_approximation : Env.t -> type_expr -> type_representation
     (* [get_unboxed_type_approximation] attempts to fully expand the input

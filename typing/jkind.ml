@@ -2557,12 +2557,6 @@ module Format_history = struct
     | Row_variable -> format_with_notify_js ppf "it's a row variable"
     | Polymorphic_variant -> fprintf ppf "it's a polymorphic variant type"
     | Arrow -> fprintf ppf "it's a function type"
-    | Tfield ->
-      format_with_notify_js ppf
-        "it's an internal Tfield type (you shouldn't see this)"
-    | Tnil ->
-      format_with_notify_js ppf
-        "it's an internal Tnil type (you shouldn't see this)"
     | First_class_module -> fprintf ppf "it's a first-class module type"
     | Univar ->
       fprintf ppf "it is or unifies with an unannotated universal variable"
@@ -3277,8 +3271,6 @@ module Debug_printers = struct
     | Row_variable -> fprintf ppf "Row_variable"
     | Polymorphic_variant -> fprintf ppf "Polymorphic_variant"
     | Arrow -> fprintf ppf "Arrow"
-    | Tfield -> fprintf ppf "Tfield"
-    | Tnil -> fprintf ppf "Tnil"
     | First_class_module -> fprintf ppf "First_class_module"
     | Univar -> fprintf ppf "Univar"
     | Default_type_jkind -> fprintf ppf "Default_type_jkind"
