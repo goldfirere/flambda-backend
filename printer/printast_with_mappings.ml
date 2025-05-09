@@ -240,8 +240,8 @@ let rec core_type i ppf x =
   | Ptyp_open (mod_ident, t) ->
       line i ppf "Ptyp_open \"%a\"\n" fmt_longident_loc mod_ident;
       core_type i ppf t
-  | Ptyp_mod_modes jkind ->
-      line i ppf "Ptyp_mod_modes %a\n" (jkind_annotation (i+1)) jkind
+  | Ptyp_mod_modes modes_ ->
+      line i ppf "Ptyp_mod_modes %a\n" (modes (i+1)) modes_
   | Ptyp_extension (s, arg) ->
       line i ppf "Ptyp_extension \"%s\"\n" s.txt;
       payload i ppf arg

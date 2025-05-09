@@ -1006,7 +1006,10 @@ let core_type sub ct =
         Ptyp_poly (bound_vars, sub.typ sub ct)
     | Ttyp_package pack -> Ptyp_package (sub.package_type sub pack)
     | Ttyp_open (_path, mod_ident, t) -> Ptyp_open (mod_ident, sub.typ sub t)
-    | Ttyp_mod_modes jkind -> Ptyp_mod_modes jkind
+    | Ttyp_mod_modes jkind -> begin match jkind.pjkind_desc with
+      | Mod(_, modes) -> Ptyp_mod_modes modes
+      | _ -> assert false
+    end
     | Ttyp_call_pos ->
         Ptyp_extension call_pos_extension
   in

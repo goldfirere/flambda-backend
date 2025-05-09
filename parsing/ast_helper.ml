@@ -133,8 +133,8 @@ module Typ = struct
             Ptyp_package(longident,List.map (fun (n,typ) -> (n,loop typ) ) lst)
         | Ptyp_open (mod_ident, core_type) ->
             Ptyp_open (mod_ident, loop core_type)
-        | Ptyp_mod_modes jkind ->
-            Ptyp_mod_modes (loop_jkind jkind)
+        | Ptyp_mod_modes modes ->
+            Ptyp_mod_modes modes
         | Ptyp_extension (s, arg) ->
             Ptyp_extension (s, arg)
       in

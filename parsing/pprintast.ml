@@ -524,8 +524,9 @@ and core_type ctxt f x =
                           (tyvar_loc_jkind tyvar) ~sep:"@;")
                           l)
           sl (core_type ctxt) ct
-    | Ptyp_mod_modes jkind ->
-      pp f "@[(type@ :@ %a)@]" (jkind_annotation reset_ctxt) jkind
+    | Ptyp_mod_modes modes ->
+      pp f "@[(type@ mod@ %a)@]"
+        (pp_print_list ~pp_sep:pp_print_space mode) modes
     | _ -> pp f "@[<2>%a@]" (core_type1 ctxt) x
 
 and core_type1 ctxt f x =
