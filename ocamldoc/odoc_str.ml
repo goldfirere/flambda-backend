@@ -44,7 +44,7 @@ let rec is_arrow_type t =
   | Types.Tconstr _
   | Types.Tvar _ | Types.Tunivar _ | Types.Tobject _ | Types.Tpoly _
   | Types.Tfield _ | Types.Tnil | Types.Tvariant _ | Types.Tpackage _
-  | Types.Tof_kind _ -> false
+  | Types.Tmod_modes _ -> false
   | Types.Tsubst _ -> assert false
 
 
@@ -55,7 +55,7 @@ let rec need_parent t =
   | Types.Tconstr _
   | Types.Tvar _ | Types.Tunivar _ | Types.Tobject _ | Types.Tpoly _
   | Types.Tfield _ | Types.Tnil | Types.Tvariant _ | Types.Tpackage _
-  | Types.Tof_kind _ -> false
+  | Types.Tmod_modes _ -> false
   | Types.Tsubst _ -> assert false
 
 let print_type_scheme ppf t =

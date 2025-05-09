@@ -234,8 +234,8 @@ and type_desc =
   | Tpackage of Path.t * (Longident.t * type_expr) list
   (** Type of a first-class module (a.k.a package). *)
 
-  | Tof_kind of jkind_lr
-  (** [Tof_kind jkind] ==> [(type : jkind)]
+  | Tmod_modes of jkind_lr
+  (** [Tmod_modes jkind] ==> [(type : jkind)]
 
       The "canonical" type of a particular kind.
 
