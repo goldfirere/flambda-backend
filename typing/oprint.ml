@@ -563,8 +563,9 @@ and print_out_type_3 ppf =
     fprintf ppf "@[<1>(%a@ :@ %a)@]"
       print_out_type_0 t
       print_out_jkind jk
-  | Otyp_mod_modes jk ->
-    fprintf ppf "(type@ :@ %a)" print_out_jkind jk
+  | Otyp_mod_modes modes ->
+    let print_modes = pp_print_list ~pp_sep:pp_print_space pp_print_string in
+    fprintf ppf "(type@ mod@ %a)" print_modes modes
 and print_out_type ppf typ =
   print_out_type_0 ppf typ
 and print_simple_out_type ppf typ =

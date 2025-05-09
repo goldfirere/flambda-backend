@@ -154,7 +154,7 @@ and out_type =
   | Otyp_jkind_annot of out_type * out_jkind
       (* Currently only introduced with very explicit code in [Printtyp] and not
          synthesized directly from the [Typedtree] *)
-  | Otyp_mod_modes of out_jkind
+  | Otyp_mod_modes of string list
 
 and out_constructor = {
   ocstr_name: string;

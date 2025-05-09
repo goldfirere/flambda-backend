@@ -1601,7 +1601,10 @@ let rec tree_of_typexp mode alloc_mode ty =
             )) fl in
         Otyp_module (tree_of_path (Some Module_type) p, fl)
     | Tmod_modes jkind ->
-      Otyp_mod_modes (out_jkind_of_desc (Jkind.get jkind))
+      Otyp_mod_modes (match out_jkind_of_desc (Jkind.get jkind) with
+        | Ojkind_const (Ojkind_const_mod (_, modes)) -> modes
+        | _ -> assert false
+      )
   in
   if List.memq px !delayed then delayed := List.filter ((!=) px) !delayed;
   alias_nongen_row mode px ty;
