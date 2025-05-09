@@ -936,8 +936,13 @@ let typ sub x =
         Ttyp_package (sub.package_type sub pack)
     | Ttyp_open (path, mod_ident, t) ->
         Ttyp_open (path, map_loc sub mod_ident, sub.typ sub t)
-    | Ttyp_mod_modes jkind ->
-      Ttyp_mod_modes (sub.jkind_annotation sub jkind)
+    | Ttyp_mod_modes modes ->
+        let ast_mapper =
+          { Ast_mapper.default_mapper
+            with location = (fun _this loc -> sub.location sub loc)
+          }
+        in
+        Ttyp_mod_modes (ast_mapper.modes ast_mapper modes)
   in
   let ctyp_attributes = sub.attributes sub x.ctyp_attributes in
   {x with ctyp_loc; ctyp_desc; ctyp_env; ctyp_attributes}

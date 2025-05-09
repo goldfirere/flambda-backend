@@ -676,7 +676,12 @@ let typ sub {ctyp_loc; ctyp_desc; ctyp_env; ctyp_attributes; _} =
   | Ttyp_open (_, mod_ident, t) ->
       iter_loc sub mod_ident;
       sub.typ sub t
-  | Ttyp_mod_modes jkind -> sub.jkind_annotation sub jkind
+  | Ttyp_mod_modes (modes : Parsetree.modes) ->
+      let ast_iterator = { Ast_iterator.default_iterator with
+                           location = (fun _this loc -> sub.location sub loc)
+                         }
+      in
+      ast_iterator.modes ast_iterator modes
   | Ttyp_call_pos -> ()
 
 let class_structure sub {cstr_self; cstr_fields; _} =

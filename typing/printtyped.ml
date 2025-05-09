@@ -308,8 +308,8 @@ let rec core_type i ppf x =
   | Ttyp_open (path, _mod_ident, t) ->
       line i ppf "Ttyp_open %a\n" fmt_path path;
       core_type i ppf t
-  | Ttyp_mod_modes jkind ->
-      line i ppf "Ttyp_mod_modes %a\n" (jkind_annotation i) jkind;
+  | Ttyp_mod_modes modes_ ->
+      line i ppf "Ttyp_mod_modes %a\n" (Printast.modes i) modes_;
   | Ttyp_call_pos -> line i ppf "Ttyp_call_pos\n";
 
 and labeled_core_type i ppf (l, t) =

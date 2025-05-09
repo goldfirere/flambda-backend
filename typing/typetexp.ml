@@ -1071,7 +1071,7 @@ and transl_type_aux env ~row_context ~aliased ~policy mode styp =
     let pjkind = { pjkind_loc = loc; pjkind_desc = Mod ({ pjkind_loc = loc; pjkind_desc = Abbreviation "value" }, modes) } in
     let tjkind = jkind_of_annotation (Type_mod_modes loc) styp.ptyp_attributes pjkind in
     let ty = newty (Tmod_modes tjkind) in
-    ctyp (Ttyp_mod_modes pjkind) ty
+    ctyp (Ttyp_mod_modes modes) ty
   | Ptyp_extension ext ->
       raise (Error_forward (Builtin_attributes.error_of_extension ext))
 
