@@ -721,8 +721,13 @@ and raw_type_desc ppf = function
   | Tpackage (p, fl) ->
       fprintf ppf "@[<hov1>Tpackage(@,%a,@,%a)@]" path p
         raw_lid_type_list fl
-  | Tmod_modes jkind ->
-    fprintf ppf "(type@ :@ %a)" Jkind.format jkind
+  | Tmod_modes modes ->
+    let mode_strings = match Jkind.Mod_bounds.get_strings_for_printing modes with
+    | Some mode_strings -> mode_strings
+    | None -> Misc.fatal_error "no mode_strings in Tmod_modes"
+    in
+    fprintf ppf "(type@ mod@ @[%a@])"
+      (pp_print_list ~pp_sep:pp_print_space pp_print_string) mode_strings
 and raw_row_fixed ppf = function
 | None -> fprintf ppf "None"
 | Some Types.Fixed_private -> fprintf ppf "Some Fixed_private"
@@ -1600,11 +1605,12 @@ let rec tree_of_typexp mode alloc_mode ty =
               tree_of_typexp mode Alloc.Const.legacy ty
             )) fl in
         Otyp_module (tree_of_path (Some Module_type) p, fl)
-    | Tmod_modes jkind ->
-      Otyp_mod_modes (match out_jkind_of_desc (Jkind.get jkind) with
-        | Ojkind_const (Ojkind_const_mod (_, modes)) -> modes
-        | _ -> assert false
-      )
+    | Tmod_modes modes ->
+      let mode_strings = match Jkind.Mod_bounds.get_strings_for_printing modes with
+        | Some mode_strings -> mode_strings
+        | None -> Misc.fatal_error "no mode_strings in Tmod_modes"
+      in
+      Otyp_mod_modes mode_strings
   in
   if List.memq px !delayed then delayed := List.filter ((!=) px) !delayed;
   alias_nongen_row mode px ty;
@@ -3198,14 +3204,8 @@ let explanation (type variety) intro prev env
       Some (dprintf "@ because the layouts of their variables are different.\
                      @ @[<v>%t@;%t@]"
               (fmt_history t1 k1) (fmt_history t2 k2))
-  | Errortrace.Unequal_tmod_modes_jkinds (k1, k2) ->
-      let fmt_history which k ppf =
-        Jkind.(format_history ~intro:(
-          dprintf "The kind of %s is %a" which format k) ppf k)
-      in
-      Some (dprintf "@ because their kinds are different.\
-                     @ @[<v>%t@;%t@]"
-              (fmt_history "the first" k1) (fmt_history "the second" k2))
+  | Errortrace.Unequal_tmod_modes ->
+      Some (dprintf "@ because their mod-bounds are different")
 
 let mismatch intro env trace =
   Errortrace.explain trace (fun ~prev h -> explanation intro prev env h)
@@ -3270,7 +3270,7 @@ let error trace_format mode subst env tr txt1 ppf txt2 ty_expect_explanation =
   in
   let jkind_error = match Misc.last tr with
     | Some (Bad_jkind _ | Bad_jkind_sort _ | Unequal_var_jkinds _
-           | Unequal_tmod_modes_jkinds _) ->
+           | Unequal_tmod_modes) ->
         true
     | Some (Diff _ | Escape _ | Variant _ | Obj _ | Incompatible_fields _
            | Rec_occur _)

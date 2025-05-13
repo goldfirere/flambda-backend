@@ -2334,7 +2334,7 @@ let rec estimate_type_jkind ~expand_component env ty =
        down a test case that cares. *)
     Jkind.round_up ~jkind_of_type |>
     Jkind.disallow_right
-  | Tmod_modes jkind -> Jkind.disallow_right jkind
+  | Tmod_modes modes -> Jkind.for_type_mod_modes modes
   | Tpackage _ -> Jkind.Builtin.value ~why:First_class_module
 
 and close_open_jkind ~expand_component ~is_open env jkind =
@@ -5546,9 +5546,9 @@ let rec eqtype rename type_pairs subst env ~do_jkind_check t1 t2 =
         eqtype_subst type_pairs subst t1 k1 t2 k2 ~do_jkind_check
     | (Tconstr (p1, [], _), Tconstr (p2, [], _)) when Path.same p1 p2 ->
         ()
-    | (Tmod_modes k1, Tmod_modes k2) ->
-      if not (Jkind.equal k1 k2)
-      then raise_for Equality (Unequal_tmod_modes_jkinds (k1, k2))
+    | (Tmod_modes m1, Tmod_modes m2) ->
+      if not (Jkind.Mod_bounds.equal m1 m2)
+      then raise_for Equality Unequal_tmod_modes
     | _ ->
         let t1' = expand_head_rigid env t1 in
         let t2' = expand_head_rigid env t2 in

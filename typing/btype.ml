@@ -261,8 +261,8 @@ let fold_row f init row =
   in
   match get_desc (row_more row) with
   | Tvar _ | Tunivar _ | Tsubst _ | Tconstr _ | Tnil
-    (* Tmod_modes can appear in [row_more] in case the row's row variable was existentially
-       quantified in a GADT *)
+    (* Tmod_modes can appear in [row_more] in case the row's row variable was
+       existentially quantified in a GADT *)
   | Tmod_modes _ ->
     begin match
       Option.map (fun (_,l) -> List.fold_left f result l) (row_name row)
@@ -485,7 +485,7 @@ let rec copy_type_desc ?(keep_names=false) f = function
       let tyl = List.map f tyl in
       Tpoly (f ty, tyl)
   | Tpackage (p, fl)  -> Tpackage (p, List.map (fun (n, ty) -> (n, f ty)) fl)
-  | Tmod_modes jk -> Tmod_modes jk
+  | Tmod_modes m -> Tmod_modes m
 
 (* Utilities for copying *)
 

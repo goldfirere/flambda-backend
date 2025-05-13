@@ -323,6 +323,7 @@ module History = struct
     | Wildcard
     | Unification_var
     | Array_type_argument
+    | Type_mod_modes
 
   type product_creation_reason =
     | Unboxed_tuple

@@ -114,7 +114,13 @@ end
 module Mod_bounds : sig
   type t = Types.Jkind_mod_bounds.t
 
+  val equal : t -> t -> bool
+
   val to_mode_crossing : t -> Mode.Crossing.t
+
+  (** Takes implications into account. Returns [None] if there is nothing
+      to print. *)
+  val get_strings_for_printing : t -> string list option
 end
 
 module With_bounds : sig
@@ -507,6 +513,9 @@ val for_arrow : Types.jkind_l
 (** The jkind of an object type.  *)
 val for_object : Types.jkind_l
 
+(** The jkind for a [(type mod <<modes>>)] type *)
+val for_type_mod_modes : Mod_bounds.t -> Types.jkind_l
+
 (******************************)
 (* elimination and defaulting *)
 
@@ -554,6 +563,14 @@ val get_layout : 'd Types.jkind -> Layout.Const.t option
 
 (** Gets the layout of a jkind, without looking through sort variables. *)
 val extract_layout : 'd Types.jkind -> Sort.t Layout.t
+
+(* CR reisenberg: do we still need this? *)
+
+(** Gets the modal bounds for this jkind. *)
+val get_modal_bounds :
+  jkind_of_type:(Types.type_expr -> Types.jkind_l option) ->
+  'd Types.jkind ->
+  Mod_bounds.t
 
 (** Gets the mode crossing for types of this jkind. *)
 val get_mode_crossing :

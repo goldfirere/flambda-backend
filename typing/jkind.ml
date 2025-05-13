@@ -589,6 +589,72 @@ module Mod_bounds = struct
               visibility = visibility t
             }
         }
+
+  module For_printing = struct
+    let get_modal_bound (type a) ~(axis : a Axis.t) ~(base : a) (actual : a) =
+      let (module A) = Axis.get axis in
+      (* CR layouts v2.8: Fix printing! *)
+      let less_or_equal a b =
+        let (module Axis_ops) = Axis.get axis in
+        Axis_ops.less_or_equal a b
+      in
+      match less_or_equal actual base with
+      | Less | Equal -> (
+        match less_or_equal base actual with
+        | Less | Equal -> `Valid None
+        | Not_le -> `Valid (Some (Format.asprintf "%a" A.print actual)))
+      | Not_le -> `Invalid
+
+    let get_modal_bounds ~(base : t) (actual : t) =
+      Axis.all
+      |> List.map (fun (Axis.Pack axis) ->
+             let base = get ~axis base in
+             let actual = get ~axis actual in
+             get_modal_bound ~axis ~base actual)
+      |> List.rev
+      |> List.fold_left
+           (fun acc mode ->
+             match acc, mode with
+             | _, `Invalid | None, _ -> None
+             | acc, `Valid None -> acc
+             | Some acc, `Valid (Some mode) -> Some (mode :: acc))
+           (Some [])
+      |> function
+      | None -> None
+      | Some modes ->
+        (* Handle all the mode implications *)
+        let modes =
+          match List.mem "global" modes, List.mem "unyielding" modes with
+          | true, true ->
+            (* [global] implies [unyielding], omit it. *)
+            List.filter (fun m -> m <> "unyielding") modes
+          | true, false ->
+            (* Otherwise, print [mod global yielding] to indicate [yielding]. *)
+            modes @ ["yielding"]
+          | _, _ -> modes
+        in
+        let modes =
+          (* Likewise for [stateless] and [portable]. *)
+          match List.mem "stateless" modes, List.mem "portable" modes with
+          | true, true -> List.filter (fun m -> m <> "portable") modes
+          | true, false -> modes @ ["portable"]
+          | _, _ -> modes
+        in
+        (* Likewise for [immutable] and [contended], or [read] and [shared]. *)
+        let modes =
+          match List.mem "immutable" modes, List.mem "contended" modes with
+          | true, true -> List.filter (fun m -> m <> "contended") modes
+          | true, false -> modes @ ["contended"]
+          | _, _ -> (
+            match List.mem "read" modes, List.mem "shared" modes with
+            | true, true -> List.filter (fun m -> m <> "shared") modes
+            | true, false -> modes @ ["shared"]
+            | _, _ -> modes)
+        in
+        Some modes
+  end
+
+  let get_strings_for_printing t = For_printing.get_modal_bounds ~base:max t
 end
 
 module With_bounds = struct
@@ -1534,68 +1600,6 @@ module Const = struct
           (Outcometree.out_type * Outcometree.out_modality_new list) list
       }
 
-    let get_modal_bound (type a) ~(axis : a Axis.t) ~(base : a) (actual : a) =
-      let (module A) = Axis.get axis in
-      (* CR layouts v2.8: Fix printing! *)
-      let less_or_equal a b =
-        let (module Axis_ops) = Axis.get axis in
-        Axis_ops.less_or_equal a b
-      in
-      match less_or_equal actual base with
-      | Less | Equal -> (
-        match less_or_equal base actual with
-        | Less | Equal -> `Valid None
-        | Not_le -> `Valid (Some (Format.asprintf "%a" A.print actual)))
-      | Not_le -> `Invalid
-
-    let get_modal_bounds ~(base : Mod_bounds.t) (actual : Mod_bounds.t) =
-      Axis.all
-      |> List.map (fun (Axis.Pack axis) ->
-             let base = Mod_bounds.get ~axis base in
-             let actual = Mod_bounds.get ~axis actual in
-             get_modal_bound ~axis ~base actual)
-      |> List.rev
-      |> List.fold_left
-           (fun acc mode ->
-             match acc, mode with
-             | _, `Invalid | None, _ -> None
-             | acc, `Valid None -> acc
-             | Some acc, `Valid (Some mode) -> Some (mode :: acc))
-           (Some [])
-      |> function
-      | None -> None
-      | Some modes ->
-        (* Handle all the mode implications *)
-        let modes =
-          match List.mem "global" modes, List.mem "unyielding" modes with
-          | true, true ->
-            (* [global] implies [unyielding], omit it. *)
-            List.filter (fun m -> m <> "unyielding") modes
-          | true, false ->
-            (* Otherwise, print [mod global yielding] to indicate [yielding]. *)
-            modes @ ["yielding"]
-          | _, _ -> modes
-        in
-        let modes =
-          (* Likewise for [stateless] and [portable]. *)
-          match List.mem "stateless" modes, List.mem "portable" modes with
-          | true, true -> List.filter (fun m -> m <> "portable") modes
-          | true, false -> modes @ ["portable"]
-          | _, _ -> modes
-        in
-        (* Likewise for [immutable] and [contended], or [read] and [shared]. *)
-        let modes =
-          match List.mem "immutable" modes, List.mem "contended" modes with
-          | true, true -> List.filter (fun m -> m <> "contended") modes
-          | true, false -> modes @ ["contended"]
-          | _, _ -> (
-            match List.mem "read" modes, List.mem "shared" modes with
-            | true, true -> List.filter (fun m -> m <> "shared") modes
-            | true, false -> modes @ ["shared"]
-            | _, _ -> modes)
-        in
-        Some modes
-
     let modality_to_ignore_axes axes_to_ignore =
       (* The modality is constant along axes to ignore and id along others *)
       List.fold_left
@@ -1626,7 +1630,8 @@ module Const = struct
         Layout.Const.equal base.jkind.layout actual.layout
       in
       let modal_bounds =
-        get_modal_bounds ~base:base.jkind.mod_bounds actual.mod_bounds
+        Mod_bounds.For_printing.get_modal_bounds ~base:base.jkind.mod_bounds
+          actual.mod_bounds
       in
       let printable_with_bounds =
         List.map
@@ -2320,6 +2325,11 @@ let for_object =
     }
     ~annotation:None ~why:(Value_creation Object)
 
+let for_type_mod_modes mod_bounds =
+  fresh_jkind
+    { layout = Any; mod_bounds; with_bounds = No_with_bounds }
+    ~annotation:None ~why:(Any_creation Type_mod_modes)
+
 (******************************)
 (* elimination and defaulting *)
 
@@ -2378,24 +2388,11 @@ let get_modal_bounds (type l r) ~jkind_of_type (jk : (l * r) jkind) =
     Layout_and_axes.normalize ~mode:Ignore_best
       ~skip_axes:Axis_set.all_nonmodal_axes ~jkind_of_type jk.jkind
   in
-  Mod_bounds.
-    { comonadic =
-        { areality = locality mod_bounds;
-          linearity = linearity mod_bounds;
-          portability = portability mod_bounds;
-          yielding = yielding mod_bounds;
-          statefulness = statefulness mod_bounds
-        };
-      monadic =
-        { uniqueness = uniqueness mod_bounds;
-          contention = contention mod_bounds;
-          visibility = visibility mod_bounds
-        }
-    }
+  mod_bounds
 
 let get_mode_crossing (type l r) ~jkind_of_type (jk : (l * r) jkind) =
   let bounds = get_modal_bounds ~jkind_of_type jk in
-  Mode.Crossing.of_bounds bounds
+  Mod_bounds.to_mode_crossing bounds
 
 let to_unsafe_mode_crossing jkind =
   { unsafe_mod_bounds = Mod_bounds.to_mode_crossing jkind.jkind.mod_bounds;
@@ -2677,6 +2674,8 @@ module Format_history = struct
     | Inside_of_Tarrow -> fprintf ppf "argument or result of a function type"
     | Array_type_argument ->
       fprintf ppf "it's the type argument to the array type"
+    | Type_mod_modes ->
+      fprintf ppf "all (type mod <<modes>>) types have layout any"
 
   let format_immediate_creation_reason ppf :
       History.immediate_creation_reason -> _ = function
@@ -3444,7 +3443,8 @@ module Debug_printers = struct
     | Type_variable name -> fprintf ppf "Type_variable %S" name
     | Type_wildcard loc ->
       fprintf ppf "Type_wildcard (%a)" Location.print_loc loc
-    | Type_mod_modes loc -> fprintf ppf "Type_mod_modes (%a)" Location.print_loc loc
+    | Type_mod_modes loc ->
+      fprintf ppf "Type_mod_modes (%a)" Location.print_loc loc
     | With_error_message (message, context) ->
       fprintf ppf "With_error_message (%s, %a)" message annotation_context
         context
@@ -3458,6 +3458,7 @@ module Debug_printers = struct
     | Type_expression_call -> fprintf ppf "Type_expression_call"
     | Inside_of_Tarrow -> fprintf ppf "Inside_of_Tarrow"
     | Array_type_argument -> fprintf ppf "Array_type_argument"
+    | Type_mod_modes -> fprintf ppf "Type_mod_modes"
 
   let immediate_creation_reason ppf : History.immediate_creation_reason -> _ =
     function

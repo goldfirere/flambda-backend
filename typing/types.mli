@@ -234,14 +234,14 @@ and type_desc =
   | Tpackage of Path.t * (Longident.t * type_expr) list
   (** Type of a first-class module (a.k.a package). *)
 
-  | Tmod_modes of jkind_lr
-  (** [Tmod_modes jkind] ==> [(type : jkind)]
+  | Tmod_modes of Jkind_mod_bounds.t
+  (** [Tmod_modes modes] ==> [(type mod modes)]
 
-      The "canonical" type of a particular kind.
+      The "canonical" type with particular mode-crossing behavior.
 
-      These types are uninhabited, and any appearing in translation will cause an error.
-      They are only used to represent the kinds of existentially-quantified types
-      mentioned in with-bounds. *)
+      These types are uninhabited, and any appearing in translation will cause
+      an error.  They are only used to represent the kinds of
+      existentially-quantified types mentioned in with-bounds. *)
 
 (** This is used in the Typedtree. It is distinct from
     {{!Asttypes.arg_label}[arg_label]} because Position argument labels are
