@@ -333,6 +333,8 @@ module Layout = struct
     | Sort s -> Const.of_sort_const (Sort.default_to_value_and_get s)
     | Product p -> Product (List.map default_to_value_and_get p)
 
+  let equate = equate_or_equal ~allow_mutation:true
+
   let format ppf layout =
     let open Format in
     let rec pp_element ~nested ppf : _ Layout.t -> unit = function
@@ -2325,10 +2327,10 @@ let for_object =
     }
     ~annotation:None ~why:(Value_creation Object)
 
-let for_type_mod_modes mod_bounds =
+let for_type_mod_modes layout mod_bounds =
   fresh_jkind
-    { layout = Any; mod_bounds; with_bounds = No_with_bounds }
-    ~annotation:None ~why:(Any_creation Type_mod_modes)
+    { layout; mod_bounds; with_bounds = No_with_bounds }
+    ~annotation:None ~why:Type_mod_modes
 
 (******************************)
 (* elimination and defaulting *)
@@ -2648,8 +2650,6 @@ module Format_history = struct
     | Type_variable name -> fprintf ppf "the type variable %s" name
     | Type_wildcard loc ->
       fprintf ppf "the wildcard _ at %a" Location.print_loc_in_lowercase loc
-    | Type_mod_modes loc ->
-      fprintf ppf "the type at %a" Location.print_loc_in_lowercase loc
     | With_error_message (_message, context) ->
       (* message gets printed in [format_flattened_history] so we ignore it here *)
       format_annotation_context ppf context
@@ -2674,8 +2674,6 @@ module Format_history = struct
     | Inside_of_Tarrow -> fprintf ppf "argument or result of a function type"
     | Array_type_argument ->
       fprintf ppf "it's the type argument to the array type"
-    | Type_mod_modes ->
-      fprintf ppf "all (type mod <<modes>>) types have layout any"
 
   let format_immediate_creation_reason ppf :
       History.immediate_creation_reason -> _ = function
@@ -2824,6 +2822,7 @@ module Format_history = struct
       in
       fprintf ppf "of the definition%a at %a" format_id id
         Location.print_loc_in_lowercase loc
+    | Type_mod_modes -> fprintf ppf "it is the kind of a (type mod <<modes>>)"
 
   let format_interact_reason ppf : History.interact_reason -> _ = function
     | Gadt_equation name ->
@@ -3443,8 +3442,6 @@ module Debug_printers = struct
     | Type_variable name -> fprintf ppf "Type_variable %S" name
     | Type_wildcard loc ->
       fprintf ppf "Type_wildcard (%a)" Location.print_loc loc
-    | Type_mod_modes loc ->
-      fprintf ppf "Type_mod_modes (%a)" Location.print_loc loc
     | With_error_message (message, context) ->
       fprintf ppf "With_error_message (%s, %a)" message annotation_context
         context
@@ -3458,7 +3455,6 @@ module Debug_printers = struct
     | Type_expression_call -> fprintf ppf "Type_expression_call"
     | Inside_of_Tarrow -> fprintf ppf "Inside_of_Tarrow"
     | Array_type_argument -> fprintf ppf "Array_type_argument"
-    | Type_mod_modes -> fprintf ppf "Type_mod_modes"
 
   let immediate_creation_reason ppf : History.immediate_creation_reason -> _ =
     function
@@ -3561,6 +3557,7 @@ module Debug_printers = struct
       fprintf ppf "Generalized (%s, %a)"
         (match id with Some id -> Ident.unique_name id | None -> "")
         Location.print_loc loc
+    | Type_mod_modes -> fprintf ppf "Type_mod_modes"
 
   let interact_reason ppf : History.interact_reason -> _ = function
     | Gadt_equation p -> fprintf ppf "Gadt_equation %a" Path.print p

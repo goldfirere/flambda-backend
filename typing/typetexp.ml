@@ -1068,7 +1068,9 @@ and transl_type_aux env ~row_context ~aliased ~policy mode styp =
       ctyp (Ttyp_open (path, mod_ident, cty)) cty.ctyp_type
   | Ptyp_mod_modes modes ->
     let tmodes = Typemode.transl_mod_bounds modes in
-    let ty = newty (Tmod_modes tmodes) in
+    let tmodes = Jkind_mod_bounds.(set_nullability Nullability.min tmodes) in
+    let layout = Jkind.Layout.Sort (Jkind.Sort.new_var ()) in
+    let ty = newty (Tmod_modes (layout, tmodes)) in
     ctyp (Ttyp_mod_modes modes) ty
   | Ptyp_extension ext ->
       raise (Error_forward (Builtin_attributes.error_of_extension ext))

@@ -234,14 +234,17 @@ and type_desc =
   | Tpackage of Path.t * (Longident.t * type_expr) list
   (** Type of a first-class module (a.k.a package). *)
 
-  | Tmod_modes of Jkind_mod_bounds.t
+  | Tmod_modes of Jkind_types.Sort.t Jkind_types.Layout.t * Jkind_mod_bounds.t
   (** [Tmod_modes modes] ==> [(type mod modes)]
 
       The "canonical" type with particular mode-crossing behavior.
 
       These types are uninhabited, and any appearing in translation will cause
       an error.  They are only used to represent the kinds of
-      existentially-quantified types mentioned in with-bounds. *)
+      existentially-quantified types mentioned in with-bounds.
+
+      The type stores a layout just so that e.g. [(type mod portable)
+      Abstract.t] can be well-kinded.  *)
 
 (** This is used in the Typedtree. It is distinct from
     {{!Asttypes.arg_label}[arg_label]} because Position argument labels are

@@ -235,7 +235,6 @@ module History = struct
     | Univar : string -> (allowed * allowed) annotation_context
     | Type_variable : string -> (allowed * allowed) annotation_context
     | Type_wildcard : Location.t -> (allowed * allowed) annotation_context
-    | Type_mod_modes : Location.t -> (allowed * allowed) annotation_context
     | With_error_message :
         string * 'd annotation_context
         -> 'd annotation_context
@@ -323,7 +322,6 @@ module History = struct
     | Wildcard
     | Unification_var
     | Array_type_argument
-    | Type_mod_modes
 
   type product_creation_reason =
     | Unboxed_tuple
@@ -351,6 +349,7 @@ module History = struct
         }
     (* [position] is 1-indexed *)
     | Generalized of Ident.t option * Location.t
+    | Type_mod_modes
 
   type interact_reason =
     | Gadt_equation of Path.t

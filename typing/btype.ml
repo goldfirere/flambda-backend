@@ -485,7 +485,7 @@ let rec copy_type_desc ?(keep_names=false) f = function
       let tyl = List.map f tyl in
       Tpoly (f ty, tyl)
   | Tpackage (p, fl)  -> Tpackage (p, List.map (fun (n, ty) -> (n, f ty)) fl)
-  | Tmod_modes m -> Tmod_modes m
+  | Tmod_modes (l, m) -> Tmod_modes (l, m)
 
 (* Utilities for copying *)
 

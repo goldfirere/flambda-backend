@@ -721,7 +721,7 @@ and raw_type_desc ppf = function
   | Tpackage (p, fl) ->
       fprintf ppf "@[<hov1>Tpackage(@,%a,@,%a)@]" path p
         raw_lid_type_list fl
-  | Tmod_modes modes ->
+  | Tmod_modes (_layout, modes) ->
     let mode_strings = match Jkind.Mod_bounds.get_strings_for_printing modes with
     | Some mode_strings -> mode_strings
     | None -> Misc.fatal_error "no mode_strings in Tmod_modes"
@@ -1605,7 +1605,7 @@ let rec tree_of_typexp mode alloc_mode ty =
               tree_of_typexp mode Alloc.Const.legacy ty
             )) fl in
         Otyp_module (tree_of_path (Some Module_type) p, fl)
-    | Tmod_modes modes ->
+    | Tmod_modes (_layout, modes) ->
       let mode_strings = match Jkind.Mod_bounds.get_strings_for_printing modes with
         | Some mode_strings -> mode_strings
         | None -> Misc.fatal_error "no mode_strings in Tmod_modes"

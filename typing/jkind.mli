@@ -105,6 +105,9 @@ module Layout : sig
 
   val sub : Sort.t t -> Sort.t t -> Sub_result.t
 
+  (** Can fill in sort variables *)
+  val equate : Sort.t t -> Sort.t t -> bool
+
   module Debug_printers : sig
     val t :
       (Format.formatter -> 'sort -> unit) -> Format.formatter -> 'sort t -> unit
@@ -514,7 +517,7 @@ val for_arrow : Types.jkind_l
 val for_object : Types.jkind_l
 
 (** The jkind for a [(type mod <<modes>>)] type *)
-val for_type_mod_modes : Mod_bounds.t -> Types.jkind_l
+val for_type_mod_modes : Sort.t Layout.t -> Mod_bounds.t -> Types.jkind_l
 
 (******************************)
 (* elimination and defaulting *)

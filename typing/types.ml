@@ -323,7 +323,7 @@ and type_desc =
   | Tunivar of { name : string option; jkind : jkind_lr }
   | Tpoly of type_expr * type_expr list
   | Tpackage of Path.t * (Longident.t * type_expr) list
-  | Tmod_modes of Jkind_mod_bounds.t
+  | Tmod_modes of Jkind_types.Sort.t Jkind_types.Layout.t * Jkind_mod_bounds.t
 
 and arg_label =
   | Nolabel
