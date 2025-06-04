@@ -725,10 +725,46 @@ rec {
 
 # Properties
 
-Lemma (Borrowing is sound): If `Γ ⊢ σ : κ {best}` and `Γ ⊢ κ ≤ any mod global`,
+**Lemma (Borrowing is sound).** If `Γ ⊢ σ : κ {best}` and `Γ ⊢ κ ≤ any mod global`,
 then `Γ ⊢ κ ≤ any mod unique`.
 
 Proof: TODO.
+
+# Normalization
+
+There is a rich equivalence relation among kinds, where `Γ ⊢ κ₁ ≡ κ₂` iff 
+`Γ ⊢ κ₁ ≤ κ₂` and `Γ ⊢ κ₂ ≤ κ₁`.
+
+**Definition (Expansion).** Given a context `Γ`, we can *expand* a with-bound in
+axis `Ξ` by replacing a `with σ` with `Ξ(κ)`, where `Γ ⊢ σ : κ {best}`.
+
+**Lemma (Expanding `best` kinds is safe).** Suppose `κ₂` is the result of
+*expanding* a with-bound in `κ₁` (in `Γ`). Then `Γ ⊢ κ₁ ≡ κ₂`.
+
+Proof: TODO.
+
+Given a kind `κ` (in context `Γ`), we wish to be able to
+*normalize* the kind `κ` to get a `κ₀` such that
+`Γ ⊢ κ ≡ κ₀` and `κ₀` is in normal form.
+
+**Definition (Normal form, attempt 1).** Given a context `Γ`, the normal form
+for a kind is `layout; ⟪normal_modal_bound_Ξ⟫`, where a normal modal bound has
+the form `mode m_Ξ ⊔ [[ with σᵢ | ⊔ ]]` and, for all `σᵢ`,
+`Γ ⊢ σᵢ : κ' {not_best}`.
+
+That is, the normal form for a kind has no with-bounds with `best` kinds.
+
+Sadly, the naive algorithm for normalization -- expand all with-bounds with
+`best` kinds until no more are found -- produces an unboundedly-large kind.
+
+Example of unbounded normalization: TODO.
+
+Another sad fact about Attempt 1 is that multiple normal forms can be equivalent
+with one another.
+
+Example of two equivalent normal forms: TODO.
+
+
 
 # Examples
 
