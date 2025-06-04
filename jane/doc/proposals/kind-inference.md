@@ -29,16 +29,19 @@ M ::= (* module name *)
 
 (* modes are written in increasing order within an axis *)
 
-(* comonadic axes = prescriptive axes *)
+(* future axes = comonadic axes *)
 lm ::= global | local
-om ::= many | separate | once
-pm ::= portable | observing | nonportable
+om ::= many | once
+pm ::= portable | nonportable
 em ::= external | external64 | internal
+sm ::= stateless | observing | stateful
+ym ::= unyielding | yielding
 
-(* monadic axes = descriptive axes *)
+(* past axes = monadic axes *)
 (* These are *backwards* from the way the submode operation works in terms. *)
-um ::= aliased | exclusive | unique
+um ::= aliased | unique
 cm ::= contended | shared | uncontended
+vm ::= immutable | read | read_write
 
 m ::= lm | om | um | cm | pm | em
 modes, ms ::= [[ m ]]  (* [ms] is used when all modes are from the same axis *)
@@ -110,6 +113,7 @@ rec {
 (* constructs used only in typing rules: *)
 
 Ξ ::= locality | onceness | uniqueness | contention | portability | externality
+  | visibility | statefulness | yieldingness
 layout ::= layout_of σ | const_layout
 
   (* syntax with ⟪ and ⟫ defined below *)
@@ -144,27 +148,27 @@ q ::= best | not_best   (* quality of an inferred kind; best < not_best *)
 Mode crossing is not covered in this design.
 
 However, it may be helpful to know that having e.g. `mod observing` in a kind
-means that `observing` is the upper bound for the locality mode of values whose
+means that `observing` is the upper bound for the statefulness mode of values whose
 types have that kind. For example, if `t : ... mod observing` and some
-expression `e` of type `t` has mode `nonportable` (the top mode), it actually
-has mode `observing`.  If `e'` of type `t` has mode `portable` (the bottom
+expression `e` of type `t` has mode `stateful` (the top mode), it actually
+has mode `observing`.  If `e'` of type `t` has mode `stateless` (the bottom
 mode), that `e` is completely unaffected by the mode-crossing.  Other comonadic
 axes work similarly.
 
-Monadic axes are different, though: a kind with `mod exclusive` means that
-`exclusive` is a lower bound for mode requirements on terms whose types have
-that kind.  Suppose `t : ... mod exclusive`. If a context requires `e` of type
-`t` to have mode `unique` (the bottom mode), then actually having mode
-`exclusive` is sufficient. A requirement of `aliased` (the top mode) is
+Monadic axes are different, though: a kind with `mod shared` means that
+`shared` is a lower bound for mode requirements on terms whose types have
+that kind.  Suppose `t : ... mod shared`. If a context requires `e` of type
+`t` to have mode `uncontended` (the bottom mode), then actually having mode
+`shared` is sufficient. A requirement of `contended` (the top mode) is
 completely unaffected.
 
-The key question: if `t : ... mod exclusive` and we have
-`type ('a : ... mod aliased) t2`, is `t t2` valid? No! Even though
-`exclusive < aliased`. That's because `mod aliased` puts a *harder* requirement
-on its type (it must be agnostic between all of `unique`, `exclusive`, and
-`aliased`) than `mod exclusive` does (which says the type is agnostic between
-`unique` and `exclusive` only). This means that the subkind relation works
-backwards on monadic axes: `... mod aliased ≤ ... mod exclusive`. For this
+The key question: if `t : ... mod shared` and we have
+`type ('a : ... mod contended) t2`, is `t t2` valid? No! Even though
+`shared < contended`. That's because `mod contended` puts a *harder* requirement
+on its type (it must be agnostic between all of `uncontended`, `shared`, and
+`contended`) than `mod shared` does (which says the type is agnostic between
+`uncontended` and `shared` only). This means that the subkind relation works
+backwards on monadic axes: `... mod contended ≤ ... mod shared`. For this
 reason, in the presentation above, the monadic axis elements are listed in
 reverse order: this document does not care about submoding or mode crossing
 directly, and writing the axes in reverse order gives us the right behavior
@@ -182,7 +186,7 @@ Meta-syntax:
 We write `ms = extract(Ξ, modes)` to extract all modes from axis `Ξ`.
 
 We write `⟪ ... ⟫` to denote repeating the inner expression for each
-of the six modal axes. In that expression, `Ξ` refers to the axis in play.
+of the modal axes. In that expression, `Ξ` refers to the axis in play.
 
 Each syntactic modality is associated with an axis `Ξ` and function `μ : Ξ → Ξ`.
 We write `μ = extract(Ξ, modalities)` to denote the modality function along `Ξ`
@@ -191,37 +195,40 @@ then `extract(Ξ, modalities)` is the identity function. If more than one
 modality along `Ξ` is in `modalities`, `extract(Ξ, modalities)` fails (it
 is a partial function; any rule using it will fail if the function fails).
 
-Given an axis `Ξ` and modality function `μ : Ξ → Ξ`, let `sup(μ)` be a mode in `Ξ`,
-calculated in this way: Let `ms₀ = { m ∈ Ξ | ∀ m' ∈ Ξ, m ≤ m' ⇒ μ(m') = μ(m) }`.  Then let
-`ms₁ = { m ∈ ms₀ | ∀ m' ∈ ms₀, ¬ (m' ≤ m ∧ m' ≠ m) }`.  Finally, `sup(μ) = ⨆
-ms₁`. `sup(μ)` is the least mode in `Ξ` such that `μ` treats all modes greater than
-`sup(μ)` identically. For a constant modality `μ`, `sup(μ) = ⊥`. For an identity modality
-`μ`, `sup(μ) = ⊤`.
+Although modalities can, in general, be arbitrary functions on modes, the system
+as written is simpler. On future axes, all modalities are of the form "meet with
+a constant"; on past axes, all modalities are of the form "join with a constant."
+However, because past axes are flipped in kinds, we here can treat all modalities
+as "meet with a constant".
 
-All modalities in our system are either constant or identity functions. Therefore,
-`sup(μ)` is either `⊤` or `⊥`. Furthermore, `sup(μ)` is used only in a `⊓` operation.
-For constant modalities `μ` (where `sup(μ) = ⊥`), `m ⊓ sup(μ) = ⊥`. For identity
-modalities `μ` (where `sup(μ) = ⊤`), `m ⊓ sup(μ) = m`. We thus do not need to track
-modalities in internal kinds `κ`. We can thus simplify the definition of `κ` to
+We can thus rewrite the definition of `κ` as follows:
 
 ```
-modal_bound_item_Ξ ::= mode m_Ξ | with σ
+modal_bound_item_Ξ ::= mode m_Ξ | with (σ ⊓ m_Ξ)
 modal_bound_Ξ ::= [[ modal_bound_item_Ξ | ⊔ ]]
 κ ::= layout; ⟪modal_bound_Ξ⟫
 ```
 
+We can write `with σ` instead of `with (σ ⊓ ⊤)`.
+
 To convert from `field_types` to the types in a `modal_bound`, we
 use
 
-    types_for(Ξ, [[ σᵢ @@ modalitiesᵢ ]]ₙ) =
-      { σᵢ | i ∈ [1, j] ∧ sup(extract(Ξ, modalitiesᵢ)) = ⊤ }
-
-This extracts all types `σᵢ` such that its modality along `Ξ`
-is the identity. Put another way, this gets all the types from
-`field_types`, omitting those with a modality along `Ξ`.
+    with_types_for(Ξ, [[ σᵢ @@ modalitiesᵢ ]]ₙ) =
+      { with (σᵢ ⊓ m_Ξ) | i ∈ [1, n] ∧
+                   "meet with constant m_Ξ" = extract(Ξ, modalitiesᵢ) }
 
 We write `Ξ(κ)` to denote the modal_bound in `κ` corresponding to axis `Ξ`,
 and `lay(κ)` to denote the layout in `κ`. Similarly for `lay(χ)` and `Ξ(χ)`.
+
+We can apply the meet operation to a modal bound, via this definition, which
+just maps the meet operation over the components of the modal bound:
+
+    modal_bound_Ξ ⊓ m_Ξ := [[ mbiᵢ_Ξ ⊓ m_Ξ | mbiᵢ_Ξ ∈ modal_bound_Ξ ]]
+    modal_bound_item_Ξ ⊓ m_Ξ := cases
+      mode m₀_Ξ ⊓ m_Ξ := mode (m₀_Ξ ⊓ m_Ξ)
+      with (σ ⊓ m₀_Ξ) ⊓ m_Ξ := with (σ ⊓ (m₀_Ξ ⊓ m_Ξ))
+      
 
 Typing rules:
 
@@ -253,7 +260,7 @@ rec {
 Γ ⊢ jkind ↠ χ
 ∀ σᵢ ∈ field_types, Γ ⊢ σᵢ : κᵢ
 ---------------------------------------------------------------------- KS_WITH
-Γ ⊢ jkind with field_types ↠ lay(χ); ⟪Ξ(χ) with types_for(Ξ, field_types)⟫
+Γ ⊢ jkind with field_types ↠ lay(χ); ⟪mode Ξ(χ) ⊔ with_types_for(Ξ, field_types)⟫
 ```
 
 In `KS_OF`, we produce a kind in terms of `τ`, not just `κ`. This allows us
@@ -297,12 +304,21 @@ t := λ [[ 'aᵢ : κᵢ ]]. δ : κ ∈ Γ
   (* this premise implements the ordering restriction on mixed blocks *)
 -------------------------- T_TUPLE
 Γ ⊢ [[ τᵢ | * ]]ₙ++ :
-  value; local; many with [[ τᵢ ]]; aliased; uncontended with [[ τᵢ ]];
-  portable with [[ τᵢ ]]; internal {best}
+  value;
+  mode local;
+  mode many with [[ τᵢ ]];
+  mode aliased;
+  mode uncontended with [[ τᵢ ]];
+  mode portable with [[ τᵢ ]]; 
+  mode internal;
+  mode read_write with [[ τᵢ ]];
+  mode stateless with [[ τᵢ ]];
+  mode unyielding with [[ τᵢ ]];
+  {best}
 
 ∀ i, Γ ⊢ τᵢ : κᵢ
 -------------------------------- T_UNBOXED_TUPLE
-Γ ⊢ #( [[ τᵢ | * ]]ₙ++ ) : [[ layout_of τᵢ | * ]]; ⟪⊥_Ξ with [[ τᵢ ]]⟫ {best}
+Γ ⊢ #( [[ τᵢ | * ]]ₙ++ ) : [[ layout_of τᵢ | * ]]; ⟪with [[ τᵢ ]]⟫ {best}
 
 ------------------------ T_UNBOXED_UNIT
 Γ ⊢ #( ) : void; ⟪⊥_Ξ⟫ {best}
@@ -310,7 +326,18 @@ t := λ [[ 'aᵢ : κᵢ ]]. δ : κ ∈ Γ
 Γ ⊢ σ₁ : κ₁
 Γ ⊢ τ₂ : κ₂
 ----------------------------------------------------------------------------- T_ARROW
-Γ ⊢ σ₁ -> τ₂ : value; local; once; unique; uncontended; nonportable; internal {best}
+Γ ⊢ σ₁ -> τ₂ : 
+  value;
+  mode local;
+  mode once;
+  mode unique;
+  mode uncontended;
+  mode nonportable;
+  mode internal;
+  mode read_write;
+  mode stateful;
+  mode yielding;
+  {best}
 
 'a : χ ∈ Γ
 ---------- T_VAR
@@ -388,9 +415,11 @@ lay(κ₂) is a sort  (* this relies on the discrete nature of the sort lattice 
 ========================================
 
 Γ ⊢ σ : κ {best}   (* another critical use of `best` *)
-Γ ⊢ modal_bound_item₁_Ξ ≤ modal_bound₂_Ξ ⊔ Ξ(κ)
+Γ ⊢ modal_bound_item₁_Ξ ≤ modal_bound₂_Ξ ⊔ (Ξ(κ) ⊓ m_Ξ)
+  (* this last bit uses the ⊓ function over modal bounds defined just above
+     the beginning of all the typing rules *)
 ----------------------------------------------- MB_EXPAND_R
-Γ ⊢ modal_bound_item₁_Ξ ≤ modal_bound₂_Ξ ⊔ with σ
+Γ ⊢ modal_bound_item₁_Ξ ≤ modal_bound₂_Ξ ⊔ with (σ ⊓ m_Ξ)
   (* the [with σ] is nondeterministically chosen; order does not matter *)
 
 m₁_Ξ ≤ ⨆ [[ m₂ᵢ_Ξ ]]
@@ -400,15 +429,16 @@ m₁_Ξ ≤ ⨆ [[ m₂ᵢ_Ξ ]]
      them all is a good choice. *)
 
 Γ ⊢ σ₁ = σ₂
+m₁_Ξ ≤ m₂_Ξ
 -------------------------------------- MB_WITH
-Γ ⊢ with σ₁ ≤ modal_bound₂_Ξ ⊔ with σ₂
-  (* [with σ₂] nondeterministically chosen *)
+Γ ⊢ with (σ₁ ⊓ m₁_Ξ) ≤ modal_bound₂_Ξ ⊔ with (σ₂ ⊓ m₂_Ξ)
+  (* [with (σ₂ ⊓ m₂_Ξ)] nondeterministically chosen *)
 
 Γ ⊢ σ₁ : κ
-∀ modal_bound_item_Ξ ∈ Ξ(κ):
+∀ modal_bound_item_Ξ ∈ (Ξ(κ) ⊓ m₁_Ξ):  (* using ⊓ on modal bound again *)
   Γ ⊢ modal_bound_item_Ξ ≤ modal_bound₂_Ξ
 ---------------------------- MB_EXPAND_L
-Γ ⊢ with σ₁ ≤ modal_bound₂_Ξ
+Γ ⊢ with (σ₁ ⊓ m₁_Ξ) ≤ modal_bound₂_Ξ
 
 
 Γ ⊢ κ₁ ≤ κ₂
@@ -437,7 +467,7 @@ m_portability = portable
 δ represents {{ private }} record_kind
 ---------------------------------- TK_RECORD
 Γ ⊢tk {{ private }} record_kind ↠
-  δ : value; ⟪m_Ξ with types_for(Ξ, field_types)⟫
+  δ : value; ⟪mode m_Ξ ⊔ with_types_for(Ξ, field_types)⟫
 
 Γ ⊢ σ : κ
 δ represents the type_kind
@@ -445,7 +475,7 @@ m_portability = portable
 Γ ⊢tk {{ private }} (( { ℓ : σ @@ modalities }
                      | K : σ @@ modalities -> τs t
                      | K : { ℓ : σ @@ modalities } -> τs t )) [@@unboxed] ↠
-  δ : lay(κ); ⟪⊥_Ξ with types_for(Ξ, σ @@ modalities)⟫
+  δ : lay(κ); ⟪with_types_for(Ξ, σ @@ modalities)⟫
 
 field_types = extract_types([[ constructor_argsᵢ ]]ₙ)
 ∀ σᵢ ∈ field_types:
@@ -458,7 +488,7 @@ m_portability = portable
 δ represents {{ private }} [[ Kᵢ : constructor_argsᵢ -> τsᵢ t ]]ₙ
 ---------------------------------------------------------------- TK_VARIANT
 Γ ⊢tk {{ private }} [[ Kᵢ : constructor_argsᵢ -> τsᵢ t ]]ₙ ↠
-  δ : value; ⟪m_Ξ with types_for(Ξ, field_types)⟫
+  δ : value; ⟪mode m_Ξ ⊔ with_types_for(Ξ, field_types)⟫
 
 δ represents ..
 --------------------------- TK_EXTENSIBLE
@@ -483,7 +513,8 @@ m_portability = portable
   κ₀' = κ₀{τsⱼ/[['aᵢ]]}
   ∀ Ξ:
     mode mⱼ_Ξ ≤ Ξ(κ₀')
-    ∀ σ ∈ types_for(Ξ, field_typesⱼ), with σ ≤ Ξ(κ₀')
+    ∀ modal_bound_itemᵢ ∈ with_types_for(Ξ, field_typesⱼ):
+      Γ ⊢ modal_bound_itemᵢ ≤ Ξ(κ₀')
   value ≤ lay(κ₀')
 if [@@unboxed]:
   n = 1
@@ -620,7 +651,7 @@ t : tconstr_jkind ∈ Γ₂
 
 t = λ [[ 'aᵢ : χᵢ ]]. τ ∈ Γ₂
 ------------------------------------- FIND_ABBREV
-Γ ⊢find t ∈ Γ₂ ↠ π [[ 'aᵢ : χᵢ ]]. layout_of τ; ⟪⊥_Ξ with τ⟫
+Γ ⊢find t ∈ Γ₂ ↠ π [[ 'aᵢ : χᵢ ]]. layout_of τ; ⟪with τ⟫
 
 t := λ [[ 'aᵢ : χᵢ ]]. δ : κ₀ ∈ Γ₂
 --------------------------------------- FIND_NOMINATIVE
