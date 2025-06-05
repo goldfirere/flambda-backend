@@ -763,14 +763,19 @@ Proof: TODO.
 
 # Normalization
 
+(We leave off the `Ξ` subscripts in this section.)
+
 There is a rich equivalence relation among kinds, where `Γ ⊢ κ₁ ≡ κ₂` iff 
-`Γ ⊢ κ₁ ≤ κ₂` and `Γ ⊢ κ₂ ≤ κ₁`.
+`Γ ⊢ κ₁ ≤ κ₂` and `Γ ⊢ κ₂ ≤ κ₁`. We say that two modal_bounds are equivalent,
+written `Γ ⊢ modal_bound₁ ≡ modal_bound₂`, iff 
+`∀ mbi₁ ∈ modal_bound₁, Γ ⊢ mbi₁ ≤ modal_bound₂` and
+`∀ mbi₂ ∈ modal_bound₂, Γ ⊢ mbi₂ ≤ modal_bound₁`.
 
 **Definition (Expansion).** Given a context `Γ`, we can *expand* a with-bound in
-axis `Ξ` by replacing a `with σ` with `Ξ(κ)`, where `Γ ⊢ σ : κ {best}`.
+axis `Ξ` by replacing a `with (σ ⊓ m)` with `Ξ(κ) ⊓ m`, where `Γ ⊢ σ : κ {best}`.
 
-**Lemma (Expanding `best` kinds is safe).** Suppose `κ₂` is the result of
-*expanding* a with-bound in `κ₁` (in `Γ`). Then `Γ ⊢ κ₁ ≡ κ₂`.
+**Lemma (Expanding `best` kinds is safe).** If `Γ ⊢ σ : κ {best}`, then
+`Γ ⊢ with (σ ⊓ m) ≡ Ξ(κ) ⊓ m`.
 
 Proof: TODO.
 
@@ -794,6 +799,82 @@ Another sad fact about Attempt 1 is that multiple normal forms can be equivalent
 with one another.
 
 Example of two equivalent normal forms: TODO.
+
+**Definition (kind-equivalence).** In a context `Γ`, two types `σ₁` and `σ₂` are
+kind-equivalent, written `Γ ⊢ σ₁ ≈ σ₂` if there exists ...
+
+To do better, we first observe that all types with `not_best` kinds are abstract
+types applied to some arguments. More formally, we have
+
+**Definition (deeply abstract).** In a context `Γ`, a type `σ` is *deeply
+abstract* if `σ` either 
+1. has the form `[[ τᵢ ]]ₙ t` where `t : π [[ 'aᵢ : κᵢ ]]. κ ∈ Γ` and each `τᵢ`
+   is deeply abstract; or
+2. is a type variable
+
+**Lemma (`not_best` types are abstract).** Suppose `Γ ⊢ σ : κ {not_best}`.
+Then there exists `τ` such that `τ` is deeply abstract and `Γ ⊢ τ : κ {not_best}`.
+
+Proof: Details TODO. But we can get this by expanding synonyms and substitutions,
+discarding syntactic kind constraints, looking through polytypes, and ignoring
+subtype checks. See the `Γ ⊢ σ : κ {q}` judgment. And then doing the same recursively
+on arguments. Right now, polymorphic variants and object types are exceptions to
+this. Object types are easy: we should just mark them as `best`. For polymorphic
+variants, we probably need to give the polymorphic variant itself a `best` kind,
+but then include a `with ρ` for the row variable contained within (if any). And
+that row variable is either a type variable or an abstract `#row` type (from a
+private polymorphic variant).
+
+**Observation (abstract types are functions).** We can think of an arity-`n`
+abstract type as a function mapping `n` modal bounds to a modal bound. Because
+we can safely expand `best` kinds, there is a canonical form for these functions
+(we'll call this the unreduced canonical form). For example, if `t` is an
+arity-2 type, then we can say `t(a, b) = c₀ ⊔ (a ⊓ c₁) ⊔ (b ⊓ c₂) ⊔ ...`,
+where the `c` are mode constants and `a` and `b` represent the modal bounds
+of the argument types at a usage site of `t`. The `...` includes applications
+of all other abstract types in all possible permutations, each meeted with
+its own constant. For example, if `u`, `v`, and `w` are all abstract types with
+arity 1, 2, and 3, respectively, the `...` contains
+
+```
+(v(u(a), b) ⊓ c₃) ⊔ (w(u(a), u(b), u(a)) ⊓ c₄) ⊔ (u(v(a, b)) ⊓ c₅) ⊔ ...
+```
+
+and an infinitude of others. Starting here, we aim to simplify.
+
+**Lemma (universal encoding).** The modal bound of every abstract type can
+be captured by this unreduced canonical form.
+
+Proof. TODO. (Also TODO: make this all more formal.)
+
+The next step is to observe that `t(a, b)` is equivalent to `t(a, ⊥) ⊔ t(⊥, b)`,
+for all `a` and `b`.
+
+**Lemma (arity reduction).** 
+`Γ ⊢ with ([[ τᵢ ]]ₙ t ⊓ m) ≡ [[ with (([[ ⊥ ]]ᵢ, τᵢ, [[ ⊥ ]]ₙ₋₁) t ⊓ m) | ⊔ ]]ₙ`.
+
+Proof. TODO. But let's think about the arity-2 case:
+
+```
+t(a, ⊥) ⊔ t(⊥, b) =
+  c₀ ⊔ (a ⊓ c₁) ⊔ (⊥ ⊓ c₂) ⊔ ... ⊔ c₀ ⊔ (⊥ ⊓ c₁) ⊔ (b ⊓ c₂) ⊔ ... =
+  c₀ ⊔ (a ⊓ c₁) ⊔ ⊥ ⊔ ... ⊔ c₀ ⊔ ⊥ ⊔ (b ⊓ c₂) ⊔ ... =
+  c₀ ⊔ (a ⊓ c₁) ⊔ (b ⊓ c₂) ⊔ ... =
+```
+
+Of course, we also have to account for the infinitude of `...`, but that should
+work out by induction or something. QEND. (Quod erat *non* demonstrandum.)
+
+By the arity reduction lemma, we can now reduce our universe of consideration
+to include only 0- and 1-arity types, by defining `t₁(a) = t(a, ⊥)` and
+`t₂(b) = t(⊥, b)`.
+
+Now, let's imagine functions `f` and `g`. We observe that `f(g(f(a))) ≡ f(g(a))`.
+
+**Lemma (repetition reduction).**
+`Γ ⊢ with (τ t₁ t₂ t₁ ⊓ m) ≡ with (τ t₂ t₁ ⊓ m)`.
+
+Proof. 
 
 
 
