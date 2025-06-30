@@ -957,6 +957,40 @@ module Layout_and_axes = struct
             fuel_status = Sufficient_fuel
           }
 
+        let rec hacky_eq_type ty1 ty2 =
+          Types.eq_type ty1 ty2
+          ||
+          match get_desc ty1, get_desc ty2 with
+          | Tarrow (ad1, arg1, res1, _), Tarrow (ad2, arg2, res2, _) ->
+            ad1 = ad2 && hacky_eq_type arg1 arg2 && hacky_eq_type res1 res2
+          | Ttuple ltys1, Ttuple ltys2
+          | Tunboxed_tuple ltys1, Tunboxed_tuple ltys2 ->
+            List.compare_lengths ltys1 ltys2 = 0
+            && List.for_all2
+                 (fun (l1, ty1) (l2, ty2) -> l1 = l2 && hacky_eq_type ty1 ty2)
+                 ltys1 ltys2
+          | Tconstr (p1, args1, _), Tconstr (p2, args2, _) ->
+            Path.same p1 p2 && List.for_all2 hacky_eq_type args1 args2
+          | Tobject _, Tobject _ -> false (* too hard *)
+          | Tpoly (ty1, []), Tpoly (ty2, []) -> hacky_eq_type ty1 ty2
+          | Tpoly (_, _ :: _), _ | _, Tpoly (_, _ :: _) -> false (* too hard *)
+          | Tvariant _, Tvariant _ -> false (* too hard *)
+          | Tpackage _, Tpackage _ -> false (* too hard *)
+          | Tvar _, Tvar _ -> false (* should have been caught by [eq_type] *)
+          | Tunivar _, Tunivar _ -> false (* actually shouldn't happen *)
+          | Tof_kind k1, Tof_kind k2 ->
+            equal
+              (Layout.equate_or_equal ~allow_mutation:false)
+              k1.jkind k2.jkind
+          | (Tlink _ | Tsubst _), _ | _, (Tlink _ | Tsubst _) -> assert false
+          | (Tfield _ | Tnil), _ | _, (Tfield _ | Tnil) ->
+            false (* shouldn't happen *)
+          | ( ( Tarrow _ | Ttuple _ | Tunboxed_tuple _ | Tconstr _ | Tobject _
+              | Tpoly _ | Tvariant _ | Tvar _ | Tunivar _ | Tpackage _
+              | Tof_kind _ ),
+              _ ) ->
+            false
+
         let rec check
             ({ tuple_fuel; constr; seen_row_var; fuel_status = _ } as t) ty =
           match Types.get_desc ty with
@@ -973,11 +1007,14 @@ module Layout_and_axes = struct
                   constr = Path.Map.add p (initial_fuel_per_ty, args) constr
                 }
             | Some (fuel, seen_args) ->
-              if List.for_all2
-                   (fun ty1 ty2 ->
-                     TransientTypeOps.equal (Transient_expr.repr ty1)
-                       (Transient_expr.repr ty2))
-                   seen_args args
+              if List.length seen_args <> List.length args
+              then
+                Format.printf "@[<v 2>RAE WTF:@ %a@ %a@ %a@]\n" Path.print p
+                  (Format.pp_print_list !raw_type_expr)
+                  seen_args
+                  (Format.pp_print_list !raw_type_expr)
+                  args;
+              if List.for_all2 hacky_eq_type seen_args args
               then Skip
               else if fuel > 0
               then
