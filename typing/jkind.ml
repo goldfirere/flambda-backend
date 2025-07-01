@@ -897,47 +897,57 @@ module Layout_and_axes = struct
              (Axis_set.complement skip_axes) ->
       { t with with_bounds = No_with_bounds }, Sufficient_fuel
     | _ ->
-      (* Sadly, it seems hard (impossible?) to be sure to expand all types
-         here without using a fuel parameter to stop infinite regress. Here
-         is a nasty case:
+      let module Canonical_type = struct
+        type t =
+          | Concrete of
+              { mod_bounds : Mod_bounds.t;
+                with_bounds : (t * With_bounds_type_info.t) list
+              }
+          | Abstract of
+              { path : Path.t;
+                args : t list
+              }
+          | Var of type_expr
 
-         {[
-           type zero
-           type 'n succ
+        let rec mk ty =
+          let concrete_of_kind_desc { mod_bounds; with_bounds; _ } =
+            let with_bounds = match with_bounds with
+              | No_with_bounds -> []
+              | With_bounds with_bounds_types ->
+                with_bounds_types |>
+                With_bounds_types.to_seq |>
+                Seq.map (fun (ty, ti) -> mk ty, ti) |>
+                List.of_seq
+            in
+            Concrete { mod_bounds; with_bounds }
+          in
+          match jkind_of_type ty with
+          | None -> top
+          | Some { quality = Best; jkind; _ } ->
+            concrete_of_jkind_desc jkind
+          | Some { quality = Not_best; _ } -> begin
+              let rec mk_abstract ty = match get_desc ty with
+                Tvar _ -> Var ty
+              | Tconstr (path, args, _) ->
+                (* CR layouts v2.8: this might be an abbreviation of an abstract
+                   type. It would be nice to expand. But we can't easily do that
+                   here. I hope after some refactoring it will be easier. It's
+                   OK, though; it just means we have more abstract types than
+                   we'd like. *)
+                let args = List.map mk args in
+                Abstract { path; args }
+              | Tpoly (ty, _) -> mk_abstract ty
+              | Tunivar { jkind = { jkind; _}; _ } ->
+                (* Yes, I know we're in [mk_abstract], but if we hit this case,
+                   it's a locally quantified univar, and we're never going to
+                   learn more about it *)
+                concrete_of_jkind_desc jkind
 
-           type 'n loopy = Mk of 'n succ loopy list [@@unboxed]
-         ]}
-
-         First off: this type *is* inhabited, because of the [list] intervening
-         type (which can be empty). It's also inhabited by various circular
-         structures.
-
-         But what's the jkind of ['n loopy]? It must be the jkind of
-         ['n succ loopy list], which is [immutable_data with 'n succ loopy].
-         In order to see if we shouldn't mode-cross, we have to expand the
-         ['n succ loopy] in the jkind, but expanding that just yields the need
-         to expand ['n succ succ loopy], and around we go.
-
-         It seems hard to avoid this problem. And so we use fuel. Yet we want
-         both a small amount of fuel (a type like [type t = K of (t * t) list]
-         gets big very quickly) and a lot of fuel (we can imagine using a unit
-         of fuel for each level of a deeply nested record structure). The
-         compromise is to track fuel per type head, where a type head is either
-         the path to a type constructor (like [t] or [loopy]) or a tuple.
-         (We need to include tuples because of the possibility of recursive
-         types and the fact that tuples track their element types in their
-         jkind's with_bounds.)
-
-         The initial fuel per type head is 10, as it seems hard to imagine that
-         we're going to make meaningful progress if we've seen the same type
-         head 10 times in one line of recursive descent. (This "one line of
-         recursive descent" bit is why we recur separately down one type before
-         iterating down the list.)
-      *)
-      (* CR reisenberg: document seen_args *)
+      end in
+      (* CR reisenberg: document *)
       let module Loop_control = struct
         type t =
-          { tuple_fuel : int;
+          { constr : Path.Map.t;
             constr : (int * type_expr list) Path.Map.t;
             seen_row_var : Numbers.Int.Set.t;
             fuel_status : Fuel_status.t
