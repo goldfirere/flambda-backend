@@ -2936,3 +2936,68 @@ Error: This function application uses an expression with type "'a"
        (Functions always have kind "value mod aliased immutable non_float".)
        Hint: Perhaps you have over-applied the function or used an incorrect label.
 |}]
+
+(************************************************)
+(* Test 48: [@@unboxed] types with [any] fields *)
+
+type t1 = { x : t_any } [@@unboxed]
+
+[%%expect]
+
+type t2 = K2 of t_any [@@unboxed]
+
+[%%expect]
+
+type t3 = K3 of { x : t_any } [@@unboxed]
+
+[%%expect]
+
+type t4 = K4 : t_any -> t4 [@@unboxed]
+
+[%%expect]
+
+type t5 = K5 : { x : t_any } -> t5 [@@unboxed]
+
+[%%expect]
+
+type ('a : any) t1 : any = { x : 'a } [@@unboxed]
+type ('a : any) t2 : any = K2 of 'a [@@unboxed]
+type ('a : any) t3 : any = K3 of { x : t_any } [@@unboxed]
+type ('a : any) t4 : any = K4 : ('a : any). 'a -> 'a t4 [@@unboxed]
+type ('a : any) t5 : any = K5 : ('a : any). { x : 'a } -> 'a t5 [@@unboxed]
+
+[%%expect]
+
+type ('a : any) t1 = { x : 'a } [@@unboxed]
+type ('a : any) t2 = K2 of 'a [@@unboxed]
+type ('a : any) t3 = K3 of { x : t_any } [@@unboxed]
+type ('a : any) t4 = K4 : ('a : any). 'a -> 'a t4 [@@unboxed]
+type ('a : any) t5 = K5 : ('a : any). { x : 'a } -> 'a t5 [@@unboxed]
+
+[%%expect]
+
+let extract (x : (_ : value)) = x.x
+let extract (x : (_ : float64)) = x.x
+let extract (x : (_ : value)) = match x with K2 y -> y
+let extract (x : (_ : float64)) = match x with K2 y -> y
+let extract (x : (_ : value)) = match x with K3 y -> y
+let extract (x : (_ : float64)) = match x with K3 y -> y
+let extract (x : (_ : value)) = match x with K4 y -> y
+let extract (x : (_ : float64)) = match x with K4 y -> y
+let extract (x : (_ : value)) = match x with K5 y -> y
+let extract (x : (_ : float64)) = match x with K5 y -> y
+
+[%%expect]
+
+let inject (x : (_ : value)) = { x }
+let inject (x : (_ : float64)) = { x }
+let inject (x : (_ : value)) = K2 x
+let inject (x : (_ : float64)) = K2 x
+let inject (x : (_ : value)) = K3 x
+let inject (x : (_ : float64)) = K3 x
+let inject (x : (_ : value)) = K4 x
+let inject (x : (_ : float64)) = K4 x
+let inject (x : (_ : value)) = K5 x
+let inject (x : (_ : float64)) = K5 x
+
+[%%expect]

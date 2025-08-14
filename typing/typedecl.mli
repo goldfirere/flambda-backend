@@ -71,13 +71,14 @@ type native_repr_kind = Unboxed | Untagged
 
 (* Records reason for a jkind representability requirement in errors. *)
 type jkind_sort_loc =
-  | Cstr_tuple of { unboxed : bool }
-  | Record of { unboxed : bool }
+  | Cstr_boxed_tuple
+  | Boxed_record
   | Record_unboxed_product
-  | Inlined_record of { unboxed : bool }
+  | Inlined_boxed_record
   | Mixed_product
   | External
   | External_with_layout_poly
+  | Unrepresentable_ok (* currently, only for [@@unboxed] types *)
 
 type reaching_type_path = reaching_type_step list
 and reaching_type_step =

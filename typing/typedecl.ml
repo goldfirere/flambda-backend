@@ -27,13 +27,14 @@ module String = Misc.Stdlib.String
 type native_repr_kind = Unboxed | Untagged
 
 type jkind_sort_loc =
-  | Cstr_tuple of { unboxed : bool }
-  | Record of { unboxed : bool }
+  | Cstr_boxed_tuple
+  | Boxed_record
   | Record_unboxed_product
-  | Inlined_record of { unboxed : bool }
+  | Inlined_boxed_record
   | Mixed_product
   | External
   | External_with_layout_poly
+  | Unrepresentable_ok
 
 (* Our static analyses explore the set of type expressions "reachable"
    from a type declaration, by expansion of definitions or by the
@@ -457,14 +458,18 @@ let set_private_row env loc p decl =
   in
   set_type_desc rv (Tconstr (p, decl.type_params, ref Mnil))
 
-(* Makes sure a type is representable. When called with a type variable, will
-   lower [any] to a sort variable if [allow_unboxed = true], and to [value]
+(* Makes sure a type is representable, unless the [jkind_sort_loc] passed in
+   (called [kloc]) is [Unrepresentable_ok]. When called with a type variable,
+   will lower [any] to a sort variable if [allow_unboxed = true], and to [value]
    if [allow_unboxed = false]. *)
 (* CR layouts: Many places where [check_representable] is called in this file
    should be replaced with checks at the places where values of those types are
    constructed.  We've been conservative here in the first version. This is the
    same issue as with arrows. *)
 let check_representable ~why env loc kloc typ =
+  match kloc with
+  | Unrepresentable_ok -> ()
+  | _ ->
   match Ctype.type_sort ~why ~fixed:false env typ with
   | Ok _ -> ()
   | Error err -> raise (Error (loc,Jkind_sort {kloc; typ; err}))
@@ -562,13 +567,15 @@ let transl_constructor_arguments ~new_var_jkind ~unboxed
   | Pcstr_tuple l ->
       let flds, flds' =
         transl_types_gf ~new_var_jkind
-          env loc univars closed l (Cstr_tuple { unboxed })
+          env loc univars closed l
+          (if unboxed then Unrepresentable_ok else Cstr_boxed_tuple)
       in
       Types.Cstr_tuple flds', Cstr_tuple flds
   | Pcstr_record l ->
       let lbls, lbls' =
         transl_labels ~record_form:Legacy ~new_var_jkind
-          env univars closed l (Inlined_record { unboxed })
+          env univars closed l
+          (if unboxed then Unrepresentable_ok else Inlined_boxed_record)
       in
       Types.Cstr_record lbls',
       Cstr_record lbls
@@ -1003,7 +1010,8 @@ let transl_declaration env sdecl (id, uid) =
       | Ptype_record lbls ->
           let lbls, lbls' =
             transl_labels ~record_form:Legacy ~new_var_jkind:Any
-              env None true lbls (Record { unboxed = unbox })
+              env None true lbls
+              (if unbox then Unrepresentable_ok else Boxed_record)
           in
           let rep, jkind =
             if unbox then
@@ -1868,11 +1876,7 @@ let rec update_decl_jkind env dpath decl =
         Ctype.type_jkind env ld_type |>
         Jkind.apply_modality_l lbl.ld_modalities
       in
-      (* This next line is guaranteed to be OK because of a call to
-         [check_representable] *)
-      let sort = Jkind.sort_of_jkind jkind in
-      let ld_sort = Jkind.Sort.default_to_value_and_get sort in
-      [{lbl with ld_sort}], Record_unboxed, jkind
+      [lbl], Record_unboxed, jkind
     | _, Record_boxed sorts ->
       let lbls, _all_void, jkinds =
         update_label_sorts env loc lbls (Some sorts)
@@ -4650,19 +4654,19 @@ let report_error ppf = function
     let s =
       match kloc with
       | Mixed_product -> "Structures with non-value elements"
-      | Cstr_tuple _ -> "Constructor argument types"
-      | Inlined_record { unboxed = false }
-      | Record { unboxed = false } -> "Record element types"
-      | Inlined_record { unboxed = true }
-      | Record { unboxed = true } -> "[@@unboxed] record element types"
+      | Cstr_boxed_tuple -> "Constructor argument types"
+      | Inlined_boxed_record
+      | Boxed_record -> "Record element types"
       | Record_unboxed_product -> "Unboxed record element types"
       | External -> "Types in an external"
       | External_with_layout_poly -> "Types in an external"
+      | Unrepresentable_ok ->
+        Misc.fatal_error "Representation check for Unrepresentable_ok"
     in
     let extra =
       match kloc with
-      | Mixed_product | Cstr_tuple _ | Record _ | Inlined_record _ | External
-      | Record_unboxed_product -> dprintf ""
+      | Mixed_product | Cstr_boxed_tuple | Boxed_record | Inlined_boxed_record | External
+      | Record_unboxed_product | Unrepresentable_ok -> dprintf ""
       | External_with_layout_poly -> dprintf
         "@ (locally-scoped type variables with layout 'any' are@ \
           made representable by %a)"
@@ -4683,14 +4687,11 @@ let report_error ppf = function
     let struct_desc =
       match lloc with
       | Mixed_product -> "Structures with non-value elements"
-      | Inlined_record { unboxed = false } -> "Inlined records"
-      | Inlined_record { unboxed = true } -> "[@@unboxed] inlined records"
-      | Record { unboxed = false } -> "Records"
-      | Record { unboxed = true }-> "[@@unboxed] records"
+      | Inlined_boxed_record -> "Inlined records"
+      | Boxed_record -> "Records"
       | Record_unboxed_product -> "Unboxed records"
-      | Cstr_tuple { unboxed = false } -> "Variants"
-      | Cstr_tuple { unboxed = true } -> "Unboxed variants"
-      | External | External_with_layout_poly -> assert false
+      | Cstr_boxed_tuple -> "Variants"
+      | External | External_with_layout_poly | Unrepresentable_ok -> assert false
     in
     fprintf ppf
       "@[Type %a has layout %a.@ %s may not yet contain types of this layout.@]"
